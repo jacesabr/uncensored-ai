@@ -1,0 +1,38 @@
+version: "3.8"
+
+services:
+  # ─── MongoDB ──────────────────────────────────────────────
+  mongo:
+    image: mongo:7
+    restart: always
+    volumes:
+      - mongo-data:/data/db
+    ports:
+      - "27017:27017"
+
+  # ─── Backend API ──────────────────────────────────────────
+  server:
+    build: ./server
+    restart: always
+    ports:
+      - "5000:5000"
+    environment:
+      - MONGO_URI=mongodb://mongo:27017/uncensored-ai
+      - JWT_SECRET=${JWT_SECRET:-change-this-secret}
+      - OLLAMA_URL=http://host.docker.internal:11434
+      - COMFYUI_URL=http://host.docker.internal:8188
+      - CHAT_MODEL=dolphin-llama3
+    depends_on:
+      - mongo
+
+  # ─── Frontend ─────────────────────────────────────────────
+  client:
+    build: ./client
+    restart: always
+    ports:
+      - "3000:80"
+    depends_on:
+      - server
+
+volumes:
+  mongo-data:
