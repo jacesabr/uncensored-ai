@@ -223,7 +223,20 @@ function MessageBubble({ msg, character }) {
       }>
         {!isUser && <span style={{ display:"inline-block",color:T.textDim,fontSize:12,fontWeight:500,marginBottom:4 }}>{character?character.name:"AI"}</span>}
         <div style={{ fontSize:14.5,lineHeight:1.7,whiteSpace:"pre-wrap" }}>{msg.content}</div>
-        {msg.imageUrl && <img src={msg.imageUrl} alt="Generated" style={{ maxWidth:"100%",borderRadius:12,marginTop:10,cursor:"pointer" }} onClick={()=>window.open(msg.imageUrl,"_blank")} />}
+        {msg.imageUrl && (
+          <div style={{display:"flex",gap:"12px",marginTop:"10px",flexWrap:"wrap"}}>
+            {msg.baseImageUrl && (
+              <div style={{flex:"1",minWidth:"200px"}}>
+                <div style={{fontSize:"11px",color:T.textDim,marginBottom:"4px",fontWeight:600}}>Pony V6 (Base)</div>
+                <img src={msg.baseImageUrl} alt="Base" style={{width:"100%",borderRadius:12,cursor:"pointer",border:`1px solid ${T.border}`}} onClick={()=>window.open(msg.baseImageUrl,"_blank")} />
+              </div>
+            )}
+            <div style={{flex:"1",minWidth:"200px"}}>
+              <div style={{fontSize:"11px",color:T.textDim,marginBottom:"4px",fontWeight:600}}>{msg.baseImageUrl?"RealVisXL (Refined)":"Generated"}</div>
+              <img src={msg.imageUrl} alt="Generated" style={{width:"100%",borderRadius:12,cursor:"pointer",border:`1px solid ${T.border}`}} onClick={()=>window.open(msg.imageUrl,"_blank")} />
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -300,7 +313,7 @@ export default function App() {
         const parts=buffer.split("\n");buffer=parts.pop()||"";
         const lines=parts.filter(l=>l.startsWith("data: "));
         for(const line of lines){try{const json=JSON.parse(line.slice(6));
-          if(json.image){setMessages(p=>[...p,{role:"assistant",content:json.token||"Here's what I generated:",imageUrl:json.image,timestamp:new Date()}]);setStreamText("");full=""}
+          if(json.image){setMessages(p=>[...p,{role:"assistant",content:json.token||"Here's what I generated:",imageUrl:json.image,baseImageUrl:json.baseImage||null,timestamp:new Date()}]);setStreamText("");full=""}
           else if(json.token){full+=json.token;setStreamText(full)}
           else if(json.done){if(full.trim()){setMessages(p=>[...p,{role:"assistant",content:full,timestamp:new Date()}]);setConversations(p=>p.map(c=>c.conversationId===cid?{...c,title:`${activeCharacter.avatar} ${full.substring(0,40)}${full.length>40?"...":""}`,updatedAt:new Date()}:c))}setStreamText("")}
           if(json.error){setMessages(p=>[...p,{role:"assistant",content:`⚠️ Error: ${json.error}`}]);setStreamText("")}

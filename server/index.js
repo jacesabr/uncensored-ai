@@ -35,6 +35,7 @@ const MessageSchema = new mongoose.Schema({
   role: { type: String, enum: ["user", "assistant", "system"], required: true },
   content: { type: String, required: true },
   imageUrl: { type: String },
+  baseImageUrl: { type: String },
   timestamp: { type: Date, default: Date.now },
 });
 const ConversationSchema = new mongoose.Schema({
@@ -155,12 +156,13 @@ app.post("/api/chat", auth, async (req, res) => {
       const data = await imgRes.json();
 
       if (data.image) {
-        const imageUrl = `data:image/png;base64,${data.image}`;
+        const imageUrl = `data:image/png;base64,${data.refined_image || data.image}`;
+        const baseImageUrl = data.base_image ? `data:image/png;base64,${data.base_image}` : null;
         const content = `Here's what I generated for: "${prompt}"`;
-        await Message.create({ conversationId, role: "assistant", content, imageUrl });
+        await Message.create({ conversationId, role: "assistant", content, imageUrl, baseImageUrl });
         Conversation.updateOne({ conversationId }, { updatedAt: new Date(), title: `🎨 ${prompt.substring(0, 40)}...` }).exec();
         res.write(`data: ${JSON.stringify({ token: "" })}\n\n`);
-        res.write(`data: ${JSON.stringify({ image: imageUrl })}\n\n`);
+        res.write(`data: ${JSON.stringify({ image: imageUrl, baseImage: baseImageUrl })}\n\n`);
         res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
       } else {
         res.write(`data: ${JSON.stringify({ token: "\n\n⚠️ Image generation failed: " + (data.error || "unknown error"), done: true })}\n\n`);
@@ -253,7 +255,7 @@ app.post("/api/generate-image", auth, async (req, res) => {
       }),
     });
     const data = await imgRes.json();
-    if (data.image) res.json({ image: `data:image/png;base64,${data.image}`, prompt });
+    if (data.image) res.json({ image: `data:image/png;base64,${data.refined_image || data.image}`, baseImage: data.base_image ? `data:image/png;base64,${data.base_image}` : null, prompt });
     else res.status(500).json({ error: data.error || "Image generation failed" });
   } catch (err) {
     res.status(500).json({ error: `Failed to connect to Colab image server. Is the notebook running?` });
