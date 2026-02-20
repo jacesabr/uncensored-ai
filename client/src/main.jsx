@@ -5,13 +5,13 @@ import App from "./App";
 const style = document.createElement("style");
 style.textContent = `
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { background: #FBF8F4; overflow: hidden; }
+  body { background: #0D0D0D; overflow: hidden; color: #E8E0D8; }
   @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
   ::-webkit-scrollbar { width: 6px; }
   ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: #E0D8CE; border-radius: 3px; }
-  ::-webkit-scrollbar-thumb:hover { background: #D0C8BE; }
-  textarea::placeholder, input::placeholder { color: #A8A29E; }
+  ::-webkit-scrollbar-thumb { background: #333333; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #3D3D3D; }
+  textarea::placeholder, input::placeholder { color: #6B6560; }
 `;
 document.head.appendChild(style);
 

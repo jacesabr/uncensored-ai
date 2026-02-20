@@ -32,6 +32,7 @@ const MessageSchema = new mongoose.Schema({
   imageUrl: { type: String },
   ponyImageUrl: { type: String },
   realvisImageUrl: { type: String },
+  videoUrl: { type: String },
   timestamp: { type: Date, default: Date.now },
 });
 const ConversationSchema = new mongoose.Schema({
@@ -112,7 +113,55 @@ function extractImagePrompt(msg) {
   return prompt;
 }
 
-// ─── Chat (SSE streaming, with auto image detection) ─────────────
+// ─── Video request detection ─────────────────────────────────────
+const VIDEO_KEYWORDS = [
+  "video of", "video showing", "make a video", "generate a video",
+  "create a video", "animate", "animation of", "moving", "clip of",
+  "record", "film", "footage", "motion", "make a clip",
+  "generate video", "create video", "show me a video",
+  "video with", "short video", "video clip",
+];
+
+function isVideoRequest(msg) {
+  const lower = msg.toLowerCase();
+  return VIDEO_KEYWORDS.some(k => lower.includes(k));
+}
+
+function extractVideoPrompt(msg) {
+  let prompt = msg
+    .replace(/^(please|can you|could you|hey|ok|okay|now)\s*/i, "")
+    .replace(/^(show me|generate|create|make|send me|give me)\s*(a|an|the|some)?\s*(short|quick|brief|little)?\s*(video|animation|clip|footage|film)?\s*(of|showing|with|depicting|where)?\s*/i, "")
+    .replace(/^(i want to see|let me see|can you show me)\s*(a|an|the)?\s*(video|animation|clip)?\s*(of)?\s*/i, "")
+    .replace(/^(animate|film|record)\s*(a|an|the|some|me)?\s*/i, "")
+    .trim();
+  if (prompt.length < 5) prompt = msg;
+  return prompt;
+}
+
+// ─── Smart aspect ratio selection ────────────────────────────────
+// SDXL native res is 1024x1024. These are all SDXL-optimal bucket sizes
+// that stay within T4 VRAM limits (~10-12GB free after chat model).
+function chooseImageDimensions(prompt) {
+  const lower = prompt.toLowerCase();
+
+  // Multi-subject indicators → landscape to fit everyone in frame
+  const multiSubject = /(and|with|together|couple|group|family|friends|two|three|four|both|them|people|crowd|husband|wife|boyfriend|girlfriend|pair|duo|side by side|holding hands|facing each other|next to|between)/i;
+  // Scene/environment indicators → landscape
+  const sceneWords = /(landscape|panorama|cityscape|skyline|beach|forest|room|kitchen|bar|cafe|restaurant|street|park|garden|battlefield|stadium|wide shot|establishing shot|full body|full scene)/i;
+  // Portrait/closeup indicators → tall
+  const portraitWords = /(portrait|headshot|close.?up|face|selfie|bust|mugshot|solo|alone|single person)/i;
+
+  if (portraitWords.test(lower)) {
+    return { width: 832, height: 1216 };   // portrait — SDXL optimal bucket
+  }
+  if (multiSubject.test(lower) || sceneWords.test(lower)) {
+    return { width: 1216, height: 832 };   // landscape — SDXL optimal bucket
+  }
+  // Default: SDXL native square
+  return { width: 1024, height: 1024 };
+}
+
+// ─── Chat (SSE streaming, with auto image/video detection) ───────
 app.post("/api/chat", auth, async (req, res) => {
   const { conversationId, message, systemPrompt } = req.body;
   await Message.create({ conversationId, role: "user", content: message });
@@ -121,10 +170,61 @@ app.post("/api/chat", auth, async (req, res) => {
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
 
-  // ── Check if user wants an image ──
-  if (isImageRequest(message)) {
-    const prompt = extractImagePrompt(message);
+  // ── Check for explicit generation mode tags (from UI buttons) ──
+  const isExplicitImage = message.startsWith("[IMAGE] ");
+  const isExplicitVideo = message.startsWith("[VIDEO] ");
+  const cleanMessage = message.replace(/^\[(IMAGE|VIDEO)\]\s*/, "");
+
+  // ── Check if user wants a VIDEO ──
+  if (isExplicitVideo || (!isExplicitImage && isVideoRequest(message))) {
+    const prompt = isExplicitVideo ? cleanMessage : extractVideoPrompt(message);
+    console.log(`[VIDEO-AUTO] Detected video request, prompt: "${prompt}"`);
+
+    res.write(`data: ${JSON.stringify({ token: "🎬 Generating video with Wan 1.3B... This may take 2-5 minutes." })}\n\n`);
+
+    try {
+      const vidRes = await fetch(`${COLAB_URL}/generate-video`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        timeout: 600000, // 10 min timeout for video gen
+        body: JSON.stringify({
+          prompt,
+          negative_prompt: "ugly, blurry, low quality, deformed, disfigured, static, still image, watermark, text",
+          num_frames: 16,
+          width: 512,
+          height: 320,
+          num_inference_steps: 25,
+          guidance_scale: 5.0,
+        }),
+      });
+      const data = await vidRes.json();
+
+      if (data.video) {
+        const videoUrl = `data:video/mp4;base64,${data.video}`;
+        const content = `Here's the video I generated for: "${prompt}" (${data.resolution}, ${data.frames} frames, ${data.elapsed?.toFixed(1)}s)`;
+        await Message.create({ conversationId, role: "assistant", content, videoUrl });
+        Conversation.updateOne({ conversationId }, { updatedAt: new Date(), title: `🎬 ${prompt.substring(0, 40)}...` }).exec();
+        res.write(`data: ${JSON.stringify({ token: "" })}\n\n`);
+        res.write(`data: ${JSON.stringify({ video: videoUrl })}\n\n`);
+        res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+      } else {
+        res.write(`data: ${JSON.stringify({ token: "\n\n⚠️ Video generation failed: " + (data.error || "unknown error"), done: true })}\n\n`);
+      }
+    } catch (err) {
+      console.error("[VIDEO-AUTO] Error:", err.message);
+      res.write(`data: ${JSON.stringify({ token: "\n\n⚠️ Could not reach video server. Is Colab running?", done: true })}\n\n`);
+    }
+    return res.end();
+  }
+
+  // ── Check if user wants an IMAGE ──
+  if (isExplicitImage || isImageRequest(message)) {
+    const prompt = isExplicitImage ? cleanMessage : extractImagePrompt(message);
     console.log(`[IMAGE-AUTO] Detected image request, prompt: "${prompt}"`);
+
+    // Smart aspect ratio: landscape for multi-subject/scene, portrait for single subject
+    const { width, height } = chooseImageDimensions(prompt);
+    console.log(`[IMAGE-AUTO] Dimensions: ${width}x${height}`);
 
     res.write(`data: ${JSON.stringify({ token: "🎨 Generating images from both models..." })}\n\n`);
 
@@ -135,7 +235,7 @@ app.post("/api/chat", auth, async (req, res) => {
         body: JSON.stringify({
           prompt,
           negative_prompt: "ugly, blurry, low quality, deformed, disfigured, anime, cartoon, illustration, drawing, 3d render, cgi, furry, animal ears, tail",
-          width: 512, height: 768,
+          width, height,
         }),
       });
       const data = await imgRes.json();
@@ -222,13 +322,21 @@ app.post("/api/chat", auth, async (req, res) => {
 
 // ─── Health ───────────────────────────────────────────────────────
 app.get("/api/health", async (req, res) => {
-  let llm = false, img = false;
+  let llm = false, img = false, vid = false;
   try { const r = await fetch(`${COLAB_URL}/v1/models`, { timeout: 5000 }); llm = r.ok; } catch {}
-  try { const r = await fetch(`${COLAB_URL}/health`, { timeout: 5000 }); img = r.ok; } catch {}
-  res.json({ ollama: llm, comfyui: img, model: CHAT_MODEL, backend: "colab" });
+  try {
+    const r = await fetch(`${COLAB_URL}/health`, { timeout: 5000 });
+    if (r.ok) {
+      const data = await r.json();
+      img = true;
+      vid = !!data.video;
+    }
+  } catch {}
+  res.json({ ollama: llm, comfyui: img, video: vid, model: CHAT_MODEL, backend: "colab" });
 });
 
 app.listen(PORT, () => {
   console.log(`\n⚡ UNLEASHED AI — port ${PORT}`);
-  console.log(`   Colab: ${COLAB_URL}\n`);
+  console.log(`   Colab: ${COLAB_URL}`);
+  console.log(`   Features: Chat + Images + Video\n`);
 });
