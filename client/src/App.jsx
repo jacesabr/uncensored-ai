@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useRef } from "react";
 const API = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
 // ─── Dark Romantic Gothic Theme ─────────────────────────────────
@@ -117,84 +117,54 @@ function MorriganCharacter({ mood = "neutral", speaking = false, size = 320 }) {
         </filter>
       </defs>
 
-      {/* Background atmosphere */}
       <rect width="300" height="450" fill="transparent" />
 
-      {/* Body / Shirt - oversized band tee */}
       <g transform={`translate(0, ${breathe * 0.5})`}>
-        {/* Shoulders and shirt */}
         <path d={`M 90 280 Q 85 260 95 240 Q 110 220 150 ${215 + breathe} Q 190 220 205 240 Q 215 260 210 280 L 220 380 Q 220 420 200 440 L 100 440 Q 80 420 80 380 Z`}
           fill="url(#shirtGrad)" stroke="#222" strokeWidth="0.5" />
-
-        {/* Shirt neckline - wide/slouchy showing collarbone */}
         <path d={`M 108 235 Q 120 228 150 ${225 + breathe} Q 180 228 192 235`}
           fill="none" stroke="#333" strokeWidth="1.5" />
-
-        {/* Exposed collarbone/skin above neckline */}
         <path d={`M 108 235 Q 115 230 130 228 Q 150 ${224 + breathe} Q 170 228 185 230 Q 192 235 192 235 Q 185 240 150 ${238 + breathe} Q 115 240 108 235`}
           fill="url(#skinGrad)" />
-
-        {/* Collarbone lines */}
         <line x1="115" y1="232" x2="140" y2={`${229 + breathe * 0.3}`} stroke="#D4C0B0" strokeWidth="0.5" opacity="0.5" />
         <line x1="185" y1="232" x2="160" y2={`${229 + breathe * 0.3}`} stroke="#D4C0B0" strokeWidth="0.5" opacity="0.5" />
-
-        {/* Tattoo on right collarbone - dead roses */}
         <g opacity="0.6" transform="translate(165, 228)">
           <path d="M 0 0 Q 3 -3 6 -1 Q 8 1 6 3 Q 3 5 0 3 Z" fill="#3A1520" />
           <path d="M 6 -1 Q 9 -4 12 -2 Q 14 0 12 2 Q 9 4 6 3" fill="#2A1020" />
           <line x1="3" y1="3" x2="2" y2="8" stroke="#2A3A20" strokeWidth="0.5" />
           <line x1="9" y1="2" x2="10" y2="7" stroke="#2A3A20" strokeWidth="0.5" />
         </g>
-
-        {/* Joy Division "Unknown Pleasures" print on shirt */}
         <g transform="translate(120, 300)" opacity="0.3">
           {[0,1,2,3,4,5,6].map(i => (
             <path key={i} d={`M 0 ${i*5} Q 15 ${i*5 - (i===3?8:i===2||i===4?5:2)} 30 ${i*5 - (i===3?12:i===2||i===4?7:3)} Q 45 ${i*5 - (i===3?8:i===2||i===4?5:2)} 60 ${i*5}`}
               fill="none" stroke="#666" strokeWidth="0.8" />
           ))}
         </g>
-
-        {/* Bust area - subtle shape under oversized shirt */}
         <path d={`M 115 250 Q 120 260 135 ${268 + breathe} Q 150 272 165 ${268 + breathe} Q 180 260 185 250`}
           fill="none" stroke="#1F1F1F" strokeWidth="0.5" opacity="0.4" />
       </g>
 
-      {/* Neck */}
       <g transform={`translate(0, ${breathe * 0.3})`}>
         <path d={`M 135 210 L 135 195 Q 135 190 140 188 L 160 188 Q 165 190 165 195 L 165 210`}
           fill="url(#skinGrad)" />
-        {/* Choker necklace */}
         <rect x="133" y="200" width="34" height="5" rx="2" fill="#1A1A1A" />
         <circle cx="150" cy="202.5" r="2.5" fill="#666" />
       </g>
 
-      {/* Head */}
       <g transform={`translate(0, ${breathe * 0.2})`}>
-        {/* Face shape */}
         <ellipse cx="150" cy="150" rx="52" ry="62" fill="url(#skinGrad)" filter="url(#softShadow)" />
-
-        {/* Dark circles under eyes - she hasn't slept */}
         <ellipse cx="130" cy="155" rx="12" ry="4" fill="rgba(80,50,70,0.15)" />
         <ellipse cx="170" cy="155" rx="12" ry="4" fill="rgba(80,50,70,0.15)" />
-
-        {/* Eyes - heavy eyeliner, smudged */}
         <g>
-          {/* Left eye */}
           <g transform={`translate(130, ${148 + m.browTilt * 0.3})`}>
-            {/* Eyeliner - thick, slightly smudged */}
             <ellipse cx="0" cy="0" rx="11" ry={`${6 * eyeOpenness}`} fill="#0A0505" />
             <ellipse cx="0" cy="0" rx="10" ry={`${5.5 * eyeOpenness}`} fill="white" />
-            {/* Iris */}
             <ellipse cx="0" cy="0" rx="5" ry={`${5 * eyeOpenness}`} fill={m.eye} />
             <ellipse cx="0" cy="0" rx="3" ry={`${3 * eyeOpenness}`} fill="#0A0505" />
-            {/* Highlight */}
             {eyeOpenness > 0.5 && <circle cx="-2" cy="-2" r="1.5" fill="white" opacity="0.8" />}
-            {/* Smudged liner underneath */}
             <ellipse cx="0" cy={`${4 * eyeOpenness}`} rx="9" ry="2" fill="rgba(20,10,15,0.3)" />
-            {/* Wing */}
             <line x1="9" y1="-2" x2="14" y2={`${-5 + m.browTilt * 0.5}`} stroke="#0A0505" strokeWidth="1.5" strokeLinecap="round" />
           </g>
-          {/* Right eye */}
           <g transform={`translate(170, ${148 + m.browTilt * 0.3})`}>
             <ellipse cx="0" cy="0" rx="11" ry={`${6 * eyeOpenness}`} fill="#0A0505" />
             <ellipse cx="0" cy="0" rx="10" ry={`${5.5 * eyeOpenness}`} fill="white" />
@@ -205,81 +175,48 @@ function MorriganCharacter({ mood = "neutral", speaking = false, size = 320 }) {
             <line x1="-9" y1="-2" x2="-14" y2={`${-5 + m.browTilt * 0.5}`} stroke="#0A0505" strokeWidth="1.5" strokeLinecap="round" />
           </g>
         </g>
-
-        {/* Eyebrows - slightly unkempt, expressive */}
         <path d={`M 118 ${135 - m.browTilt} Q 130 ${130 - m.browTilt * 1.5} 142 ${134 - m.browTilt}`}
           fill="none" stroke="#1A0A10" strokeWidth="2" strokeLinecap="round" />
         <path d={`M 158 ${134 - m.browTilt} Q 170 ${130 - m.browTilt * 1.5} 182 ${135 - m.browTilt}`}
           fill="none" stroke="#1A0A10" strokeWidth="2" strokeLinecap="round" />
-
-        {/* Septum piercing */}
         <circle cx="150" cy="168" r="2.5" fill="none" stroke="#999" strokeWidth="1" />
-
-        {/* Nose */}
         <path d="M 150 145 Q 148 158 145 165 Q 148 168 150 168 Q 152 168 155 165 Q 152 158 150 145"
           fill="none" stroke="#D4B8A8" strokeWidth="0.8" />
-
-        {/* Blush */}
         <ellipse cx="125" cy="162" rx="12" ry="6" fill="url(#blushGrad)" />
         <ellipse cx="175" cy="162" rx="12" ry="6" fill="url(#blushGrad)" />
-
-        {/* Mouth */}
         <g transform="translate(150, 180)">
-          {/* Lips - dark lipstick, slightly worn */}
           <path d={`M -12 0 Q -6 ${-3 + m.mouthCurve * 0.3} 0 ${-2 + m.mouthCurve * 0.5} Q 6 ${-3 + m.mouthCurve * 0.3} 12 0`}
             fill="#4A1525" stroke="#3A0A15" strokeWidth="0.5" />
           <path d={`M -12 0 Q -6 ${3 - m.mouthCurve * 0.2 + mouthOpen} 0 ${4 - m.mouthCurve * 0.3 + mouthOpen} Q 6 ${3 - m.mouthCurve * 0.2 + mouthOpen} 12 0`}
             fill="#3A1020" stroke="#3A0A15" strokeWidth="0.5" />
-          {/* Lip ring - left side */}
           <circle cx="-8" cy="3" r="1.5" fill="none" stroke="#888" strokeWidth="0.8" />
         </g>
-
-        {/* Ear piercings visible on left */}
         <circle cx="98" cy="148" r="1.2" fill="#999" />
         <circle cx="97" cy="142" r="1.2" fill="#999" />
         <circle cx="97" cy="136" r="1" fill="#888" />
-
-        {/* Right ear hoops */}
         <circle cx="202" cy="146" r="3" fill="none" stroke="#999" strokeWidth="0.8" />
         <circle cx="202" cy="138" r="2.5" fill="none" stroke="#888" strokeWidth="0.8" />
-
-        {/* Crescent moon tattoo behind left ear */}
         <path d="M 95 130 Q 90 125 92 120 Q 93 116 97 115" fill="none" stroke="#3A3A50" strokeWidth="1" opacity="0.5" />
-
-        {/* Hair - black with violet streaks, messy/layered */}
         <g transform={`rotate(${hairSway * 0.3}, 150, 100)`}>
-          {/* Main hair mass */}
           <path d="M 90 120 Q 80 80 95 60 Q 110 40 150 35 Q 190 40 205 60 Q 220 80 210 120 Q 215 160 220 200 Q 218 230 210 250 L 205 250 Q 210 220 208 190 Q 205 160 202 130"
             fill="url(#hairGrad)" />
           <path d="M 210 120 Q 200 100 200 80 Q 195 55 150 42 Q 105 55 100 80 Q 100 100 90 120 Q 82 150 80 190 Q 78 220 85 260 L 90 260 Q 88 230 88 200 Q 90 170 95 145"
             fill="url(#hairGrad)" />
-
-          {/* Violet streaks */}
           <path d={`M 100 80 Q 95 110 ${88 + hairSway} 150 Q 85 180 82 210`}
             fill="none" stroke="#4A2060" strokeWidth="3" opacity="0.5" />
           <path d={`M 195 75 Q 200 105 ${208 + hairSway} 140 Q 212 170 215 200`}
             fill="none" stroke="#4A2060" strokeWidth="2.5" opacity="0.4" />
           <path d={`M 110 65 Q 105 95 ${100 + hairSway} 130`}
             fill="none" stroke="#3A1850" strokeWidth="2" opacity="0.3" />
-
-          {/* Bangs - messy, slightly covering one eye */}
-          <path d="M 105 80 Q 115 70 125 85 Q 130 95 120 105 Q 110 110 105 100 Z"
-            fill="#0D0510" />
-          <path d="M 120 75 Q 135 65 145 80 Q 148 92 140 100 Q 130 105 122 95 Z"
-            fill="#100815" />
-          <path d="M 140 70 Q 155 62 165 75 Q 168 85 160 92 Q 150 95 142 88 Z"
-            fill="#0D0510" />
-          <path d="M 158 72 Q 170 68 178 78 Q 180 88 175 92 Q 165 95 160 85 Z"
-            fill="#100815" />
-
-          {/* Stray strands */}
+          <path d="M 105 80 Q 115 70 125 85 Q 130 95 120 105 Q 110 110 105 100 Z" fill="#0D0510" />
+          <path d="M 120 75 Q 135 65 145 80 Q 148 92 140 100 Q 130 105 122 95 Z" fill="#100815" />
+          <path d="M 140 70 Q 155 62 165 75 Q 168 85 160 92 Q 150 95 142 88 Z" fill="#0D0510" />
+          <path d="M 158 72 Q 170 68 178 78 Q 180 88 175 92 Q 165 95 160 85 Z" fill="#100815" />
           <path d={`M 95 130 Q ${85 + hairSway} 160 ${80 + hairSway * 1.5} 200`}
             fill="none" stroke="#1A0A15" strokeWidth="1.5" />
           <path d={`M 205 125 Q ${215 + hairSway} 155 ${220 + hairSway * 1.5} 195`}
             fill="none" stroke="#1A0A15" strokeWidth="1.5" />
         </g>
-
-        {/* Sparkle effect for happy/flirty/excited moods */}
         {m.sparkle && (
           <g filter="url(#glow)">
             <circle cx="105" cy="125" r="1.5" fill="#E8B4C8" opacity="0.7">
@@ -295,22 +232,14 @@ function MorriganCharacter({ mood = "neutral", speaking = false, size = 320 }) {
         )}
       </g>
 
-      {/* Hands/Arms - pulling sleeves over hands (her habit) */}
       <g transform={`translate(0, ${breathe * 0.4})`}>
-        {/* Left arm with sleeve-covered hand */}
         <path d={`M 95 260 Q 75 290 70 330 Q 68 345 72 350`}
           fill="none" stroke="#1A1A1A" strokeWidth="18" strokeLinecap="round" />
-        {/* Fingers peeking from sleeve */}
         <ellipse cx="72" cy="352" rx="6" ry="4" fill="url(#skinGrad)" />
-        {/* Chipped black nail polish visible */}
         <circle cx="69" cy="354" r="1.2" fill="#1A1A1A" />
         <circle cx="72" cy="355" r="1.2" fill="#1A1A2A" />
-
-        {/* Silver rings */}
         <circle cx="70" cy="351" r="2" fill="none" stroke="#AAA" strokeWidth="0.6" />
         <circle cx="74" cy="353" r="1.8" fill="none" stroke="#999" strokeWidth="0.6" />
-
-        {/* Right arm */}
         <path d={`M 205 260 Q 225 290 228 330 Q 230 345 226 350`}
           fill="none" stroke="#1A1A1A" strokeWidth="18" strokeLinecap="round" />
         <ellipse cx="226" cy="352" rx="6" ry="4" fill="url(#skinGrad)" />
@@ -323,20 +252,31 @@ function MorriganCharacter({ mood = "neutral", speaking = false, size = 320 }) {
 }
 
 // ─── Floating Particles Background ──────────────────────────────
+// FIX: Memoize particle data so it doesn't re-randomize on every render
+const PARTICLE_DATA = Array.from({ length: 20 }).map((_, i) => ({
+  width: 2 + Math.random() * 3,
+  height: 2 + Math.random() * 3,
+  background: i % 3 === 0 ? "rgba(155,45,94,0.15)" : i % 3 === 1 ? "rgba(107,63,160,0.1)" : "rgba(139,92,246,0.08)",
+  left: `${Math.random() * 100}%`,
+  top: `${Math.random() * 100}%`,
+  duration: `${8 + Math.random() * 12}s`,
+  delay: `${Math.random() * 5}s`,
+}));
+
 function ParticlesBg() {
   return (
     <div style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 0, overflow: "hidden" }}>
-      {Array.from({ length: 20 }).map((_, i) => (
+      {PARTICLE_DATA.map((p, i) => (
         <div key={i} style={{
           position: "absolute",
-          width: 2 + Math.random() * 3,
-          height: 2 + Math.random() * 3,
+          width: p.width,
+          height: p.height,
           borderRadius: "50%",
-          background: i % 3 === 0 ? "rgba(155,45,94,0.15)" : i % 3 === 1 ? "rgba(107,63,160,0.1)" : "rgba(139,92,246,0.08)",
-          left: `${Math.random() * 100}%`,
-          top: `${Math.random() * 100}%`,
-          animation: `floatParticle ${8 + Math.random() * 12}s ease-in-out infinite`,
-          animationDelay: `${Math.random() * 5}s`,
+          background: p.background,
+          left: p.left,
+          top: p.top,
+          animation: `floatParticle ${p.duration} ease-in-out infinite`,
+          animationDelay: p.delay,
         }} />
       ))}
     </div>
@@ -625,16 +565,13 @@ function WelcomeScreen({ onStart, mood }) {
         background: `radial-gradient(ellipse at 50% 40%, rgba(155,45,94,0.06) 0%, transparent 60%)`,
         pointerEvents: "none",
       }} />
-
       <div style={{ position: "relative", zIndex: 1, marginBottom: 10 }}>
         <MorriganCharacter mood={mood} size={220} />
       </div>
-
       <h2 style={{
         color: T.text, fontWeight: 400, margin: "0 0 10px", fontSize: 32,
         fontFamily: FONT_DISPLAY, letterSpacing: "-0.5px", position: "relative", zIndex: 1,
       }}>Morrigan</h2>
-
       <p style={{
         color: T.textSoft, margin: "0 0 6px", fontSize: 14, lineHeight: 1.8,
         maxWidth: 440, textAlign: "center", fontFamily: FONT, position: "relative", zIndex: 1,
@@ -642,14 +579,12 @@ function WelcomeScreen({ onStart, mood }) {
         Record store girl. Smudged eyeliner. Sharp tongue, soft heart she'll deny having.
         <br />Scarred, stubborn, still here. Reads Plath, draws moths, trusts almost nobody.
       </p>
-
       <p style={{
         color: T.textDim, margin: "0 0 28px", fontSize: 12, fontStyle: "italic",
         fontFamily: FONT, position: "relative", zIndex: 1,
       }}>
         She's behind the counter. The door's open.
       </p>
-
       <button style={{
         background: `linear-gradient(135deg, ${T.accent}, ${T.purple})`,
         color: "#fff", border: "none", borderRadius: 16, padding: "14px 44px",
@@ -720,7 +655,8 @@ function MoodBadge({ mood }) {
 }
 
 // ─── Character Panel ────────────────────────────────────────────
-function CharacterPanel({ mood, speaking, collapsed, onToggle, personality }) {
+// FIX: Removed unused `personality` prop
+function CharacterPanel({ mood, speaking, collapsed, onToggle }) {
   return (
     <div style={{
       width: collapsed ? 0 : 320,
@@ -738,40 +674,19 @@ function CharacterPanel({ mood, speaking, collapsed, onToggle, personality }) {
             background: `radial-gradient(ellipse at 50% 60%, rgba(155,45,94,0.05) 0%, transparent 70%)`,
             pointerEvents: "none",
           }} />
-
           <div style={{ position: "relative", zIndex: 1, marginTop: -30 }}>
             <MorriganCharacter mood={mood} speaking={speaking} size={240} />
           </div>
-
-          <div style={{
-            position: "relative", zIndex: 1, textAlign: "center",
-            marginTop: -10, padding: "0 20px",
-          }}>
+          <div style={{ position: "relative", zIndex: 1, textAlign: "center", marginTop: -10, padding: "0 20px" }}>
             <MoodBadge mood={mood} />
           </div>
-
-          {/* Ambient details */}
-          <div style={{
-            position: "absolute", bottom: 30, left: 0, right: 0,
-            textAlign: "center", padding: "0 20px",
-          }}>
-            <p style={{
-              color: T.textDim, fontSize: 10, fontFamily: FONT_MONO,
-              letterSpacing: "1px", textTransform: "uppercase", margin: "0 0 6px",
-            }}>now playing</p>
-            <p style={{
-              color: T.textSoft, fontSize: 12, fontFamily: FONT,
-              fontStyle: "italic", margin: 0,
-            }}>Mazzy Star — Fade Into You</p>
-            <div style={{
-              marginTop: 8, height: 1,
-              background: `linear-gradient(90deg, transparent, ${T.accent}30, transparent)`,
-            }} />
+          <div style={{ position: "absolute", bottom: 30, left: 0, right: 0, textAlign: "center", padding: "0 20px" }}>
+            <p style={{ color: T.textDim, fontSize: 10, fontFamily: FONT_MONO, letterSpacing: "1px", textTransform: "uppercase", margin: "0 0 6px" }}>now playing</p>
+            <p style={{ color: T.textSoft, fontSize: 12, fontFamily: FONT, fontStyle: "italic", margin: 0 }}>Mazzy Star — Fade Into You</p>
+            <div style={{ marginTop: 8, height: 1, background: `linear-gradient(90deg, transparent, ${T.accent}30, transparent)` }} />
           </div>
         </>
       )}
-
-      {/* Toggle button */}
       <button onClick={onToggle} style={{
         position: "absolute", left: -14, top: "50%", transform: "translateY(-50%)",
         width: 28, height: 28, borderRadius: "50%",
@@ -784,6 +699,19 @@ function CharacterPanel({ mood, speaking, collapsed, onToggle, personality }) {
       </button>
     </div>
   );
+}
+
+// ─── Safe JWT decoder ────────────────────────────────────────────
+// FIX: Replaces the raw atob crash with a safe helper
+function safeDecodeToken(token) {
+  try {
+    if (!token || typeof token !== "string") return null;
+    const parts = token.split(".");
+    if (parts.length !== 3) return null;
+    return JSON.parse(atob(parts[1]));
+  } catch {
+    return null;
+  }
 }
 
 // ─── Main App ───────────────────────────────────────────────────
@@ -804,87 +732,131 @@ export default function App() {
   const [currentMood, setCurrentMood] = useState("neutral");
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
+
+  // FIX: Centralised token/header helpers as stable refs so they're
+  // always reading the current localStorage value without being
+  // listed as useEffect dependencies.
   const token = () => localStorage.getItem("token");
   const hdrs = () => ({ "Content-Type": "application/json", Authorization: `Bearer ${token()}` });
 
-  // Update mood based on latest AI message
-  useEffect(() => {
-    const lastAi = [...messages].reverse().find(m => m.role === "assistant");
-    if (lastAi) setCurrentMood(analyzeMood(lastAi.content));
-  }, [messages]);
-
-  // Also update during streaming
-  useEffect(() => {
-    if (streamText) setCurrentMood(analyzeMood(streamText));
-  }, [streamText]);
-
+  // ── Boot: restore session from token ──────────────────────────
+  // FIX: Uses safeDecodeToken — no more black screen on corrupt token
   useEffect(() => {
     const t = localStorage.getItem("token");
-    if (t) {
-      try {
-        const p = JSON.parse(atob(t.split(".")[1]));
-        setUser({ id: p.id, phrase: p.phrase }); setAuthed(true);
-      } catch { localStorage.removeItem("token"); }
+    if (!t) return;
+    const payload = safeDecodeToken(t);
+    if (payload && payload.id) {
+      setUser({ id: payload.id, phrase: payload.phrase });
+      setAuthed(true);
+    } else {
+      // Token is malformed or expired — clear it cleanly
+      localStorage.removeItem("token");
     }
   }, []);
 
+  // ── Health polling ─────────────────────────────────────────────
   useEffect(() => {
     if (!authed) return;
-    const ck = () => fetch(`${API}/api/health`).then(r => r.json()).then(setStatus).catch(() => { });
-    ck(); const iv = setInterval(ck, 30000); return () => clearInterval(iv);
+    const ck = () =>
+      fetch(`${API}/api/health`)
+        .then(r => r.json())
+        .then(setStatus)
+        .catch(() => {});
+    ck();
+    const iv = setInterval(ck, 30000);
+    return () => clearInterval(iv);
   }, [authed]);
 
+  // ── Load conversation list ─────────────────────────────────────
   useEffect(() => {
     if (!authed) return;
-    fetch(`${API}/api/conversations`, { headers: hdrs() }).then(r => r.json()).then(setConversations).catch(() => { });
+    fetch(`${API}/api/conversations`, { headers: hdrs() })
+      .then(r => r.json())
+      .then(setConversations)
+      .catch(() => {});
   }, [authed]);
 
   // Track if we just created a convo (to skip redundant fetch)
   const justCreated = useRef(false);
 
+  // ── Load messages when active convo changes ────────────────────
   useEffect(() => {
     if (!activeConvo) { setMessages([]); return; }
-    // Skip fetch if createConvo already populated messages
     if (justCreated.current) { justCreated.current = false; return; }
-    fetch(`${API}/api/conversations/${activeConvo}/messages`, { headers: hdrs() }).then(r => r.json()).then(d => {
-      if (d.length === 0) setMessages([{ role: "assistant", content: CHARACTER.greeting, timestamp: new Date() }]);
-      else setMessages(d);
-    }).catch(() => { });
+    fetch(`${API}/api/conversations/${activeConvo}/messages`, { headers: hdrs() })
+      .then(r => r.json())
+      .then(d => {
+        if (d.length === 0)
+          setMessages([{ role: "assistant", content: CHARACTER.greeting, timestamp: new Date() }]);
+        else
+          setMessages(d);
+      })
+      .catch(() => {});
   }, [activeConvo]);
 
+  // ── Mood tracking ──────────────────────────────────────────────
+  useEffect(() => {
+    const lastAi = [...messages].reverse().find(m => m.role === "assistant");
+    if (lastAi) setCurrentMood(analyzeMood(lastAi.content));
+  }, [messages]);
+
+  useEffect(() => {
+    if (streamText) setCurrentMood(analyzeMood(streamText));
+  }, [streamText]);
+
+  // ── Auto-scroll ────────────────────────────────────────────────
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, streamText]);
 
+  // ── Create new conversation ────────────────────────────────────
   const createConvo = async () => {
-    const res = await fetch(`${API}/api/conversations`, { method: "POST", headers: hdrs(), body: JSON.stringify({ systemPrompt: CHARACTER.systemPrompt, title: `🖤 New chat` }) });
+    const res = await fetch(`${API}/api/conversations`, {
+      method: "POST", headers: hdrs(),
+      body: JSON.stringify({ systemPrompt: CHARACTER.systemPrompt, title: `🖤 New chat` }),
+    });
     const convo = await res.json();
     setConversations(p => [convo, ...p]);
     justCreated.current = true;
     setMessages([{ role: "assistant", content: CHARACTER.greeting, timestamp: new Date() }]);
     setActiveConvo(convo.conversationId);
-    fetchPersonality();
+    // FIX: Removed the undefined fetchPersonality() call that caused a ReferenceError
     return convo.conversationId;
   };
 
+  // ── Send message ───────────────────────────────────────────────
   const sendMessage = async () => {
     if (!input.trim() || streaming) return;
-    let cid = activeConvo; if (!cid) cid = await createConvo();
+    let cid = activeConvo;
+    if (!cid) cid = await createConvo();
 
     let messageContent = input.trim();
     if (genMode === "image") messageContent = `[IMAGE] ${messageContent}`;
     if (genMode === "video") messageContent = `[VIDEO] ${messageContent}`;
 
     const userMsg = { role: "user", content: input.trim(), timestamp: new Date() };
-    setMessages(p => [...p, userMsg]); setInput(""); setStreaming(true); setStreamText(""); setGenMode(null);
+    setMessages(p => [...p, userMsg]);
+    setInput("");
+    setStreaming(true);
+    setStreamText("");
+    setGenMode(null);
 
     try {
-      const res = await fetch(`${API}/api/chat`, { method: "POST", headers: hdrs(), body: JSON.stringify({ conversationId: cid, message: messageContent, systemPrompt: CHARACTER.systemPrompt }) });
-      const reader = res.body.getReader(); const decoder = new TextDecoder(); let full = ""; let buffer = "";
+      const res = await fetch(`${API}/api/chat`, {
+        method: "POST", headers: hdrs(),
+        body: JSON.stringify({ conversationId: cid, message: messageContent, systemPrompt: CHARACTER.systemPrompt }),
+      });
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let full = "";
+      let buffer = "";
+
       while (true) {
-        const { done, value } = await reader.read(); if (done) break;
+        const { done, value } = await reader.read();
+        if (done) break;
         buffer += decoder.decode(value, { stream: true });
-        const parts = buffer.split("\n"); buffer = parts.pop() || "";
+        const parts = buffer.split("\n");
+        buffer = parts.pop() || "";
         const lines = parts.filter(l => l.startsWith("data: "));
         for (const line of lines) {
           try {
@@ -895,26 +867,51 @@ export default function App() {
             } else if (json.image) {
               setMessages(p => [...p, { role: "assistant", content: json.token || "", imageUrl: json.image, ponyImageUrl: json.ponyImage || null, realvisImageUrl: json.realvisImage || null, timestamp: new Date() }]);
               setStreamText(""); full = "";
-            } else if (json.token) { full += json.token; setStreamText(full); }
-            else if (json.done) {
+            } else if (json.token) {
+              full += json.token;
+              setStreamText(full);
+            } else if (json.done) {
               if (full.trim()) {
                 setMessages(p => [...p, { role: "assistant", content: full, timestamp: new Date() }]);
-                setConversations(p => p.map(c => c.conversationId === cid ? { ...c, title: `🖤 ${full.substring(0, 40)}${full.length > 40 ? "..." : ""}`, updatedAt: new Date() } : c));
+                setConversations(p => p.map(c =>
+                  c.conversationId === cid
+                    ? { ...c, title: `🖤 ${full.substring(0, 40)}${full.length > 40 ? "..." : ""}`, updatedAt: new Date() }
+                    : c
+                ));
               }
               setStreamText("");
             }
-            if (json.error) { setMessages(p => [...p, { role: "assistant", content: `⚠ ${json.error}` }]); setStreamText(""); }
-          } catch { }
+            if (json.error) {
+              setMessages(p => [...p, { role: "assistant", content: `⚠ ${json.error}` }]);
+              setStreamText("");
+            }
+          } catch { /* malformed SSE chunk — skip */ }
         }
       }
     } catch (err) {
       setMessages(p => [...p, { role: "assistant", content: `⚠ ${err.message}` }]);
       setStreamText("");
     }
-    setStreaming(false); inputRef.current?.focus();
+
+    setStreaming(false);
+    inputRef.current?.focus();
   };
 
-  if (!authed) return <AuthScreen onAuth={d => { setUser(d.user); setAuthed(true); }} />;
+  // ── Logout ─────────────────────────────────────────────────────
+  const handleLogout = () => {
+    localStorage.removeItem("token");
+    setAuthed(false);
+    setUser(null);
+    setConversations([]);
+    setActiveConvo(null);
+    setMessages([]);
+  };
+
+  // ── Auth gate ──────────────────────────────────────────────────
+  if (!authed) {
+    return <AuthScreen onAuth={d => { setUser(d.user); setAuthed(true); }} />;
+  }
+
   const showWelcome = messages.length === 0 && !streamText && !activeConvo;
   const modeLabel = genMode === "image" ? "✦ Image" : genMode === "video" ? "▶ Video" : null;
 
@@ -922,16 +919,20 @@ export default function App() {
     <div style={{ display: "flex", height: "100vh", background: T.bg, fontFamily: FONT, color: T.text }}>
       <ParticlesBg />
 
-      {sidebarOpen && <Sidebar conversations={conversations} activeId={activeConvo}
-        onSelectConvo={id => setActiveConvo(id)}
-        onNew={() => { setActiveConvo(null); setMessages([]); }}
-        onDelete={async id => {
-          await fetch(`${API}/api/conversations/${id}`, { method: "DELETE", headers: hdrs() });
-          setConversations(p => p.filter(c => c.conversationId !== id));
-          if (activeConvo === id) { setActiveConvo(null); setMessages([]); }
-        }}
-        onLogout={() => { localStorage.removeItem("token"); setAuthed(false); setUser(null); setConversations([]); setActiveConvo(null); setMessages([]); }}
-      />}
+      {sidebarOpen && (
+        <Sidebar
+          conversations={conversations}
+          activeId={activeConvo}
+          onSelectConvo={id => setActiveConvo(id)}
+          onNew={() => { setActiveConvo(null); setMessages([]); }}
+          onDelete={async id => {
+            await fetch(`${API}/api/conversations/${id}`, { method: "DELETE", headers: hdrs() });
+            setConversations(p => p.filter(c => c.conversationId !== id));
+            if (activeConvo === id) { setActiveConvo(null); setMessages([]); }
+          }}
+          onLogout={handleLogout}
+        />
+      )}
 
       {/* Chat Area */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, position: "relative", zIndex: 1 }}>
@@ -941,81 +942,60 @@ export default function App() {
           display: "flex", justifyContent: "space-between", alignItems: "center",
           background: `${T.surface}e0`, backdropFilter: "blur(10px)",
         }}>
-          <button style={{
-            background: "transparent", border: "none", color: T.textDim,
-            fontSize: 16, cursor: "pointer", padding: "4px 8px",
-          }} onClick={() => setSidebarOpen(!sidebarOpen)}>
+          <button style={{ background: "transparent", border: "none", color: T.textDim, fontSize: 16, cursor: "pointer", padding: "4px 8px" }}
+            onClick={() => setSidebarOpen(!sidebarOpen)}>
             {sidebarOpen ? "◁" : "▷"}
           </button>
-
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ width: 8, height: 8, borderRadius: "50%", background: T.accent, boxShadow: `0 0 8px ${T.accent}` }} />
-            <span style={{ color: T.text, fontWeight: 400, fontSize: 16, fontFamily: FONT_DISPLAY }}>
-              {CHARACTER.name}
-            </span>
+            <span style={{ color: T.text, fontWeight: 400, fontSize: 16, fontFamily: FONT_DISPLAY }}>{CHARACTER.name}</span>
             <MoodBadge mood={currentMood} />
           </div>
-
           <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-              <span style={{ width: 6, height: 6, borderRadius: "50%", display: "inline-block", background: status.ollama ? T.green : T.red, boxShadow: status.ollama ? `0 0 6px ${T.green}` : "none" }} />
-              <span style={{ color: T.textDim, fontSize: 10, fontFamily: FONT_MONO }}>chat</span>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-              <span style={{ width: 6, height: 6, borderRadius: "50%", display: "inline-block", background: status.comfyui ? T.green : T.red, boxShadow: status.comfyui ? `0 0 6px ${T.green}` : "none" }} />
-              <span style={{ color: T.textDim, fontSize: 10, fontFamily: FONT_MONO }}>img</span>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-              <span style={{ width: 6, height: 6, borderRadius: "50%", display: "inline-block", background: status.video ? T.green : T.red, boxShadow: status.video ? `0 0 6px ${T.green}` : "none" }} />
-              <span style={{ color: T.textDim, fontSize: 10, fontFamily: FONT_MONO }}>vid</span>
-            </div>
+            {[["chat", "ollama"], ["img", "comfyui"], ["vid", "video"]].map(([label, key]) => (
+              <div key={key} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                <span style={{ width: 6, height: 6, borderRadius: "50%", display: "inline-block", background: status[key] ? T.green : T.red, boxShadow: status[key] ? `0 0 6px ${T.green}` : "none" }} />
+                <span style={{ color: T.textDim, fontSize: 10, fontFamily: FONT_MONO }}>{label}</span>
+              </div>
+            ))}
           </div>
         </div>
 
         {/* Messages */}
         <div style={{ flex: 1, overflowY: "auto", padding: "28px 32px" }}>
-          {showWelcome ? <WelcomeScreen onStart={createConvo} mood={currentMood} /> : <>
-            {messages.map((msg, i) => <MessageBubble key={i} msg={msg} />)}
-            {streamText && (
-              <div style={{ display: "flex", marginBottom: 22, alignItems: "flex-start", animation: "fadeSlideIn 0.3s ease forwards" }}>
-                <div style={{
-                  background: T.aiBubble, border: `1px solid ${T.border}`,
-                  borderRadius: "22px 22px 22px 4px", padding: "13px 20px",
-                  maxWidth: "75%", wordBreak: "break-word",
-                  boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
-                }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
-                    <span style={{ color: CHARACTER.color, fontSize: 12, fontWeight: 600, fontFamily: FONT_DISPLAY }}>
-                      {CHARACTER.name}
-                    </span>
-                  </div>
-                  <div style={{ fontSize: 14.5, lineHeight: 1.8, whiteSpace: "pre-wrap", fontFamily: FONT }}>
-                    <FormatMessage text={streamText} />
-                    <span style={{ color: T.accent, animation: "blink 1s infinite", marginLeft: 2 }}>▎</span>
+          {showWelcome ? (
+            <WelcomeScreen onStart={createConvo} mood={currentMood} />
+          ) : (
+            <>
+              {messages.map((msg, i) => <MessageBubble key={i} msg={msg} />)}
+              {streamText && (
+                <div style={{ display: "flex", marginBottom: 22, alignItems: "flex-start", animation: "fadeSlideIn 0.3s ease forwards" }}>
+                  <div style={{
+                    background: T.aiBubble, border: `1px solid ${T.border}`,
+                    borderRadius: "22px 22px 22px 4px", padding: "13px 20px",
+                    maxWidth: "75%", wordBreak: "break-word", boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
+                  }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                      <span style={{ color: CHARACTER.color, fontSize: 12, fontWeight: 600, fontFamily: FONT_DISPLAY }}>{CHARACTER.name}</span>
+                    </div>
+                    <div style={{ fontSize: 14.5, lineHeight: 1.8, whiteSpace: "pre-wrap", fontFamily: FONT }}>
+                      <FormatMessage text={streamText} />
+                      <span style={{ color: T.accent, animation: "blink 1s infinite", marginLeft: 2 }}>▎</span>
+                    </div>
                   </div>
                 </div>
-              </div>
-            )}
-            <div ref={messagesEndRef} />
-          </>}
+              )}
+              <div ref={messagesEndRef} />
+            </>
+          )}
         </div>
 
         {/* Input */}
-        <div style={{
-          padding: "14px 32px 20px", borderTop: `1px solid ${T.border}`,
-          background: `${T.surface}e0`, backdropFilter: "blur(10px)",
-        }}>
+        <div style={{ padding: "14px 32px 20px", borderTop: `1px solid ${T.border}`, background: `${T.surface}e0`, backdropFilter: "blur(10px)" }}>
           {genMode && (
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-              <span style={{
-                fontSize: 11, color: T.accent, fontWeight: 600,
-                background: T.accentSoft, padding: "4px 12px", borderRadius: 8,
-                fontFamily: FONT_MONO,
-              }}>{modeLabel} mode</span>
-              <button onClick={() => setGenMode(null)} style={{
-                background: "transparent", border: "none", color: T.textDim,
-                fontSize: 14, cursor: "pointer",
-              }}>✕</button>
+              <span style={{ fontSize: 11, color: T.accent, fontWeight: 600, background: T.accentSoft, padding: "4px 12px", borderRadius: 8, fontFamily: FONT_MONO }}>{modeLabel} mode</span>
+              <button onClick={() => setGenMode(null)} style={{ background: "transparent", border: "none", color: T.textDim, fontSize: 14, cursor: "pointer" }}>✕</button>
             </div>
           )}
           <div style={{
@@ -1026,15 +1006,13 @@ export default function App() {
           }}>
             <div style={{ position: "relative", flexShrink: 0 }}>
               {showGenMenu && <GenModeMenu onSelect={setGenMode} onClose={() => setShowGenMenu(false)} />}
-              <button onClick={() => setShowGenMenu(!showGenMenu)}
-                style={{
-                  background: showGenMenu ? T.surface3 : "transparent",
-                  border: `1px solid ${T.border}`, borderRadius: 10,
-                  width: 36, height: 36, fontSize: 16, cursor: "pointer",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  color: T.accent, transition: "all 0.15s",
-                }}
-                title="Generate image or video">✦</button>
+              <button onClick={() => setShowGenMenu(!showGenMenu)} style={{
+                background: showGenMenu ? T.surface3 : "transparent",
+                border: `1px solid ${T.border}`, borderRadius: 10,
+                width: 36, height: 36, fontSize: 16, cursor: "pointer",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                color: T.accent, transition: "all 0.15s",
+              }} title="Generate image or video">✦</button>
             </div>
             <textarea ref={inputRef} style={{
               flex: 1, background: "transparent", border: "none", color: T.text,
@@ -1042,8 +1020,10 @@ export default function App() {
               lineHeight: 1.6, maxHeight: 120,
             }}
               placeholder={genMode === "image" ? "describe the image..." : genMode === "video" ? "describe the video..." : `talk to ${CHARACTER.name}...`}
-              value={input} onChange={e => setInput(e.target.value)}
-              onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }} rows={1}
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
+              rows={1}
             />
             <button style={{
               background: input.trim() && !streaming ? `linear-gradient(135deg, ${T.accent}, ${T.purple})` : T.surface3,
@@ -1052,14 +1032,18 @@ export default function App() {
               cursor: "pointer", fontWeight: 600, display: "flex", alignItems: "center",
               justifyContent: "center", transition: "all 0.2s", flexShrink: 0,
               boxShadow: input.trim() && !streaming ? `0 2px 12px ${T.accentGlow}` : "none",
-            }}
-              onClick={sendMessage} disabled={!input.trim() || streaming}>↑</button>
+            }} onClick={sendMessage} disabled={!input.trim() || streaming}>↑</button>
           </div>
         </div>
       </div>
 
-      {/* Character Panel */}
-      <CharacterPanel mood={currentMood} speaking={!!streamText} collapsed={!charPanelOpen} onToggle={() => setCharPanelOpen(!charPanelOpen)} personality={personality} />
+      {/* Character Panel — FIX: no longer passes undefined `personality` prop */}
+      <CharacterPanel
+        mood={currentMood}
+        speaking={!!streamText}
+        collapsed={!charPanelOpen}
+        onToggle={() => setCharPanelOpen(!charPanelOpen)}
+      />
 
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&family=Playfair+Display:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@300;400;500&display=swap');
