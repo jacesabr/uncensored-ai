@@ -1,16 +1,26 @@
 import React, { useState, useEffect, useRef } from "react";
 const API = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
-// ─── Dark Romantic Gothic Theme ─────────────────────────────────
+// ─── Theme ───────────────────────────────────────────────────────
 const T = {
   bg: "#f6f7fb",
   surface: "#ffffff",
+  surface2: "#f0f0f5",
+  surface3: "#e8e8f0",
   border: "#e6e8ef",
+  borderLight: "#d0d0e0",
   text: "#1f2937",
-  subtext: "#6b7280",
+  textSoft: "#4b5563",
+  textDim: "#9ca3af",
   accent: "#7c3aed",
   accentSoft: "#ede9fe",
+  accentGlow: "rgba(124,58,237,0.3)",
+  purple: "#9f67ff",
   danger: "#dc2626",
+  red: "#dc2626",
+  green: "#10b981",
+  aiBubble: "#ffffff",
+  userBubble: "#7c3aed",
 };
 
 const FONT = "'Crimson Pro', 'Georgia', 'Garamond', serif";
@@ -254,7 +264,6 @@ function MorriganCharacter({ mood = "neutral", speaking = false, size = 320 }) {
 }
 
 // ─── Floating Particles Background ──────────────────────────────
-// FIX: Memoize particle data so it doesn't re-randomize on every render
 const PARTICLE_DATA = Array.from({ length: 20 }).map((_, i) => ({
   width: 2 + Math.random() * 3,
   height: 2 + Math.random() * 3,
@@ -392,12 +401,11 @@ function AuthScreen({ onAuth }) {
         <MorriganCharacter mood="neutral" size={160} />
       </div>
       <div style={{
-        background: `linear-gradient(135deg, ${T.surface}ee, ${T.surface2}dd)`,
+        background: T.surface,
         border: `1px solid ${T.border}`,
         borderRadius: 28, padding: "48px 44px", width: 420,
-        boxShadow: `0 8px 60px rgba(0,0,0,0.5), 0 0 40px ${T.accentGlow}`,
+        boxShadow: `0 8px 60px rgba(0,0,0,0.12), 0 0 40px ${T.accentGlow}`,
         textAlign: "center", position: "relative", zIndex: 1,
-        backdropFilter: "blur(20px)",
       }}>
         <h1 style={{ color: T.text, fontSize: 28, fontWeight: 400, margin: "0 0 6px", fontFamily: FONT_DISPLAY, letterSpacing: "-0.5px" }}>
           Hollow Vinyl
@@ -454,7 +462,7 @@ function MessageBubble({ msg }) {
           background: T.aiBubble, color: T.text,
           border: `1px solid ${T.border}`, borderRadius: "22px 22px 22px 4px",
           padding: "13px 20px", maxWidth: "75%", wordBreak: "break-word",
-          boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
+          boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
         }
       }>
         {!isUser && (
@@ -467,8 +475,6 @@ function MessageBubble({ msg }) {
         <div style={{ fontSize: 14.5, lineHeight: 1.8, whiteSpace: "pre-wrap", fontFamily: FONT }}>
           <FormatMessage text={msg.content} />
         </div>
-
-     
         {(msg.ponyImageUrl || msg.realvisImageUrl || msg.imageUrl) && (
           <div style={{ display: "flex", gap: 12, marginTop: 12, flexWrap: "wrap" }}>
             {msg.ponyImageUrl && (
@@ -493,66 +499,30 @@ function MessageBubble({ msg }) {
   );
 }
 
-
 // ─── Welcome Screen ─────────────────────────────────────────────
 function WelcomeScreen({ onStart }) {
   return (
     <div style={{
-      display: "flex",
-      flexDirection: "column",
-      alignItems: "center",
-      justifyContent: "center",
-      height: "100%",
-      padding: "40px 20px",
-      position: "relative",
-      textAlign: "center",
+      display: "flex", flexDirection: "column", alignItems: "center",
+      justifyContent: "center", height: "100%", padding: "40px 20px",
+      position: "relative", textAlign: "center",
     }}>
-      <h2 style={{
-        color: T.text,
-        fontWeight: 400,
-        margin: "0 0 10px",
-        fontSize: 32,
-        fontFamily: FONT_DISPLAY,
-        letterSpacing: "-0.5px",
-      }}>
+      <h2 style={{ color: T.text, fontWeight: 400, margin: "0 0 10px", fontSize: 32, fontFamily: FONT_DISPLAY, letterSpacing: "-0.5px" }}>
         Morrigan
       </h2>
-
-      <p style={{
-        color: T.subtext,
-        margin: "0 0 6px",
-        fontSize: 14,
-        lineHeight: 1.8,
-        maxWidth: 440,
-        fontFamily: FONT,
-      }}>
+      <p style={{ color: T.subtext, margin: "0 0 6px", fontSize: 14, lineHeight: 1.8, maxWidth: 440, fontFamily: FONT }}>
         Record store girl. Smudged eyeliner. Sharp tongue, soft heart she'll deny having.
         <br />
         Scarred, stubborn, still here. Reads Plath, draws moths, trusts almost nobody.
       </p>
-
-      <p style={{
-        color: T.subtext,
-        margin: "0 0 28px",
-        fontSize: 12,
-        fontStyle: "italic",
-        fontFamily: FONT,
-        opacity: 0.8,
-      }}>
+      <p style={{ color: T.subtext, margin: "0 0 28px", fontSize: 12, fontStyle: "italic", fontFamily: FONT, opacity: 0.8 }}>
         She's behind the counter. The door's open.
       </p>
-
       <button
         style={{
-          background: `linear-gradient(135deg, ${T.accent}, #9f67ff)`,
-          color: "#fff",
-          border: "none",
-          borderRadius: 16,
-          padding: "14px 44px",
-          fontSize: 15,
-          fontWeight: 400,
-          cursor: "pointer",
-          fontFamily: FONT_DISPLAY,
+          background: `linear-gradient(135deg, ${T.accent}, ${T.purple})`,
+          color: "#fff", border: "none", borderRadius: 16, padding: "14px 44px",
+          fontSize: 15, fontWeight: 400, cursor: "pointer", fontFamily: FONT_DISPLAY,
           transition: "all 0.2s",
         }}
         onClick={onStart}
@@ -562,6 +532,7 @@ function WelcomeScreen({ onStart }) {
     </div>
   );
 }
+
 // ─── Gen Mode Picker ────────────────────────────────────────────
 function GenModeMenu({ onSelect, onClose }) {
   const modes = [
@@ -571,8 +542,7 @@ function GenModeMenu({ onSelect, onClose }) {
     <div style={{
       position: "absolute", bottom: "100%", left: 0, marginBottom: 8,
       background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14,
-      padding: 6, boxShadow: "0 8px 32px rgba(0,0,0,0.5)", zIndex: 10, minWidth: 200,
-      backdropFilter: "blur(10px)",
+      padding: 6, boxShadow: "0 8px 32px rgba(0,0,0,0.15)", zIndex: 10, minWidth: 200,
     }}>
       {modes.map(m => (
         <button key={m.key} onClick={() => { onSelect(m.key); onClose(); }}
@@ -616,19 +586,14 @@ function MoodBadge({ mood }) {
 }
 
 // ─── Character Panel ────────────────────────────────────────────
-// FIX: Removed unused `personality` prop
 function CharacterPanel({ mood, speaking }) {
   return (
     <div style={{
-      width: 320,
-      minWidth: 320,
+      width: 320, minWidth: 320,
       background: `linear-gradient(180deg, ${T.surface}f0, ${T.bg}f0)`,
       borderLeft: `1px solid ${T.border}`,
-      display: "flex",
-      flexDirection: "column",
-      alignItems: "center",
-      justifyContent: "center",
-      position: "relative",
+      display: "flex", flexDirection: "column", alignItems: "center",
+      justifyContent: "center", position: "relative",
     }}>
       <div style={{
         position: "absolute", inset: 0,
@@ -646,7 +611,6 @@ function CharacterPanel({ mood, speaking }) {
 }
 
 // ─── Safe JWT decoder ────────────────────────────────────────────
-// FIX: Replaces the raw atob crash with a safe helper
 function safeDecodeToken(token) {
   try {
     if (!token || typeof token !== "string") return null;
@@ -668,22 +632,17 @@ export default function App() {
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [streamText, setStreamText] = useState("");
-  const [charPanelOpen, setCharPanelOpen] = useState(true);
-  const [status, setStatus] = useState({ ollama: false, comfyui: false, video: false });
+  const [status, setStatus] = useState({ ollama: false, comfyui: false });
   const [genMode, setGenMode] = useState(null);
   const [showGenMenu, setShowGenMenu] = useState(false);
   const [currentMood, setCurrentMood] = useState("neutral");
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
 
-  // FIX: Centralised token/header helpers as stable refs so they're
-  // always reading the current localStorage value without being
-  // listed as useEffect dependencies.
   const token = () => localStorage.getItem("token");
   const hdrs = () => ({ "Content-Type": "application/json", Authorization: `Bearer ${token()}` });
 
   // ── Boot: restore session from token ──────────────────────────
-  // FIX: Uses safeDecodeToken — no more black screen on corrupt token
   useEffect(() => {
     const t = localStorage.getItem("token");
     if (!t) return;
@@ -692,7 +651,6 @@ export default function App() {
       setUser({ id: payload.id, phrase: payload.phrase });
       setAuthed(true);
     } else {
-      // Token is malformed or expired — clear it cleanly
       localStorage.removeItem("token");
     }
   }, []);
@@ -719,7 +677,6 @@ export default function App() {
       .catch(() => {});
   }, [authed]);
 
-  // Track if we just created a convo (to skip redundant fetch)
   const justCreated = useRef(false);
 
   // ── Load messages when active convo changes ────────────────────
@@ -763,7 +720,6 @@ export default function App() {
     justCreated.current = true;
     setMessages([{ role: "assistant", content: CHARACTER.greeting, timestamp: new Date() }]);
     setActiveConvo(convo.conversationId);
-    // FIX: Removed the undefined fetchPersonality() call that caused a ReferenceError
     return convo.conversationId;
   };
 
@@ -853,10 +809,10 @@ export default function App() {
 
   const showWelcome = messages.length === 0 && !streamText && !activeConvo;
   const modeLabel = genMode === "image" ? "✦ Image" : null;
+
   return (
     <div style={{ display: "flex", height: "100vh", background: T.bg, fontFamily: FONT, color: T.text }}>
       <ParticlesBg />
-
 
       {/* Chat Area */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, position: "relative", zIndex: 1 }}>
@@ -866,7 +822,7 @@ export default function App() {
           display: "flex", justifyContent: "space-between", alignItems: "center",
           background: `${T.surface}e0`, backdropFilter: "blur(10px)",
         }}>
-         <div style={{ width: 32 }} />
+          <div style={{ width: 32 }} />
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ width: 8, height: 8, borderRadius: "50%", background: T.accent, boxShadow: `0 0 8px ${T.accent}` }} />
             <span style={{ color: T.text, fontWeight: 400, fontSize: 16, fontFamily: FONT_DISPLAY }}>{CHARACTER.name}</span>
@@ -879,13 +835,22 @@ export default function App() {
                 <span style={{ color: T.textDim, fontSize: 10, fontFamily: FONT_MONO }}>{label}</span>
               </div>
             ))}
+            <button onClick={handleLogout} style={{
+              background: "transparent", border: `1px solid ${T.border}`, borderRadius: 8,
+              padding: "4px 10px", color: T.textDim, fontSize: 11, cursor: "pointer",
+              fontFamily: FONT_MONO, transition: "all 0.2s",
+            }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = T.red; e.currentTarget.style.color = T.red; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textDim; }}>
+              leave
+            </button>
           </div>
         </div>
 
         {/* Messages */}
         <div style={{ flex: 1, overflowY: "auto", padding: "28px 32px" }}>
           {showWelcome ? (
-            <WelcomeScreen onStart={createConvo} mood={currentMood} />
+            <WelcomeScreen onStart={createConvo} />
           ) : (
             <>
               {messages.map((msg, i) => <MessageBubble key={i} msg={msg} />)}
@@ -894,7 +859,7 @@ export default function App() {
                   <div style={{
                     background: T.aiBubble, border: `1px solid ${T.border}`,
                     borderRadius: "22px 22px 22px 4px", padding: "13px 20px",
-                    maxWidth: "75%", wordBreak: "break-word", boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
+                    maxWidth: "75%", wordBreak: "break-word", boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
                   }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
                       <span style={{ color: CHARACTER.color, fontSize: 12, fontWeight: 600, fontFamily: FONT_DISPLAY }}>{CHARACTER.name}</span>
@@ -933,14 +898,14 @@ export default function App() {
                 width: 36, height: 36, fontSize: 16, cursor: "pointer",
                 display: "flex", alignItems: "center", justifyContent: "center",
                 color: T.accent, transition: "all 0.15s",
-              }} title="Generate image or video">✦</button>
+              }} title="Generate image">✦</button>
             </div>
             <textarea ref={inputRef} style={{
               flex: 1, background: "transparent", border: "none", color: T.text,
               fontSize: 14.5, outline: "none", resize: "none", fontFamily: FONT,
               lineHeight: 1.6, maxHeight: 120,
             }}
-              placeholder={genMode === "image" ? "describe the image..." : genMode === "video" ? "describe the video..." : `talk to ${CHARACTER.name}...`}
+              placeholder={genMode === "image" ? "describe the image..." : `talk to ${CHARACTER.name}...`}
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
@@ -958,11 +923,8 @@ export default function App() {
         </div>
       </div>
 
-      {/* Character Panel — FIX: no longer passes undefined `personality` prop */}
-      <CharacterPanel
-        mood={currentMood}
-        speaking={!!streamText}
-      />
+      {/* Character Panel */}
+      <CharacterPanel mood={currentMood} speaking={!!streamText} />
 
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&family=Playfair+Display:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@300;400;500&display=swap');
