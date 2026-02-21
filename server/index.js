@@ -642,7 +642,9 @@ app.post("/api/chat", auth, async (req, res) => {
 // ─── Health ───────────────────────────────────────────────────────
 app.get("/api/health", async (req, res) => {
   let llm = false;
+  let img = false;
 
+  // Check LLM
   try {
     const r = await fetch(`${COLAB_URL}/v1/chat/completions`, {
       method: "POST",
@@ -653,13 +655,26 @@ app.get("/api/health", async (req, res) => {
         max_tokens: 1
       })
     });
-
     llm = r.ok;
+  } catch {}
+
+  // Check Image endpoint
+  try {
+    const r = await fetch(`${COLAB_URL}/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        prompt: "test",
+        width: 256,
+        height: 256
+      })
+    });
+    img = r.ok;
   } catch {}
 
   res.json({
     ollama: llm,
-    comfyui: false,
+    comfyui: img,
     video: false,
     model: CHAT_MODEL,
     backend: "kaggle"
