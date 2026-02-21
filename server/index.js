@@ -652,3 +652,11 @@ app.listen(PORT, () => {
   console.log(`   Colab: ${COLAB_URL}`);
   console.log(`   Full character prompt injected every message via buildSystemPrompt()\n`);
 });
+
+app.get("/api/personality/full", auth, async (req, res) => {
+  try {
+    let memory = await PersonalityMemory.findOne({ userId: req.user.id });
+    if (!memory) memory = await PersonalityMemory.create({ userId: req.user.id });
+    res.json(memory); // full raw document
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
