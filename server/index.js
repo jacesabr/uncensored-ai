@@ -641,10 +641,29 @@ app.post("/api/chat", auth, async (req, res) => {
 
 // ─── Health ───────────────────────────────────────────────────────
 app.get("/api/health", async (req, res) => {
-  let llm = false, img = false, vid = false;
-  try { const r = await fetch(`${COLAB_URL}/v1/models`, { timeout: 5000 }); llm = r.ok; } catch { }
-  try { const r = await fetch(`${COLAB_URL}/health`, { timeout: 5000 }); if (r.ok) { const data = await r.json(); img = true; vid = !!data.video; } } catch { }
-  res.json({ ollama: llm, comfyui: img, video: vid, model: CHAT_MODEL, backend: "colab" });
+  let llm = false;
+
+  try {
+    const r = await fetch(`${COLAB_URL}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: CHAT_MODEL,
+        messages: [{ role: "user", content: "ping" }],
+        max_tokens: 1
+      })
+    });
+
+    llm = r.ok;
+  } catch {}
+
+  res.json({
+    ollama: llm,
+    comfyui: false,
+    video: false,
+    model: CHAT_MODEL,
+    backend: "kaggle"
+  });
 });
 
 app.listen(PORT, () => {
