@@ -63,20 +63,20 @@ function analyzeMood(text) {
   return "neutral";
 }
 
-// ─── SVG Character: Morrigan ────────────────────────────────────
+// ─── CSS Illustrated Character: Morrigan ────────────────────────
 function MorriganCharacter({ mood = "neutral", speaking = false, size = 320 }) {
   const m = MOODS[mood] || MOODS.neutral;
   const [breathe, setBreathe] = useState(0);
-  const [blinkState, setBlinkState] = useState(1);
+  const [blink, setBlink] = useState(false);
   const [hairSway, setHairSway] = useState(0);
+  const [sparklePos, setSparklePos] = useState([]);
 
   useEffect(() => {
-    let frame;
-    let t = 0;
+    let frame, t = 0;
     const animate = () => {
-      t += 0.02;
-      setBreathe(Math.sin(t * 1.2) * 2);
-      setHairSway(Math.sin(t * 0.8) * 3);
+      t += 0.018;
+      setBreathe(Math.sin(t * 1.1) * 3);
+      setHairSway(Math.sin(t * 0.7) * 4);
       frame = requestAnimationFrame(animate);
     };
     frame = requestAnimationFrame(animate);
@@ -84,182 +84,364 @@ function MorriganCharacter({ mood = "neutral", speaking = false, size = 320 }) {
   }, []);
 
   useEffect(() => {
-    const blink = () => {
-      setBlinkState(0);
-      setTimeout(() => setBlinkState(1), 150);
+    const doBlink = () => {
+      setBlink(true);
+      setTimeout(() => setBlink(false), 140);
     };
-    const interval = setInterval(blink, 3000 + Math.random() * 2000);
-    return () => clearInterval(interval);
+    const iv = setInterval(doBlink, 2800 + Math.random() * 2000);
+    return () => clearInterval(iv);
   }, []);
 
-  const eyeOpenness = blinkState;
-  const mouthOpen = speaking ? 3 + Math.sin(Date.now() / 100) * 2 : 0;
+  useEffect(() => {
+    if (m.sparkle) {
+      setSparklePos([
+        { x: 18, y: 22, delay: "0s", dur: "2.1s" },
+        { x: 72, y: 15, delay: "0.6s", dur: "1.7s" },
+        { x: 55, y: 38, delay: "1.2s", dur: "2.4s" },
+      ]);
+    } else {
+      setSparklePos([]);
+    }
+  }, [mood]);
+
+  const scale = size / 220;
+  const eyeH = blink ? 1 : 10;
+  const browY = 68 + m.browTilt * 1.2;
+  const mouthCurve = m.mouthCurve;
+
+  // Skin tone: pale, slightly cool
+  const skin = "#EFE0D5";
+  const skinShade = "#DBC8BC";
+  const hairCol = "#0D0510";
+  const hairHi = "#2A1040";
+  const lipCol = "#7A1530";
+  const eyeCol = m.eye;
+  const blushAlpha = m.blush;
 
   return (
-    <svg viewBox="0 0 300 450" width={size} height={size * 1.5} style={{ filter: "drop-shadow(0 0 30px rgba(155,45,94,0.15))" }}>
-      <defs>
-        <radialGradient id="skinGrad" cx="50%" cy="40%" r="50%">
-          <stop offset="0%" stopColor="#F5E6DA" />
-          <stop offset="100%" stopColor="#E8D5C4" />
-        </radialGradient>
-        <radialGradient id="blushGrad" cx="50%" cy="50%" r="50%">
-          <stop offset="0%" stopColor={`rgba(200,80,100,${m.blush})`} />
-          <stop offset="100%" stopColor="rgba(200,80,100,0)" />
-        </radialGradient>
-        <linearGradient id="hairGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-          <stop offset="0%" stopColor="#1A0A15" />
-          <stop offset="40%" stopColor="#0D0510" />
-          <stop offset="70%" stopColor="#2A1040" />
-          <stop offset="100%" stopColor="#1A0825" />
-        </linearGradient>
-        <linearGradient id="shirtGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-          <stop offset="0%" stopColor="#1A1A1A" />
-          <stop offset="100%" stopColor="#111111" />
-        </linearGradient>
-        <linearGradient id="collarGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#F5E6DA" />
-          <stop offset="100%" stopColor="#E8D5C4" />
-        </linearGradient>
-        <filter id="glow">
-          <feGaussianBlur stdDeviation="2" result="blur" />
-          <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
-        </filter>
-        <filter id="softShadow">
-          <feDropShadow dx="0" dy="2" stdDeviation="3" floodColor="#000" floodOpacity="0.3" />
-        </filter>
-      </defs>
+    <div style={{
+      width: size,
+      height: size * 1.45,
+      position: "relative",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+    }}>
+      <svg
+        viewBox="0 0 220 320"
+        width={size}
+        height={size * 1.45}
+        style={{ filter: `drop-shadow(0 8px 32px rgba(80,0,60,0.22)) drop-shadow(0 0 2px rgba(180,80,160,0.08))`, overflow: "visible" }}
+      >
+        <defs>
+          <radialGradient id="mg-skin" cx="50%" cy="38%" r="55%">
+            <stop offset="0%" stopColor={skin} />
+            <stop offset="100%" stopColor={skinShade} />
+          </radialGradient>
+          <radialGradient id="mg-blush" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stopColor={`rgba(210,80,110,${blushAlpha})`} />
+            <stop offset="100%" stopColor="rgba(210,80,110,0)" />
+          </radialGradient>
+          <linearGradient id="mg-hair" x1="0%" y1="0%" x2="10%" y2="100%">
+            <stop offset="0%" stopColor="#1A0820" />
+            <stop offset="45%" stopColor={hairCol} />
+            <stop offset="75%" stopColor={hairHi} />
+            <stop offset="100%" stopColor="#0A0310" />
+          </linearGradient>
+          <linearGradient id="mg-shirt" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stopColor="#1A1A1A" />
+            <stop offset="100%" stopColor="#0D0D0D" />
+          </linearGradient>
+          <linearGradient id="mg-skirt" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stopColor="#111118" />
+            <stop offset="100%" stopColor="#1a1025" />
+          </linearGradient>
+          <linearGradient id="mg-boot" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stopColor="#1c1c1c" />
+            <stop offset="100%" stopColor="#0a0a0a" />
+          </linearGradient>
+          <filter id="mg-glow" x="-50%" y="-50%" width="200%" height="200%">
+            <feGaussianBlur stdDeviation="2.5" result="blur"/>
+            <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+          <filter id="mg-softshadow">
+            <feDropShadow dx="0" dy="3" stdDeviation="4" floodColor="#1a0030" floodOpacity="0.35"/>
+          </filter>
+          <clipPath id="mg-eyeclip-l">
+            <ellipse cx="82" cy="112" rx="12" ry={eyeH} />
+          </clipPath>
+          <clipPath id="mg-eyeclip-r">
+            <ellipse cx="138" cy="112" rx="12" ry={eyeH} />
+          </clipPath>
+        </defs>
 
-      <rect width="300" height="450" fill="transparent" />
-
-      <g transform={`translate(0, ${breathe * 0.5})`}>
-        <path d={`M 90 280 Q 85 260 95 240 Q 110 220 150 ${215 + breathe} Q 190 220 205 240 Q 215 260 210 280 L 220 380 Q 220 420 200 440 L 100 440 Q 80 420 80 380 Z`}
-          fill="url(#shirtGrad)" stroke="#222" strokeWidth="0.5" />
-        <path d={`M 108 235 Q 120 228 150 ${225 + breathe} Q 180 228 192 235`}
-          fill="none" stroke="#333" strokeWidth="1.5" />
-        <path d={`M 108 235 Q 115 230 130 228 Q 150 ${224 + breathe} Q 170 228 185 230 Q 192 235 192 235 Q 185 240 150 ${238 + breathe} Q 115 240 108 235`}
-          fill="url(#skinGrad)" />
-        <line x1="115" y1="232" x2="140" y2={`${229 + breathe * 0.3}`} stroke="#D4C0B0" strokeWidth="0.5" opacity="0.5" />
-        <line x1="185" y1="232" x2="160" y2={`${229 + breathe * 0.3}`} stroke="#D4C0B0" strokeWidth="0.5" opacity="0.5" />
-        <g opacity="0.6" transform="translate(165, 228)">
-          <path d="M 0 0 Q 3 -3 6 -1 Q 8 1 6 3 Q 3 5 0 3 Z" fill="#3A1520" />
-          <path d="M 6 -1 Q 9 -4 12 -2 Q 14 0 12 2 Q 9 4 6 3" fill="#2A1020" />
-          <line x1="3" y1="3" x2="2" y2="8" stroke="#2A3A20" strokeWidth="0.5" />
-          <line x1="9" y1="2" x2="10" y2="7" stroke="#2A3A20" strokeWidth="0.5" />
-        </g>
-        <g transform="translate(120, 300)" opacity="0.3">
-          {[0,1,2,3,4,5,6].map(i => (
-            <path key={i} d={`M 0 ${i*5} Q 15 ${i*5 - (i===3?8:i===2||i===4?5:2)} 30 ${i*5 - (i===3?12:i===2||i===4?7:3)} Q 45 ${i*5 - (i===3?8:i===2||i===4?5:2)} 60 ${i*5}`}
-              fill="none" stroke="#666" strokeWidth="0.8" />
+        {/* ── Body / Torso ── */}
+        <g transform={`translate(0,${breathe * 0.55})`}>
+          {/* Skirt / lower body */}
+          <path d="M 68 230 Q 60 250 54 290 Q 50 310 52 320 L 168 320 Q 170 310 166 290 Q 160 250 152 230 Z"
+            fill="url(#mg-skirt)" />
+          {/* Skirt lace hem detail */}
+          {[0,1,2,3,4,5,6,7].map(i => (
+            <path key={i}
+              d={`M ${52 + i*17} 316 Q ${60 + i*17} 308 ${68 + i*17} 316`}
+              fill="none" stroke="#2a1840" strokeWidth="1.5" />
           ))}
-        </g>
-        <path d={`M 115 250 Q 120 260 135 ${268 + breathe} Q 150 272 165 ${268 + breathe} Q 180 260 185 250`}
-          fill="none" stroke="#1F1F1F" strokeWidth="0.5" opacity="0.4" />
-      </g>
+          {/* Fishnet texture lines on skirt */}
+          {[0,1,2,3].map(i => (
+            <line key={i} x1="55" y1={240 + i*18} x2="165" y2={240 + i*18}
+              stroke="#ffffff" strokeWidth="0.4" opacity="0.04" />
+          ))}
 
-      <g transform={`translate(0, ${breathe * 0.3})`}>
-        <path d={`M 135 210 L 135 195 Q 135 190 140 188 L 160 188 Q 165 190 165 195 L 165 210`}
-          fill="url(#skinGrad)" />
-        <rect x="133" y="200" width="34" height="5" rx="2" fill="#1A1A1A" />
-        <circle cx="150" cy="202.5" r="2.5" fill="#666" />
-      </g>
+          {/* Combat boots left */}
+          <rect x="60" y="295" width="34" height="25" rx="4" fill="url(#mg-boot)" />
+          <rect x="55" y="314" width="40" height="8" rx="3" fill="#0a0a0a" />
+          {/* boot laces */}
+          {[0,1,2,3].map(i => (
+            <line key={i} x1="63" y1={298 + i*4} x2="91" y2={298 + i*4}
+              stroke="#555" strokeWidth="0.8" />
+          ))}
+          <line x1="77" y1="296" x2="77" y2="315" stroke="#444" strokeWidth="0.8" />
 
-      <g transform={`translate(0, ${breathe * 0.2})`}>
-        <ellipse cx="150" cy="150" rx="52" ry="62" fill="url(#skinGrad)" filter="url(#softShadow)" />
-        <ellipse cx="130" cy="155" rx="12" ry="4" fill="rgba(80,50,70,0.15)" />
-        <ellipse cx="170" cy="155" rx="12" ry="4" fill="rgba(80,50,70,0.15)" />
-        <g>
-          <g transform={`translate(130, ${148 + m.browTilt * 0.3})`}>
-            <ellipse cx="0" cy="0" rx="11" ry={`${6 * eyeOpenness}`} fill="#0A0505" />
-            <ellipse cx="0" cy="0" rx="10" ry={`${5.5 * eyeOpenness}`} fill="white" />
-            <ellipse cx="0" cy="0" rx="5" ry={`${5 * eyeOpenness}`} fill={m.eye} />
-            <ellipse cx="0" cy="0" rx="3" ry={`${3 * eyeOpenness}`} fill="#0A0505" />
-            {eyeOpenness > 0.5 && <circle cx="-2" cy="-2" r="1.5" fill="white" opacity="0.8" />}
-            <ellipse cx="0" cy={`${4 * eyeOpenness}`} rx="9" ry="2" fill="rgba(20,10,15,0.3)" />
-            <line x1="9" y1="-2" x2="14" y2={`${-5 + m.browTilt * 0.5}`} stroke="#0A0505" strokeWidth="1.5" strokeLinecap="round" />
+          {/* Combat boots right */}
+          <rect x="126" y="295" width="34" height="25" rx="4" fill="url(#mg-boot)" />
+          <rect x="125" y="314" width="40" height="8" rx="3" fill="#0a0a0a" />
+          {[0,1,2,3].map(i => (
+            <line key={i} x1="129" y1={298 + i*4} x2="157" y2={298 + i*4}
+              stroke="#555" strokeWidth="0.8" />
+          ))}
+          <line x1="143" y1="296" x2="143" y2="315" stroke="#444" strokeWidth="0.8" />
+
+          {/* Legs (stockings) */}
+          <rect x="66" y="250" width="30" height="50" rx="8" fill="#1a1a1a" />
+          <rect x="124" y="250" width="30" height="50" rx="8" fill="#1a1a1a" />
+          {/* Stocking seam */}
+          <line x1="81" y1="252" x2="81" y2="296" stroke="#333" strokeWidth="0.7" />
+          <line x1="139" y1="252" x2="139" y2="296" stroke="#333" strokeWidth="0.7" />
+
+          {/* Shirt / torso */}
+          <path d="M 62 175 Q 58 195 60 220 Q 62 235 68 240 L 152 240 Q 158 235 160 220 Q 162 195 158 175 Z"
+            fill="url(#mg-shirt)" />
+
+          {/* Band tee graphic — Joy Division waves */}
+          <g transform="translate(85, 195)" opacity="0.55">
+            {[0,1,2,3,4].map(i => (
+              <path key={i}
+                d={`M 0 ${i*5} Q 8 ${i*5 - (i===2?6:i===1||i===3?4:2)} 16 ${i*5 - (i===2?8:i===1||i===3?5:2)} Q 24 ${i*5 - (i===2?6:i===1||i===3?4:2)} 32 ${i*5 - (i===2?2:1)} Q 40 ${i*5 - (i===2?6:2)} 50 ${i*5}`}
+                fill="none" stroke="#fff" strokeWidth="0.9" />
+            ))}
           </g>
-          <g transform={`translate(170, ${148 + m.browTilt * 0.3})`}>
-            <ellipse cx="0" cy="0" rx="11" ry={`${6 * eyeOpenness}`} fill="#0A0505" />
-            <ellipse cx="0" cy="0" rx="10" ry={`${5.5 * eyeOpenness}`} fill="white" />
-            <ellipse cx="0" cy="0" rx="5" ry={`${5 * eyeOpenness}`} fill={m.eye} />
-            <ellipse cx="0" cy="0" rx="3" ry={`${3 * eyeOpenness}`} fill="#0A0505" />
-            {eyeOpenness > 0.5 && <circle cx="-2" cy="-2" r="1.5" fill="white" opacity="0.8" />}
-            <ellipse cx="0" cy={`${4 * eyeOpenness}`} rx="9" ry="2" fill="rgba(20,10,15,0.3)" />
-            <line x1="-9" y1="-2" x2="-14" y2={`${-5 + m.browTilt * 0.5}`} stroke="#0A0505" strokeWidth="1.5" strokeLinecap="round" />
+
+          {/* Collar / neck */}
+          <path d="M 92 172 Q 100 165 110 163 Q 120 165 128 172 L 125 180 Q 110 175 95 180 Z"
+            fill="url(#mg-skin)" />
+
+          {/* Choker */}
+          <rect x="90" y="168" width="40" height="6" rx="3" fill="#0a0a0a" />
+          <circle cx="110" cy="171" r="2.5" fill="#2a2a3a" stroke="#555" strokeWidth="0.8" />
+          {/* Choker spikes */}
+          {[-12,-6,0,6,12].map(x => (
+            <polygon key={x}
+              points={`${110+x},165 ${113+x},170 ${107+x},170`}
+              fill="#1a1a2a" />
+          ))}
+
+          {/* Arms */}
+          {/* Left arm */}
+          <path d="M 62 178 Q 44 195 38 220 Q 35 235 40 245"
+            fill="none" stroke={skin} strokeWidth="22" strokeLinecap="round" />
+          <path d="M 62 178 Q 44 195 38 220 Q 35 235 40 245"
+            fill="none" stroke="#1a1a1a" strokeWidth="23" strokeLinecap="round" opacity="0.0" />
+          {/* Sleeve */}
+          <path d="M 62 178 Q 48 190 44 205"
+            fill="none" stroke="#111" strokeWidth="23" strokeLinecap="round" />
+          {/* Exposed forearm left */}
+          <path d="M 44 205 Q 40 220 38 240"
+            fill="none" stroke={skin} strokeWidth="18" strokeLinecap="round" />
+          {/* STILL tattoo on wrist */}
+          <text x="28" y="238" fontSize="4.5" fill="#8a6a7a" fontFamily="monospace"
+            transform="rotate(-15, 35, 238)">STILL</text>
+          {/* Left hand */}
+          <ellipse cx="40" cy="246" rx="9" ry="7" fill={skin} />
+          {/* Rings */}
+          <rect x="33" y="244" width="5" height="3" rx="1.5" fill="#888" />
+          <rect x="42" y="242" width="5" height="3" rx="1.5" fill="#666" />
+
+          {/* Right arm */}
+          <path d="M 158 178 Q 174 195 180 218 Q 183 232 180 242"
+            fill="none" stroke="#111" strokeWidth="23" strokeLinecap="round" />
+          <path d="M 172 205 Q 178 220 180 238"
+            fill="none" stroke={skin} strokeWidth="18" strokeLinecap="round" />
+          {/* Right hand */}
+          <ellipse cx="180" cy="244" rx="9" ry="7" fill={skin} />
+          <rect x="176" y="241" width="5" height="3" rx="1.5" fill="#777" />
+        </g>
+
+        {/* ── Head / Face ── */}
+        <g transform={`translate(0,${breathe * 0.28})`}>
+
+          {/* Rear hair (behind head) */}
+          <g transform={`rotate(${hairSway * 0.25}, 110, 100)`}>
+            <path d="M 55 105 Q 40 140 38 180 Q 36 210 42 240 Q 50 260 58 270"
+              fill="url(#mg-hair)" stroke="#0a0308" strokeWidth="1" />
+            <path d="M 165 105 Q 180 140 182 180 Q 184 210 178 240 Q 170 260 162 270"
+              fill="url(#mg-hair)" stroke="#0a0308" strokeWidth="1" />
+            {/* Long hair curtains */}
+            <path d="M 58 108 Q 44 160 40 210 Q 38 240 44 265"
+              fill="none" stroke={hairHi} strokeWidth="3" opacity="0.3" />
+            <path d="M 162 108 Q 176 160 180 210 Q 182 240 176 265"
+              fill="none" stroke={hairHi} strokeWidth="2.5" opacity="0.25" />
           </g>
+
+          {/* Head */}
+          <ellipse cx="110" cy="100" rx="55" ry="60" fill="url(#mg-skin)" filter="url(#mg-softshadow)" />
+
+          {/* Under-chin shadow */}
+          <ellipse cx="110" cy="150" rx="32" ry="8" fill="rgba(0,0,0,0.08)" />
+
+          {/* Blush */}
+          <ellipse cx="82" cy="118" rx="16" ry="9" fill="url(#mg-blush)" />
+          <ellipse cx="138" cy="118" rx="16" ry="9" fill="url(#mg-blush)" />
+
+          {/* ── Eyebrows ── */}
+          <path d={`M 68 ${browY - 2} Q 76 ${browY - 5} 94 ${browY}`}
+            fill="none" stroke="#0a0510" strokeWidth="3.5" strokeLinecap="round" />
+          <path d={`M 126 ${browY} Q 144 ${browY - 5} 152 ${browY - 2}`}
+            fill="none" stroke="#0a0510" strokeWidth="3.5" strokeLinecap="round" />
+          {/* Brow arch inner detail */}
+          <path d={`M 70 ${browY} Q 78 ${browY - 3} 92 ${browY + 1}`}
+            fill="none" stroke="#1a0a18" strokeWidth="1.2" strokeLinecap="round" opacity="0.5" />
+
+          {/* ── Eyes ── */}
+          {/* Left eye socket */}
+          <ellipse cx="82" cy="112" rx="14" ry={eyeH + 2} fill="#0a0505" />
+          {/* Left white */}
+          <ellipse cx="82" cy="112" rx="13" ry={eyeH} fill="white" clipPath="url(#mg-eyeclip-l)" />
+          {/* Left iris */}
+          <ellipse cx="82" cy="113" rx="7" ry={Math.min(eyeH, 8)} fill={eyeCol} clipPath="url(#mg-eyeclip-l)" />
+          {/* Left pupil */}
+          <ellipse cx="82" cy="113" rx="4" ry={Math.min(eyeH, 5.5)} fill="#050205" clipPath="url(#mg-eyeclip-l)" />
+          {/* Left highlight */}
+          {!blink && <circle cx="79" cy="110" r="2.2" fill="white" opacity="0.85" />}
+          {/* Left eyeliner top */}
+          <path d={`M 68 ${112 - eyeH * 0.6} Q 82 ${106 - eyeH * 0.3} 96 ${112 - eyeH * 0.5}`}
+            fill="none" stroke="#050208" strokeWidth="2.5" strokeLinecap="round" />
+          {/* Left eyeliner wing */}
+          <path d={`M 96 ${112 - eyeH * 0.5} Q 100 ${108 - eyeH * 0.3} 103 ${110}`}
+            fill="none" stroke="#050208" strokeWidth="2" strokeLinecap="round" />
+          {/* Left lower lash */}
+          <path d={`M 70 ${112 + eyeH * 0.7} Q 82 ${118} 94 ${112 + eyeH * 0.6}`}
+            fill="none" stroke="#1a0a15" strokeWidth="1.2" strokeLinecap="round" />
+
+          {/* Right eye socket */}
+          <ellipse cx="138" cy="112" rx="14" ry={eyeH + 2} fill="#0a0505" />
+          {/* Right white */}
+          <ellipse cx="138" cy="112" rx="13" ry={eyeH} fill="white" clipPath="url(#mg-eyeclip-r)" />
+          {/* Right iris */}
+          <ellipse cx="138" cy="113" rx="7" ry={Math.min(eyeH, 8)} fill={eyeCol} clipPath="url(#mg-eyeclip-r)" />
+          {/* Right pupil */}
+          <ellipse cx="138" cy="113" rx="4" ry={Math.min(eyeH, 5.5)} fill="#050205" clipPath="url(#mg-eyeclip-r)" />
+          {/* Right highlight */}
+          {!blink && <circle cx="135" cy="110" r="2.2" fill="white" opacity="0.85" />}
+          {/* Right eyeliner top */}
+          <path d={`M 124 ${112 - eyeH * 0.6} Q 138 ${106 - eyeH * 0.3} 152 ${112 - eyeH * 0.5}`}
+            fill="none" stroke="#050208" strokeWidth="2.5" strokeLinecap="round" />
+          <path d={`M 124 ${112 - eyeH * 0.6} Q 120 ${108 - eyeH * 0.3} 117 ${110}`}
+            fill="none" stroke="#050208" strokeWidth="2" strokeLinecap="round" />
+          <path d={`M 126 ${112 + eyeH * 0.7} Q 138 ${118} 150 ${112 + eyeH * 0.6}`}
+            fill="none" stroke="#1a0a15" strokeWidth="1.2" strokeLinecap="round" />
+
+          {/* ── Nose ── */}
+          <path d="M 108 122 Q 105 132 107 136 Q 110 138 113 136 Q 115 132 112 122"
+            fill="none" stroke="#c8a898" strokeWidth="1.2" strokeLinecap="round" opacity="0.7" />
+          {/* Septum ring */}
+          <path d="M 106 137 Q 110 141 114 137"
+            fill="none" stroke="#aaa" strokeWidth="1.8" strokeLinecap="round" />
+
+          {/* ── Mouth ── */}
+          <path d={`M 96 ${143 - mouthCurve * 0.2} Q 110 ${139 + mouthCurve * 0.5} 124 ${143 - mouthCurve * 0.2}`}
+            fill={lipCol} stroke="#5a0a20" strokeWidth="0.8" />
+          <path d={`M 96 ${143 - mouthCurve * 0.2} Q 110 ${148 - mouthCurve * 0.3} 124 ${143 - mouthCurve * 0.2}`}
+            fill="#8a1530" stroke="#5a0a20" strokeWidth="0.5" />
+          {/* Lip highlight */}
+          <path d="M 104 141 Q 110 139 116 141"
+            fill="none" stroke="rgba(255,180,180,0.3)" strokeWidth="1.5" strokeLinecap="round" />
+          {/* Lip piercing */}
+          <circle cx="98" cy="144" r="2" fill="#888" stroke="#555" strokeWidth="0.6" />
+
+          {/* Ear piercings left */}
+          <ellipse cx="55" cy="108" rx="7" ry="9" fill={skin} />
+          <circle cx="55" cy="103" r="2" fill="#666" stroke="#444" strokeWidth="0.7" />
+          <circle cx="55" cy="109" r="2.2" fill="none" stroke="#777" strokeWidth="1.2" />
+          <circle cx="55" cy="115" r="1.8" fill="#888" stroke="#444" strokeWidth="0.6" />
+
+          {/* Ear piercings right */}
+          <ellipse cx="165" cy="108" rx="7" ry="9" fill={skin} />
+          <circle cx="165" cy="103" r="2" fill="none" stroke="#666" strokeWidth="1.2" />
+          <circle cx="165" cy="110" r="1.8" fill="#777" stroke="#444" strokeWidth="0.6" />
+
+          {/* ── Front hair ── */}
+          <g transform={`rotate(${hairSway * 0.18}, 110, 60)`}>
+            {/* Main hair mass */}
+            <path d="M 55 95 Q 52 70 60 50 Q 72 28 110 24 Q 148 28 160 50 Q 168 70 165 95 Q 155 80 145 72 Q 130 60 110 58 Q 90 60 75 72 Q 65 80 55 95 Z"
+              fill="url(#mg-hair)" />
+            {/* Hair chunks / volume */}
+            <path d="M 55 95 Q 48 75 55 55 Q 62 40 72 35 Q 60 55 58 80 Z"
+              fill="#0a0308" />
+            <path d="M 165 95 Q 172 75 165 55 Q 158 40 148 35 Q 160 55 162 80 Z"
+              fill="#0a0308" />
+            {/* Side swept bangs */}
+            <path d="M 60 72 Q 68 88 76 100 Q 84 110 82 118"
+              fill="url(#mg-hair)" />
+            <path d="M 55 90 Q 62 108 72 120 Q 78 128 76 138"
+              fill="url(#mg-hair)" opacity="0.85" />
+            {/* Fringe / bangs hanging */}
+            <path d="M 78 42 Q 74 60 70 80 Q 68 95 72 108"
+              fill="url(#mg-hair)" stroke="#150a20" strokeWidth="1" />
+            <path d="M 90 36 Q 86 55 84 78 Q 83 95 86 112"
+              fill="url(#mg-hair)" stroke="#150a20" strokeWidth="1.5" />
+            <path d="M 104 32 Q 102 52 102 75 Q 102 95 105 112"
+              fill="url(#mg-hair)" stroke="#150a20" strokeWidth="2" />
+            {/* Hair highlights */}
+            <path d="M 85 40 Q 82 65 80 90" fill="none" stroke={hairHi} strokeWidth="2" opacity="0.35" />
+            <path d="M 100 34 Q 98 58 97 85" fill="none" stroke={hairHi} strokeWidth="1.5" opacity="0.25" />
+            {/* Hair accessories — small star clips */}
+            <polygon points="140,52 142,48 144,52 148,52 145,55 146,59 142,57 138,59 139,55 136,52"
+              fill="#3a1850" stroke={hairHi} strokeWidth="0.8" />
+            <polygon points="72,58 73,55 75,58 78,58 75,60 76,63 73,61 70,63 71,60 68,58"
+              fill="#1a0830" stroke={hairHi} strokeWidth="0.7" opacity="0.8" />
+          </g>
+
+          {/* Crescent moon tattoo behind ear */}
+          <path d="M 51 90 Q 46 95 51 100 Q 49 95 52 92 Z"
+            fill="#8a6a9a" opacity="0.6" />
         </g>
-        <path d={`M 118 ${135 - m.browTilt} Q 130 ${130 - m.browTilt * 1.5} 142 ${134 - m.browTilt}`}
-          fill="none" stroke="#1A0A10" strokeWidth="2" strokeLinecap="round" />
-        <path d={`M 158 ${134 - m.browTilt} Q 170 ${130 - m.browTilt * 1.5} 182 ${135 - m.browTilt}`}
-          fill="none" stroke="#1A0A10" strokeWidth="2" strokeLinecap="round" />
-        <circle cx="150" cy="168" r="2.5" fill="none" stroke="#999" strokeWidth="1" />
-        <path d="M 150 145 Q 148 158 145 165 Q 148 168 150 168 Q 152 168 155 165 Q 152 158 150 145"
-          fill="none" stroke="#D4B8A8" strokeWidth="0.8" />
-        <ellipse cx="125" cy="162" rx="12" ry="6" fill="url(#blushGrad)" />
-        <ellipse cx="175" cy="162" rx="12" ry="6" fill="url(#blushGrad)" />
-        <g transform="translate(150, 180)">
-          <path d={`M -12 0 Q -6 ${-3 + m.mouthCurve * 0.3} 0 ${-2 + m.mouthCurve * 0.5} Q 6 ${-3 + m.mouthCurve * 0.3} 12 0`}
-            fill="#4A1525" stroke="#3A0A15" strokeWidth="0.5" />
-          <path d={`M -12 0 Q -6 ${3 - m.mouthCurve * 0.2 + mouthOpen} 0 ${4 - m.mouthCurve * 0.3 + mouthOpen} Q 6 ${3 - m.mouthCurve * 0.2 + mouthOpen} 12 0`}
-            fill="#3A1020" stroke="#3A0A15" strokeWidth="0.5" />
-          <circle cx="-8" cy="3" r="1.5" fill="none" stroke="#888" strokeWidth="0.8" />
-        </g>
-        <circle cx="98" cy="148" r="1.2" fill="#999" />
-        <circle cx="97" cy="142" r="1.2" fill="#999" />
-        <circle cx="97" cy="136" r="1" fill="#888" />
-        <circle cx="202" cy="146" r="3" fill="none" stroke="#999" strokeWidth="0.8" />
-        <circle cx="202" cy="138" r="2.5" fill="none" stroke="#888" strokeWidth="0.8" />
-        <path d="M 95 130 Q 90 125 92 120 Q 93 116 97 115" fill="none" stroke="#3A3A50" strokeWidth="1" opacity="0.5" />
-        <g transform={`rotate(${hairSway * 0.3}, 150, 100)`}>
-          <path d="M 90 120 Q 80 80 95 60 Q 110 40 150 35 Q 190 40 205 60 Q 220 80 210 120 Q 215 160 220 200 Q 218 230 210 250 L 205 250 Q 210 220 208 190 Q 205 160 202 130"
-            fill="url(#hairGrad)" />
-          <path d="M 210 120 Q 200 100 200 80 Q 195 55 150 42 Q 105 55 100 80 Q 100 100 90 120 Q 82 150 80 190 Q 78 220 85 260 L 90 260 Q 88 230 88 200 Q 90 170 95 145"
-            fill="url(#hairGrad)" />
-          <path d={`M 100 80 Q 95 110 ${88 + hairSway} 150 Q 85 180 82 210`}
-            fill="none" stroke="#4A2060" strokeWidth="3" opacity="0.5" />
-          <path d={`M 195 75 Q 200 105 ${208 + hairSway} 140 Q 212 170 215 200`}
-            fill="none" stroke="#4A2060" strokeWidth="2.5" opacity="0.4" />
-          <path d={`M 110 65 Q 105 95 ${100 + hairSway} 130`}
-            fill="none" stroke="#3A1850" strokeWidth="2" opacity="0.3" />
-          <path d="M 105 80 Q 115 70 125 85 Q 130 95 120 105 Q 110 110 105 100 Z" fill="#0D0510" />
-          <path d="M 120 75 Q 135 65 145 80 Q 148 92 140 100 Q 130 105 122 95 Z" fill="#100815" />
-          <path d="M 140 70 Q 155 62 165 75 Q 168 85 160 92 Q 150 95 142 88 Z" fill="#0D0510" />
-          <path d="M 158 72 Q 170 68 178 78 Q 180 88 175 92 Q 165 95 160 85 Z" fill="#100815" />
-          <path d={`M 95 130 Q ${85 + hairSway} 160 ${80 + hairSway * 1.5} 200`}
-            fill="none" stroke="#1A0A15" strokeWidth="1.5" />
-          <path d={`M 205 125 Q ${215 + hairSway} 155 ${220 + hairSway * 1.5} 195`}
-            fill="none" stroke="#1A0A15" strokeWidth="1.5" />
-        </g>
-        {m.sparkle && (
-          <g filter="url(#glow)">
-            <circle cx="105" cy="125" r="1.5" fill="#E8B4C8" opacity="0.7">
-              <animate attributeName="opacity" values="0.3;0.8;0.3" dur="2s" repeatCount="indefinite" />
+
+        {/* ── Sparkles (mood) ── */}
+        {sparklePos.map((sp, i) => (
+          <g key={i} filter="url(#mg-glow)">
+            <circle cx={sp.x} cy={sp.y} r="2" fill="#E8B4D0">
+              <animate attributeName="opacity" values="0;0.9;0" dur={sp.dur} begin={sp.delay} repeatCount="indefinite" />
+              <animate attributeName="r" values="1;2.5;1" dur={sp.dur} begin={sp.delay} repeatCount="indefinite" />
             </circle>
-            <circle cx="200" cy="130" r="1" fill="#C4A0D0" opacity="0.6">
-              <animate attributeName="opacity" values="0.5;1;0.5" dur="1.5s" repeatCount="indefinite" />
-            </circle>
-            <circle cx="160" cy="105" r="1.2" fill="#E8B4C8" opacity="0.5">
-              <animate attributeName="opacity" values="0.2;0.7;0.2" dur="2.5s" repeatCount="indefinite" />
-            </circle>
+            <path d={`M ${sp.x} ${sp.y-5} L ${sp.x+1} ${sp.y-1} L ${sp.x+5} ${sp.y} L ${sp.x+1} ${sp.y+1} L ${sp.x} ${sp.y+5} L ${sp.x-1} ${sp.y+1} L ${sp.x-5} ${sp.y} L ${sp.x-1} ${sp.y-1} Z`}
+              fill="#D4A0C8" opacity="0.6">
+              <animate attributeName="opacity" values="0;0.6;0" dur={sp.dur} begin={sp.delay} repeatCount="indefinite" />
+            </path>
+          </g>
+        ))}
+
+        {/* ── Speaking indicator ── */}
+        {speaking && (
+          <g transform="translate(148, 148)">
+            {[0,1,2].map(i => (
+              <circle key={i} cx={i * 7} cy="0" r="2.5" fill={T.accent} opacity="0.8">
+                <animate attributeName="cy" values="0;-5;0" dur="0.6s" begin={`${i*0.2}s`} repeatCount="indefinite" />
+              </circle>
+            ))}
           </g>
         )}
-      </g>
-
-      <g transform={`translate(0, ${breathe * 0.4})`}>
-        <path d={`M 95 260 Q 75 290 70 330 Q 68 345 72 350`}
-          fill="none" stroke="#1A1A1A" strokeWidth="18" strokeLinecap="round" />
-        <ellipse cx="72" cy="352" rx="6" ry="4" fill="url(#skinGrad)" />
-        <circle cx="69" cy="354" r="1.2" fill="#1A1A1A" />
-        <circle cx="72" cy="355" r="1.2" fill="#1A1A2A" />
-        <circle cx="70" cy="351" r="2" fill="none" stroke="#AAA" strokeWidth="0.6" />
-        <circle cx="74" cy="353" r="1.8" fill="none" stroke="#999" strokeWidth="0.6" />
-        <path d={`M 205 260 Q 225 290 228 330 Q 230 345 226 350`}
-          fill="none" stroke="#1A1A1A" strokeWidth="18" strokeLinecap="round" />
-        <ellipse cx="226" cy="352" rx="6" ry="4" fill="url(#skinGrad)" />
-        <circle cx="224" cy="354" r="1.2" fill="#1A1A1A" />
-        <circle cx="228" cy="354" r="1.2" fill="#1A1A2A" />
-        <circle cx="225" cy="351" r="2" fill="none" stroke="#AAA" strokeWidth="0.6" />
-      </g>
-    </svg>
+      </svg>
+    </div>
   );
 }
 
@@ -638,9 +820,25 @@ export default function App() {
   const [currentMood, setCurrentMood] = useState("neutral");
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
+  // ── Memory cache — fetched once per login, cleared on logout ───
+  const memoryCache = useRef(null);
 
   const token = () => localStorage.getItem("token");
   const hdrs = () => ({ "Content-Type": "application/json", Authorization: `Bearer ${token()}` });
+
+  // Fetch personality/memory once and cache it in the ref.
+  // The backend uses req.user.id to inject memory into the system prompt,
+  // so this cache is used to avoid hammering /api/personality on every message.
+  const loadMemory = async () => {
+    try {
+      const res = await fetch(`${API}/api/personality`, {
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("token")}` },
+      });
+      if (res.ok) memoryCache.current = await res.json();
+    } catch (e) {
+      console.warn("[MEMORY] Failed to preload:", e.message);
+    }
+  };
 
   // ── Boot: restore session from token ──────────────────────────
   useEffect(() => {
@@ -650,6 +848,7 @@ export default function App() {
     if (payload && payload.id) {
       setUser({ id: payload.id, phrase: payload.phrase });
       setAuthed(true);
+      setTimeout(loadMemory, 0); // load memory immediately on session restore
     } else {
       localStorage.removeItem("token");
     }
@@ -666,6 +865,14 @@ export default function App() {
     ck();
     const iv = setInterval(ck, 30000);
     return () => clearInterval(iv);
+  }, [authed]);
+
+  // ── Flush session on tab close / refresh ───────────────────────
+  useEffect(() => {
+    if (!authed) return;
+    const handleUnload = () => endSession();
+    window.addEventListener("beforeunload", handleUnload);
+    return () => window.removeEventListener("beforeunload", handleUnload);
   }, [authed]);
 
   // ── Load conversation list ─────────────────────────────────────
@@ -793,8 +1000,21 @@ export default function App() {
   };
 
   // ── Logout ─────────────────────────────────────────────────────
+  const endSession = () => {
+    const t = localStorage.getItem("token");
+    if (!t) return;
+    // Fire-and-forget — flush session cache to DB
+    fetch(`${API}/api/session/end`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${t}` },
+      keepalive: true, // ensures it completes even if page is closing
+    }).catch(() => {});
+  };
+
   const handleLogout = () => {
+    endSession();
     localStorage.removeItem("token");
+    memoryCache.current = null;
     setAuthed(false);
     setUser(null);
     setConversations([]);
@@ -804,7 +1024,11 @@ export default function App() {
 
   // ── Auth gate ──────────────────────────────────────────────────
   if (!authed) {
-    return <AuthScreen onAuth={d => { setUser(d.user); setAuthed(true); }} />;
+    return <AuthScreen onAuth={d => {
+      setUser(d.user);
+      setAuthed(true);
+      setTimeout(loadMemory, 0); // load memory immediately after fresh login
+    }} />;
   }
 
   const showWelcome = messages.length === 0 && !streamText && !activeConvo;

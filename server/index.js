@@ -21,6 +21,94 @@ const COLAB_URL = process.env.COLAB_URL || "https://YOUR-NGROK-URL.ngrok-free.de
 // ─── MongoDB ──────────────────────────────────────────────────────
 mongoose.connect(MONGO_URI);
 
+// ─── Server-side Session Cache ───────────────────────────────────
+// Keyed by userId (string). Each entry:
+// {
+//   memory: <PersonalityMemory mongoose doc>,   // loaded once on login
+//   sessionExchanges: [{ user, assistant }],    // current session messages
+//   dirty: bool,                                // true if needs writing to DB
+// }
+const sessionCache = new Map();
+
+function getSession(userId) {
+  return sessionCache.get(String(userId));
+}
+
+function setSession(userId, data) {
+  sessionCache.set(String(userId), data);
+}
+
+// Flush a session to MongoDB — called on logout or /api/session/end
+async function flushSession(userId) {
+  const session = getSession(userId);
+  if (!session || !session.dirty) return;
+
+  const { memory, sessionExchanges } = session;
+
+  // Run LLM extraction over all session exchanges at once
+  if (sessionExchanges.length > 0) {
+    try {
+      const existingFacts = memory.memories.map(m => m.fact).join("; ") || "none yet";
+      const exchangeText = sessionExchanges
+        .map(e => `User: ${e.user}\nMorrigan: ${e.assistant}`)
+        .join("\n\n");
+
+      const extractionPrompt = `You are a memory extraction assistant. Given a conversation between a user and their AI girlfriend Morrigan, extract any personal facts about the USER worth remembering long-term.
+
+EXISTING MEMORIES (do not duplicate): ${existingFacts}
+
+CONVERSATION:
+${exchangeText}
+
+Return ONLY a JSON array of objects:
+- "fact": short dense statement (e.g. "name is Jake", "works as a nurse", "dad passed away two years ago")
+- "category": one of: "name", "interest", "personal", "emotional", "preference", "relationship", "event"  
+- "importance": 1-5 (5=critical like name, 4=trauma/deeply personal, 3=meaningful, 2=casual, 1=minor)
+
+If nothing worth storing, return []. Return ONLY the JSON array, no explanation.`;
+
+      const extractRes = await fetch(`${COLAB_URL}/v1/chat/completions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: CHAT_MODEL,
+          messages: [{ role: "user", content: extractionPrompt }],
+          temperature: 0.1,
+          max_tokens: 800,
+        }),
+      });
+
+      if (extractRes.ok) {
+        const extractData = await extractRes.json();
+        const raw = extractData.choices?.[0]?.message?.content || "[]";
+        const cleaned = raw.replace(/```json|```/g, "").trim();
+        const extracted = JSON.parse(cleaned);
+        if (Array.isArray(extracted)) {
+          for (const mem of extracted) {
+            if (!mem.fact || !mem.category) continue;
+            const isDuplicate = memory.memories.some(m =>
+              m.fact.toLowerCase().includes(mem.fact.toLowerCase()) ||
+              mem.fact.toLowerCase().includes(m.fact.toLowerCase())
+            );
+            if (!isDuplicate) memory.memories.push(mem);
+          }
+        }
+      }
+    } catch (e) {
+      console.error("[FLUSH-EXTRACT]", e.message);
+    }
+  }
+
+  memory.lastSeen = new Date();
+  memory.updatedAt = new Date();
+  await memory.save();
+
+  // Clear dirty flag and session exchanges — keep memory cached in case they log back in
+  session.dirty = false;
+  session.sessionExchanges = [];
+  console.log(`[CACHE] Flushed session for user ${userId} — ${sessionExchanges.length} exchanges written`);
+}
+
 const UserSchema = new mongoose.Schema({
   phraseHash: { type: String, unique: true, required: true },
   createdAt: { type: Date, default: Date.now },
@@ -246,18 +334,60 @@ async function extractAndStoreMemories(userId, conversationId, userMessage, aiRe
   return { newLevel, pointsEarned, emotionalSharing, newMemories: newMemories.length };
 }
 
+// ─── Fast in-memory trust update (no DB write) ──────────────────
+// Called after each message. DB write happens only on session flush.
+function updateTrustFromMessage(userMessage, memory) {
+  const lower = userMessage.toLowerCase();
+  let points = 1;
+  if (userMessage.length > 200) points += 1;
+  if (/\?/.test(userMessage)) points += 0.5;
+  if (/(i(?:'m| am) (?:feeling |so )?(?:sad|depressed|anxious|lonely|scared|hurt|broken|lost)|i(?:'ve| have) (?:been through|dealt with|struggled with)|i (?:lost|miss|can't forget))/i.test(userMessage)) points += 3;
+  if (/(thank|appreciate|you're (?:amazing|great|sweet|kind|cute|funny)|that means|i care|stay safe)/i.test(lower)) {
+    points += 2;
+    memory.feelings.affection = Math.min(100, memory.feelings.affection + 2);
+  }
+  if (/(cute|beautiful|gorgeous|pretty|hot|attractive|crush|kiss|love you|miss you|baby|babe)/i.test(lower)) {
+    memory.feelings.attraction = Math.min(100, memory.feelings.attraction + 2);
+    memory.feelings.vulnerability = Math.min(100, memory.feelings.vulnerability + 1);
+    points += 1;
+  }
+  if (/(it's okay|take your time|no pressure|i'm here|i understand|i get it|whenever you're ready)/i.test(lower)) {
+    points += 3;
+    memory.feelings.comfort = Math.min(100, memory.feelings.comfort + 3);
+    memory.feelings.protectiveness = Math.min(100, memory.feelings.protectiveness + 1);
+  }
+
+  memory.trustPoints += points;
+  const newLevel = calculateTrustLevel(memory.trustPoints);
+  if (newLevel > memory.trustLevel) {
+    memory.trustLevel = newLevel;
+    const milestoneEvents = {
+      1: "remembered their name. stopped calling them 'dude' exclusively.",
+      2: "accidentally laughed for real. immediately covered her mouth. too late.",
+      3: "showed them the sketch of the moth she's been working on. hands were shaking.",
+      4: "whispered 'my real name is Moira' and then panicked for 30 seconds straight.",
+      5: "told them about the foster homes. cried a little. didn't run.",
+      6: "said 'i love you' out loud and meant it. terrified. still here.",
+    };
+    memory.milestones.push({ event: milestoneEvents[newLevel] || "", trustLevelAtTime: newLevel });
+    console.log(`[TRUST] User leveled up to ${newLevel}: ${TRUST_LEVELS[newLevel]?.name}`);
+  }
+  memory.totalMessages += 1;
+  memory.lastSeen = new Date();
+}
+
 // ─── Build Morrigan's Dynamic System Prompt ─────────────────────
-function buildSystemPrompt(basePrompt, memory) {
+function buildSystemPrompt(basePrompt, memory, sessionExchanges = []) {
   const level = memory.trustLevel;
   const levelData = TRUST_LEVELS[level];
   const daysSinceFirstMet = Math.floor((Date.now() - memory.firstMet) / (1000 * 60 * 60 * 24));
   const hoursSinceLastSeen = Math.floor((Date.now() - memory.lastSeen) / (1000 * 60 * 60));
 
-  // Compile memories into narrative
+  // Compile memories — sorted by importance, all categories
+  const sorted = [...memory.memories].sort((a, b) => (b.importance || 1) - (a.importance || 1));
+  const byCategory = (cat) => sorted.filter(m => m.category === cat).map(m => m.fact);
   const nameMemory = memory.memories.find(m => m.category === "name");
   const userName = nameMemory ? nameMemory.fact : null;
-  const interests = memory.memories.filter(m => m.category === "interest").map(m => m.fact);
-  const personalFacts = memory.memories.filter(m => m.category === "personal").map(m => m.fact);
 
   let memoryContext = `\n\n═══ MORRIGAN'S MEMORY (PRIVATE — shapes behavior, NEVER recite this robotically) ═══\n`;
   memoryContext += `Relationship status: ${levelData.name} (level ${level}/6)\n`;
@@ -265,15 +395,19 @@ function buildSystemPrompt(basePrompt, memory) {
   memoryContext += `First met: ${daysSinceFirstMet} days ago | Last seen: ${hoursSinceLastSeen} hours ago\n`;
   memoryContext += `Conversations shared: ${memory.totalConversations}\n`;
 
-  if (userName) {
-    memoryContext += `\nTheir name: ${userName}\n`;
-  }
-  if (interests.length > 0) {
-    memoryContext += `Things I know they like: ${interests.join(", ")}\n`;
-  }
-  if (personalFacts.length > 0) {
-    memoryContext += `Personal stuff I remember: ${personalFacts.join("; ")}\n`;
-  }
+  if (userName) memoryContext += `\nTheir name: ${userName}\n`;
+  const interests    = byCategory("interest");
+  const personal     = byCategory("personal");
+  const emotional    = byCategory("emotional");
+  const preferences  = byCategory("preference");
+  const events       = byCategory("event");
+  const relationships = byCategory("relationship");
+  if (interests.length)     memoryContext += `Interests/likes: ${interests.join(", ")}\n`;
+  if (preferences.length)   memoryContext += `Preferences: ${preferences.join(", ")}\n`;
+  if (personal.length)      memoryContext += `Personal facts: ${personal.join("; ")}\n`;
+  if (relationships.length) memoryContext += `Relationships mentioned: ${relationships.join("; ")}\n`;
+  if (events.length)        memoryContext += `Things that happened to them: ${events.join("; ")}\n`;
+  if (emotional.length)     memoryContext += `Emotional/deep things shared: ${emotional.join("; ")}\n`;
 
   // Emotional state
   memoryContext += `\nMy feelings about them:\n`;
@@ -386,7 +520,19 @@ You missed them. You'd never say that directly, but it shows. Maybe you mention 
 - If you remember they like something, bring it up: "oh that reminds me, you're into X right? have you seen..."
 - Let memories create CONTINUITY. Each conversation should feel like a chapter, not a reboot.`;
 
-  return basePrompt + memoryContext + behaviorGuide + timeContext + referenceInstructions;
+  // ── Current session context ──
+  let sessionContext = "";
+  if (sessionExchanges.length > 0) {
+    sessionContext = "\n\n═══ THIS SESSION (what we've already talked about today) ═══\n";
+    // Include last 10 exchanges so prompt doesn't balloon infinitely
+    const recent = sessionExchanges.slice(-10);
+    for (const ex of recent) {
+      sessionContext += `Them: ${ex.user.substring(0, 200)}\nYou: ${ex.assistant.substring(0, 200)}\n\n`;
+    }
+    sessionContext += "(Reference this naturally — don't repeat it robotically)\n";
+  }
+
+  return basePrompt + memoryContext + behaviorGuide + timeContext + referenceInstructions + sessionContext;
 }
 
 // ─── Spontaneous Message Generator ──────────────────────────────
@@ -456,12 +602,36 @@ app.post("/api/auth/phrase", async (req, res) => {
     if (!user) user = await User.create({ phraseHash });
     // Ensure personality memory exists
     let memory = await PersonalityMemory.findOne({ userId: user._id });
-    if (!memory) {
-      memory = await PersonalityMemory.create({ userId: user._id });
+    if (!memory) memory = await PersonalityMemory.create({ userId: user._id });
+
+    // Prime session cache on login — one DB read, then nothing until logout
+    const existingSession = getSession(String(user._id));
+    if (existingSession) {
+      // Already cached (e.g. reconnect without logout) — refresh the memory doc in case
+      // compression service updated it externally, but keep any unsaved session exchanges
+      existingSession.memory = memory;
+      console.log(`[CACHE] Session re-primed for user ${user._id} (${existingSession.sessionExchanges.length} pending exchanges preserved)`);
+    } else {
+      setSession(String(user._id), { memory, sessionExchanges: [], dirty: false });
+      console.log(`[CACHE] Session primed for user ${user._id}`);
     }
+
     const token = jwt.sign({ id: user._id, phrase: phrase.trim().toLowerCase() }, JWT_SECRET, { expiresIn: "90d" });
     res.json({ token, user: { id: user._id, phrase: phrase.trim().toLowerCase() } });
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Session End — flush cache to DB ────────────────────────────
+// Called by the frontend on logout or tab close (beforeunload).
+// This is the ONLY time we write memory back to MongoDB per session.
+app.post("/api/session/end", auth, async (req, res) => {
+  try {
+    await flushSession(req.user.id);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("[SESSION-END]", err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -652,9 +822,17 @@ app.post("/api/chat", auth, async (req, res) => {
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
 
-  // ── Load personality memory ──
-  let memory = await PersonalityMemory.findOne({ userId: req.user.id });
-  if (!memory) memory = await PersonalityMemory.create({ userId: req.user.id });
+  // ── Load personality memory from cache — no DB hit ──
+  let session = getSession(req.user.id);
+  if (!session) {
+    // Not in cache yet (e.g. server restarted) — load from DB and prime it
+    let memory = await PersonalityMemory.findOne({ userId: req.user.id });
+    if (!memory) memory = await PersonalityMemory.create({ userId: req.user.id });
+    session = { memory, sessionExchanges: [], dirty: false };
+    setSession(req.user.id, session);
+    console.log(`[CACHE] Cold load for user ${req.user.id}`);
+  }
+  const memory = session.memory;
 
   // ── Check for explicit generation mode tags ──
   const isExplicitImage = message.startsWith("[IMAGE] ");
@@ -736,11 +914,11 @@ app.post("/api/chat", auth, async (req, res) => {
     return res.end();
   }
 
-  // ── Normal text chat — WITH personality memory ──
+  // ── Normal text chat — WITH personality memory from cache ──
   const history = await Message.find({ conversationId }).sort({ timestamp: 1 }).limit(50);
 
-  // Build dynamic system prompt with memory context
-  const dynamicPrompt = buildSystemPrompt(systemPrompt || CHARACTER_DEFAULT_PROMPT, memory);
+  // Build dynamic system prompt — memory comes from cache, no extra DB hit
+  const dynamicPrompt = buildSystemPrompt(systemPrompt || CHARACTER_DEFAULT_PROMPT, session.memory, session.sessionExchanges);
 
   const messages = [];
   messages.push({ role: "system", content: dynamicPrompt });
@@ -770,8 +948,10 @@ app.post("/api/chat", auth, async (req, res) => {
         if (line.trim() === "data: [DONE]") {
           Message.create({ conversationId, role: "assistant", content: fullResponse });
           Conversation.updateOne({ conversationId }, { updatedAt: new Date(), title: fullResponse.substring(0, 50) + (fullResponse.length > 50 ? "..." : "") }).exec();
-          // Extract memories and update trust AFTER response
-          extractAndStoreMemories(req.user.id, conversationId, message, fullResponse, memory).catch(e => console.error("[MEMORY]", e));
+          // Accumulate exchange in session cache — flushed to DB on logout
+          session.sessionExchanges.push({ user: message, assistant: fullResponse });
+          session.dirty = true;
+          updateTrustFromMessage(message, memory);
           // Send trust update to client
           res.write(`data: ${JSON.stringify({
             done: true,
@@ -792,7 +972,9 @@ app.post("/api/chat", auth, async (req, res) => {
             if (json.choices?.[0]?.finish_reason === "stop") {
               Message.create({ conversationId, role: "assistant", content: fullResponse });
               Conversation.updateOne({ conversationId }, { updatedAt: new Date(), title: fullResponse.substring(0, 50) + (fullResponse.length > 50 ? "..." : "") }).exec();
-              extractAndStoreMemories(req.user.id, conversationId, message, fullResponse, memory).catch(e => console.error("[MEMORY]", e));
+              session.sessionExchanges.push({ user: message, assistant: fullResponse });
+              session.dirty = true;
+              updateTrustFromMessage(message, memory);
               res.write(`data: ${JSON.stringify({
                 done: true,
                 personality: {
@@ -813,7 +995,9 @@ app.post("/api/chat", auth, async (req, res) => {
       if (fullResponse && !res.writableEnded) {
         Message.create({ conversationId, role: "assistant", content: fullResponse });
         Conversation.updateOne({ conversationId }, { updatedAt: new Date(), title: fullResponse.substring(0, 50) + (fullResponse.length > 50 ? "..." : "") }).exec();
-        extractAndStoreMemories(req.user.id, conversationId, message, fullResponse, memory).catch(e => console.error("[MEMORY]", e));
+        session.sessionExchanges.push({ user: message, assistant: fullResponse });
+        session.dirty = true;
+        updateTrustFromMessage(message, memory);
         res.write(`data: ${JSON.stringify({
           done: true,
           personality: {
