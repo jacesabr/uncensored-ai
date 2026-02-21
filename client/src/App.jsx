@@ -3,12 +3,14 @@ const API = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
 // ─── Dark Romantic Gothic Theme ─────────────────────────────────
 const T = {
-  bg: "#0A0A0C", surface: "#111114", surface2: "#1A1A1F", surface3: "#222228",
-  border: "#2A2A33", borderLight: "#3A3A44", text: "#E2DAD0", textSoft: "#A89F97",
-  textDim: "#5E5A56", accent: "#9B2D5E", accentSoft: "#9B2D5E18", accentHover: "#B8406F",
-  accentGlow: "#9B2D5E40", green: "#4A9E6E", red: "#C44B3F",
-  userBubble: "#9B2D5E", aiBubble: "#15151A",
-  purple: "#6B3FA0", violet: "#8B5CF6", rose: "#E11D48",
+  bg: "#f6f7fb",
+  surface: "#ffffff",
+  border: "#e6e8ef",
+  text: "#1f2937",
+  subtext: "#6b7280",
+  accent: "#7c3aed",
+  accentSoft: "#ede9fe",
+  danger: "#dc2626",
 };
 
 const FONT = "'Crimson Pro', 'Georgia', 'Garamond', serif";
@@ -491,61 +493,6 @@ function MessageBubble({ msg }) {
   );
 }
 
-// ─── Sidebar ────────────────────────────────────────────────────
-function Sidebar({ conversations, activeId, onSelectConvo, onNew, onDelete, onLogout }) {
-  return (
-    <div style={{
-      width: 270, background: T.surface, borderRight: `1px solid ${T.border}`,
-      display: "flex", flexDirection: "column", flexShrink: 0,
-    }}>
-      <div style={{
-        padding: "18px 20px", display: "flex", justifyContent: "space-between",
-        alignItems: "center", borderBottom: `1px solid ${T.border}`,
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ width: 8, height: 8, borderRadius: "50%", background: T.accent, boxShadow: `0 0 8px ${T.accent}` }} />
-          <span style={{ color: T.text, fontWeight: 400, fontSize: 16, fontFamily: FONT_DISPLAY, letterSpacing: "-0.3px" }}>
-            {CHARACTER.name}
-          </span>
-        </div>
-        <button style={{
-          background: T.surface2, color: T.textSoft, border: `1px solid ${T.border}`,
-          borderRadius: 8, width: 32, height: 32, fontSize: 18, cursor: "pointer",
-          display: "flex", alignItems: "center", justifyContent: "center",
-        }} onClick={onNew}>+</button>
-      </div>
-      <div style={{ flex: 1, overflowY: "auto", padding: "6px 0" }}>
-        {conversations.map(c => (
-          <div key={c.conversationId} style={{
-            padding: "10px 18px", cursor: "pointer",
-            display: "flex", justifyContent: "space-between", alignItems: "center",
-            transition: "all 0.15s",
-            background: c.conversationId === activeId ? T.surface2 : "transparent",
-            borderLeft: c.conversationId === activeId ? `2px solid ${T.accent}` : "2px solid transparent",
-          }} onClick={() => onSelectConvo(c.conversationId)}>
-            <span style={{
-              fontSize: 13, color: c.conversationId === activeId ? T.text : T.textSoft,
-              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1,
-              fontFamily: FONT,
-            }}>{c.title}</span>
-            <button style={{
-              background: "transparent", border: "none", color: T.textDim, fontSize: 15,
-              cursor: "pointer", opacity: 0.2, padding: "0 4px",
-            }} onClick={e => { e.stopPropagation(); onDelete(c.conversationId); }}>×</button>
-          </div>
-        ))}
-      </div>
-      <div style={{ padding: "12px 18px", borderTop: `1px solid ${T.border}` }}>
-        <button onClick={onLogout} style={{
-          background: "transparent", border: `1px solid ${T.border}`, borderRadius: 8,
-          color: T.textDim, fontSize: 12, padding: "8px 14px", cursor: "pointer",
-          fontFamily: FONT_MONO, width: "100%", transition: "all 0.15s",
-          letterSpacing: "0.5px",
-        }}>leave</button>
-      </div>
-    </div>
-  );
-}
 
 // ─── Welcome Screen ─────────────────────────────────────────────
 function WelcomeScreen({ onStart, mood }) {
@@ -701,7 +648,6 @@ export default function App() {
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [streamText, setStreamText] = useState("");
-  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [charPanelOpen, setCharPanelOpen] = useState(true);
   const [status, setStatus] = useState({ ollama: false, comfyui: false, video: false });
   const [genMode, setGenMode] = useState(null);
@@ -891,20 +837,6 @@ export default function App() {
     <div style={{ display: "flex", height: "100vh", background: T.bg, fontFamily: FONT, color: T.text }}>
       <ParticlesBg />
 
-      {sidebarOpen && (
-        <Sidebar
-          conversations={conversations}
-          activeId={activeConvo}
-          onSelectConvo={id => setActiveConvo(id)}
-          onNew={() => {}}
-          onDelete={async id => {
-            await fetch(`${API}/api/conversations/${id}`, { method: "DELETE", headers: hdrs() });
-            setConversations(p => p.filter(c => c.conversationId !== id));
-            if (activeConvo === id) { setActiveConvo(null); setMessages([]); }
-          }}
-          onLogout={handleLogout}
-        />
-      )}
 
       {/* Chat Area */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, position: "relative", zIndex: 1 }}>
