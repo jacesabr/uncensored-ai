@@ -495,53 +495,73 @@ function MessageBubble({ msg }) {
 
 
 // ─── Welcome Screen ─────────────────────────────────────────────
-function WelcomeScreen({ onStart, mood }) {
+function WelcomeScreen({ onStart }) {
   return (
     <div style={{
-      display: "flex", flexDirection: "column", alignItems: "center",
-      justifyContent: "center", height: "100%", padding: "40px 20px",
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      justifyContent: "center",
+      height: "100%",
+      padding: "40px 20px",
       position: "relative",
+      textAlign: "center",
     }}>
-      <div style={{
-        position: "absolute", inset: 0,
-        background: `radial-gradient(ellipse at 50% 40%, rgba(155,45,94,0.06) 0%, transparent 60%)`,
-        pointerEvents: "none",
-      }} />
-      <div style={{ position: "relative", zIndex: 1, marginBottom: 10 }}>
-        <MorriganCharacter mood={mood} size={220} />
-      </div>
       <h2 style={{
-        color: T.text, fontWeight: 400, margin: "0 0 10px", fontSize: 32,
-        fontFamily: FONT_DISPLAY, letterSpacing: "-0.5px", position: "relative", zIndex: 1,
-      }}>Morrigan</h2>
+        color: T.text,
+        fontWeight: 400,
+        margin: "0 0 10px",
+        fontSize: 32,
+        fontFamily: FONT_DISPLAY,
+        letterSpacing: "-0.5px",
+      }}>
+        Morrigan
+      </h2>
+
       <p style={{
-        color: T.textSoft, margin: "0 0 6px", fontSize: 14, lineHeight: 1.8,
-        maxWidth: 440, textAlign: "center", fontFamily: FONT, position: "relative", zIndex: 1,
+        color: T.subtext,
+        margin: "0 0 6px",
+        fontSize: 14,
+        lineHeight: 1.8,
+        maxWidth: 440,
+        fontFamily: FONT,
       }}>
         Record store girl. Smudged eyeliner. Sharp tongue, soft heart she'll deny having.
-        <br />Scarred, stubborn, still here. Reads Plath, draws moths, trusts almost nobody.
+        <br />
+        Scarred, stubborn, still here. Reads Plath, draws moths, trusts almost nobody.
       </p>
+
       <p style={{
-        color: T.textDim, margin: "0 0 28px", fontSize: 12, fontStyle: "italic",
-        fontFamily: FONT, position: "relative", zIndex: 1,
+        color: T.subtext,
+        margin: "0 0 28px",
+        fontSize: 12,
+        fontStyle: "italic",
+        fontFamily: FONT,
+        opacity: 0.8,
       }}>
         She's behind the counter. The door's open.
       </p>
-      <button style={{
-        background: `linear-gradient(135deg, ${T.accent}, ${T.purple})`,
-        color: "#fff", border: "none", borderRadius: 16, padding: "14px 44px",
-        fontSize: 15, fontWeight: 400, cursor: "pointer", fontFamily: FONT_DISPLAY,
-        transition: "all 0.2s", boxShadow: `0 4px 24px ${T.accentGlow}`,
-        position: "relative", zIndex: 1, letterSpacing: "1px",
-      }}
+
+      <button
+        style={{
+          background: `linear-gradient(135deg, ${T.accent}, #9f67ff)`,
+          color: "#fff",
+          border: "none",
+          borderRadius: 16,
+          padding: "14px 44px",
+          fontSize: 15,
+          fontWeight: 400,
+          cursor: "pointer",
+          fontFamily: FONT_DISPLAY,
+          transition: "all 0.2s",
+        }}
         onClick={onStart}
-        onMouseEnter={e => { e.target.style.transform = "translateY(-2px)"; e.target.style.boxShadow = `0 8px 32px ${T.accentGlow}`; }}
-        onMouseLeave={e => { e.target.style.transform = "translateY(0)"; e.target.style.boxShadow = `0 4px 24px ${T.accentGlow}`; }}
-      >walk in</button>
+      >
+        walk in
+      </button>
     </div>
   );
 }
-
 // ─── Gen Mode Picker ────────────────────────────────────────────
 function GenModeMenu({ onSelect, onClose }) {
   const modes = [
