@@ -466,12 +466,7 @@ function MessageBubble({ msg }) {
           <FormatMessage text={msg.content} />
         </div>
 
-        {msg.videoUrl && (
-          <div style={{ marginTop: 12 }}>
-            <video src={msg.videoUrl} controls loop autoPlay muted playsInline
-              style={{ width: "100%", maxWidth: 512, borderRadius: 12, border: `1px solid ${T.border}` }} />
-          </div>
-        )}
+     
         {(msg.ponyImageUrl || msg.realvisImageUrl || msg.imageUrl) && (
           <div style={{ display: "flex", gap: 12, marginTop: 12, flexWrap: "wrap" }}>
             {msg.ponyImageUrl && (
@@ -604,7 +599,6 @@ function WelcomeScreen({ onStart, mood }) {
 function GenModeMenu({ onSelect, onClose }) {
   const modes = [
     { key: "image", icon: "✦", label: "Generate Image" },
-    { key: "video", icon: "▶", label: "Generate Video" },
   ];
   return (
     <div style={{
@@ -656,47 +650,30 @@ function MoodBadge({ mood }) {
 
 // ─── Character Panel ────────────────────────────────────────────
 // FIX: Removed unused `personality` prop
-function CharacterPanel({ mood, speaking, collapsed, onToggle }) {
+function CharacterPanel({ mood, speaking }) {
   return (
     <div style={{
-      width: collapsed ? 0 : 320,
-      minWidth: collapsed ? 0 : 320,
+      width: 320,
+      minWidth: 320,
       background: `linear-gradient(180deg, ${T.surface}f0, ${T.bg}f0)`,
-      borderLeft: collapsed ? "none" : `1px solid ${T.border}`,
-      display: "flex", flexDirection: "column", alignItems: "center",
-      justifyContent: "center", position: "relative",
-      transition: "all 0.4s ease", overflow: "hidden",
+      borderLeft: `1px solid ${T.border}`,
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      justifyContent: "center",
+      position: "relative",
     }}>
-      {!collapsed && (
-        <>
-          <div style={{
-            position: "absolute", inset: 0,
-            background: `radial-gradient(ellipse at 50% 60%, rgba(155,45,94,0.05) 0%, transparent 70%)`,
-            pointerEvents: "none",
-          }} />
-          <div style={{ position: "relative", zIndex: 1, marginTop: -30 }}>
-            <MorriganCharacter mood={mood} speaking={speaking} size={240} />
-          </div>
-          <div style={{ position: "relative", zIndex: 1, textAlign: "center", marginTop: -10, padding: "0 20px" }}>
-            <MoodBadge mood={mood} />
-          </div>
-          <div style={{ position: "absolute", bottom: 30, left: 0, right: 0, textAlign: "center", padding: "0 20px" }}>
-            <p style={{ color: T.textDim, fontSize: 10, fontFamily: FONT_MONO, letterSpacing: "1px", textTransform: "uppercase", margin: "0 0 6px" }}>now playing</p>
-            <p style={{ color: T.textSoft, fontSize: 12, fontFamily: FONT, fontStyle: "italic", margin: 0 }}>Mazzy Star — Fade Into You</p>
-            <div style={{ marginTop: 8, height: 1, background: `linear-gradient(90deg, transparent, ${T.accent}30, transparent)` }} />
-          </div>
-        </>
-      )}
-      <button onClick={onToggle} style={{
-        position: "absolute", left: -14, top: "50%", transform: "translateY(-50%)",
-        width: 28, height: 28, borderRadius: "50%",
-        background: T.surface2, border: `1px solid ${T.border}`,
-        color: T.textDim, fontSize: 12, cursor: "pointer",
-        display: "flex", alignItems: "center", justifyContent: "center",
-        zIndex: 10, boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
-      }}>
-        {collapsed ? "◀" : "▶"}
-      </button>
+      <div style={{
+        position: "absolute", inset: 0,
+        background: `radial-gradient(ellipse at 50% 60%, rgba(155,45,94,0.05) 0%, transparent 70%)`,
+        pointerEvents: "none",
+      }} />
+      <div style={{ position: "relative", zIndex: 1, marginTop: -30 }}>
+        <MorriganCharacter mood={mood} speaking={speaking} size={240} />
+      </div>
+      <div style={{ position: "relative", zIndex: 1, textAlign: "center", marginTop: -10, padding: "0 20px" }}>
+        <MoodBadge mood={mood} />
+      </div>
     </div>
   );
 }
@@ -832,7 +809,6 @@ export default function App() {
 
     let messageContent = input.trim();
     if (genMode === "image") messageContent = `[IMAGE] ${messageContent}`;
-    if (genMode === "video") messageContent = `[VIDEO] ${messageContent}`;
 
     const userMsg = { role: "user", content: input.trim(), timestamp: new Date() };
     setMessages(p => [...p, userMsg]);
@@ -861,10 +837,7 @@ export default function App() {
         for (const line of lines) {
           try {
             const json = JSON.parse(line.slice(6));
-            if (json.video) {
-              setMessages(p => [...p, { role: "assistant", content: json.token || "", videoUrl: json.video, timestamp: new Date() }]);
-              setStreamText(""); full = "";
-            } else if (json.image) {
+            if (json.image) {
               setMessages(p => [...p, { role: "assistant", content: json.token || "", imageUrl: json.image, ponyImageUrl: json.ponyImage || null, realvisImageUrl: json.realvisImage || null, timestamp: new Date() }]);
               setStreamText(""); full = "";
             } else if (json.token) {
@@ -913,8 +886,7 @@ export default function App() {
   }
 
   const showWelcome = messages.length === 0 && !streamText && !activeConvo;
-  const modeLabel = genMode === "image" ? "✦ Image" : genMode === "video" ? "▶ Video" : null;
-
+  const modeLabel = genMode === "image" ? "✦ Image" : null;
   return (
     <div style={{ display: "flex", height: "100vh", background: T.bg, fontFamily: FONT, color: T.text }}>
       <ParticlesBg />
@@ -924,7 +896,7 @@ export default function App() {
           conversations={conversations}
           activeId={activeConvo}
           onSelectConvo={id => setActiveConvo(id)}
-          onNew={() => { setActiveConvo(null); setMessages([]); }}
+          onNew={() => {}}
           onDelete={async id => {
             await fetch(`${API}/api/conversations/${id}`, { method: "DELETE", headers: hdrs() });
             setConversations(p => p.filter(c => c.conversationId !== id));
@@ -942,17 +914,14 @@ export default function App() {
           display: "flex", justifyContent: "space-between", alignItems: "center",
           background: `${T.surface}e0`, backdropFilter: "blur(10px)",
         }}>
-          <button style={{ background: "transparent", border: "none", color: T.textDim, fontSize: 16, cursor: "pointer", padding: "4px 8px" }}
-            onClick={() => setSidebarOpen(!sidebarOpen)}>
-            {sidebarOpen ? "◁" : "▷"}
-          </button>
+         <div style={{ width: 32 }} />
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ width: 8, height: 8, borderRadius: "50%", background: T.accent, boxShadow: `0 0 8px ${T.accent}` }} />
             <span style={{ color: T.text, fontWeight: 400, fontSize: 16, fontFamily: FONT_DISPLAY }}>{CHARACTER.name}</span>
             <MoodBadge mood={currentMood} />
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-            {[["chat", "ollama"], ["img", "comfyui"], ["vid", "video"]].map(([label, key]) => (
+            {[["chat", "ollama"], ["img", "comfyui"]].map(([label, key]) => (
               <div key={key} style={{ display: "flex", alignItems: "center", gap: 4 }}>
                 <span style={{ width: 6, height: 6, borderRadius: "50%", display: "inline-block", background: status[key] ? T.green : T.red, boxShadow: status[key] ? `0 0 6px ${T.green}` : "none" }} />
                 <span style={{ color: T.textDim, fontSize: 10, fontFamily: FONT_MONO }}>{label}</span>
@@ -1041,8 +1010,6 @@ export default function App() {
       <CharacterPanel
         mood={currentMood}
         speaking={!!streamText}
-        collapsed={!charPanelOpen}
-        onToggle={() => setCharPanelOpen(!charPanelOpen)}
       />
 
       <style>{`
