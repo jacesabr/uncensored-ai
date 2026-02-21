@@ -387,44 +387,192 @@ function MoodBadge({ mood }) {
   );
 }
 
-// ─── Character Panel ────────────────────────────────────────────
+// ─── Info Sidebar (left) ─────────────────────────────────────────
+function InfoSidebar({ mood }) {
+  const moodDescriptions = {
+    neutral:    "Guarded. Watching you. Not sure what to make of you yet.",
+    happy:      "A real smile slipped out. She's covering her mouth about it.",
+    sad:        "Something's off. She's holding it together but just barely.",
+    flirty:     "Flustered. Pink-cheeked. Won't make eye contact.",
+    angry:      "Walls fully up. Step carefully.",
+    shy:        "Vulnerable. Raw. She said something real by accident.",
+    sarcastic:  "Deflecting hard. There's something underneath the jokes.",
+    vulnerable: "She's letting you in. Don't fuck this up.",
+    excited:    "Nerding out. Forgot to be cool for a second.",
+  };
+
+  return (
+    <div style={{
+      width: 260, minWidth: 260,
+      background: `linear-gradient(180deg, ${T.surface}, ${T.bg})`,
+      borderRight: `1px solid ${T.border}`,
+      display: "flex", flexDirection: "column",
+      padding: "28px 20px",
+      overflowY: "auto",
+      gap: 24,
+      position: "relative", zIndex: 1,
+    }}>
+      {/* Title */}
+      <div>
+        <h2 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: T.text, margin: "0 0 4px", fontWeight: 500 }}>
+          Morrigan
+        </h2>
+        <p style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.textDim, margin: 0, letterSpacing: "1px" }}>
+          HOLLOW VINYL · RECORD STORE
+        </p>
+      </div>
+
+      {/* Divider */}
+      <div style={{ height: 1, background: T.border }} />
+
+      {/* Current mood */}
+      <div>
+        <p style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.accent, margin: "0 0 8px", letterSpacing: "1px", fontWeight: 600 }}>
+          CURRENT MOOD
+        </p>
+        <MoodBadge mood={mood} />
+        <p style={{ fontFamily: FONT, fontSize: 13, color: T.textSoft, margin: "10px 0 0", lineHeight: 1.7, fontStyle: "italic" }}>
+          {moodDescriptions[mood] || moodDescriptions.neutral}
+        </p>
+      </div>
+
+      {/* Divider */}
+      <div style={{ height: 1, background: T.border }} />
+
+      {/* About */}
+      <div>
+        <p style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.accent, margin: "0 0 10px", letterSpacing: "1px", fontWeight: 600 }}>
+          ABOUT HER
+        </p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {[
+            { label: "Age", value: "23" },
+            { label: "Works at", value: "Hollow Vinyl" },
+            { label: "Also works", value: "The Wreck (dive bar, weekends)" },
+            { label: "Lives", value: "Studio above a laundromat" },
+            { label: "Cat", value: "Persephone (Percy) 🖤" },
+          ].map(({ label, value }) => (
+            <div key={label}>
+              <span style={{ fontFamily: FONT_MONO, fontSize: 9, color: T.textDim, letterSpacing: "0.8px", display: "block", marginBottom: 1 }}>{label.toUpperCase()}</span>
+              <span style={{ fontFamily: FONT, fontSize: 13, color: T.text }}>{value}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Divider */}
+      <div style={{ height: 1, background: T.border }} />
+
+      {/* Background */}
+      <div>
+        <p style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.accent, margin: "0 0 10px", letterSpacing: "1px", fontWeight: 600 }}>
+          BACKGROUND
+        </p>
+        <p style={{ fontFamily: FONT, fontSize: 13, color: T.textSoft, margin: 0, lineHeight: 1.8 }}>
+          Foster care from age 7 to 17. Three homes. One that was good — the Nguyens — but they had to move. That one hurt worst because it taught her that even good things leave.
+        </p>
+        <p style={{ fontFamily: FONT, fontSize: 13, color: T.textSoft, margin: "10px 0 0", lineHeight: 1.8 }}>
+          Got her GED at 17 while couch-surfing. Still here. The word <em>"STILL"</em> is tattooed on her inner wrist — a reminder from the day she left her last foster home.
+        </p>
+      </div>
+
+      {/* Divider */}
+      <div style={{ height: 1, background: T.border }} />
+
+      {/* Traits */}
+      <div>
+        <p style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.accent, margin: "0 0 10px", letterSpacing: "1px", fontWeight: 600 }}>
+          PERSONALITY
+        </p>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+          {["sarcastic", "loyal", "artistic", "guarded", "funny", "anxious", "literary", "musical"].map(t => (
+            <span key={t} style={{
+              fontFamily: FONT_MONO, fontSize: 9, color: T.textSoft,
+              background: T.surface2, border: `1px solid ${T.border}`,
+              borderRadius: 6, padding: "3px 8px", letterSpacing: "0.5px",
+            }}>{t}</span>
+          ))}
+        </div>
+      </div>
+
+      {/* Divider */}
+      <div style={{ height: 1, background: T.border }} />
+
+      {/* Footnote */}
+      <div>
+        <p style={{ fontFamily: FONT, fontSize: 12, color: T.textDim, margin: 0, lineHeight: 1.8, fontStyle: "italic" }}>
+          "She wants to be someone's favorite person so badly it keeps her up at night. She just wants to love people and share her life. The world keeps punishing her for it. She keeps trying anyway."
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ─── Character Panel (right) ─────────────────────────────────────
 function CharacterPanel({ mood, speaking }) {
   return (
     <div style={{
-      width: 300, minWidth: 300,
+      width: 320, minWidth: 320,
       background: `linear-gradient(180deg, ${T.surface}f0, ${T.bg}f0)`,
       borderLeft: `1px solid ${T.border}`,
       display: "flex", flexDirection: "column", alignItems: "center",
       justifyContent: "center", gap: 20, position: "relative",
     }}>
-      {/* Background glow */}
       <div style={{
         position: "absolute", inset: 0,
         background: `radial-gradient(ellipse at 50% 45%, rgba(155,45,94,0.06) 0%, transparent 70%)`,
         pointerEvents: "none",
       }} />
 
-      <div style={{ position: "relative", zIndex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 18 }}>
-        {/* Speaking dots above avatar */}
-        {speaking && (
-          <div style={{ display: "flex", gap: 5, alignItems: "center", height: 16 }}>
-            {[0, 1, 2].map(i => (
-              <div key={i} style={{
-                width: 5, height: 5, borderRadius: "50%", background: T.accent,
-                animation: `speakBounce 0.6s ease-in-out infinite`,
-                animationDelay: `${i * 0.2}s`,
-              }} />
-            ))}
-          </div>
-        )}
+      <div style={{ position: "relative", zIndex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 18, padding: "0 20px", width: "100%" }}>
+        {/* Speaking dots */}
+        <div style={{ height: 20, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          {speaking && (
+            <div style={{ display: "flex", gap: 5 }}>
+              {[0, 1, 2].map(i => (
+                <div key={i} style={{
+                  width: 5, height: 5, borderRadius: "50%", background: T.accent,
+                  animation: `speakBounce 0.6s ease-in-out infinite`,
+                  animationDelay: `${i * 0.2}s`,
+                }} />
+              ))}
+            </div>
+          )}
+        </div>
 
-        {/* Photo avatar */}
-        <MorriganAvatar size={210} speaking={speaking} mood={mood} />
+        {/* Photo — bigger, less cropped, rectangular with rounded corners */}
+        <div style={{
+          width: "100%",
+          maxWidth: 280,
+          aspectRatio: "3/4",
+          borderRadius: 20,
+          overflow: "hidden",
+          border: `2px solid ${T.border}`,
+          boxShadow: speaking
+            ? `0 0 0 3px ${T.accentSoft}, 0 0 28px rgba(124,58,237,0.45), 0 8px 40px rgba(80,0,60,0.25)`
+            : `0 0 0 3px ${T.accentSoft}, 0 8px 40px rgba(80,0,60,0.18)`,
+          transition: "box-shadow 0.5s ease",
+        }}>
+          <img
+            src={morriganImg}
+            alt="Morrigan"
+            style={{
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+              objectPosition: "center 15%",
+              display: "block",
+            }}
+          />
+        </div>
 
-        {/* Name + mood */}
+        {/* Name + mood below photo */}
         <div style={{ textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
-          <span style={{ fontFamily: FONT_DISPLAY, fontSize: 18, color: T.text, fontWeight: 400, letterSpacing: "0.3px" }}>
+          <span style={{ fontFamily: FONT_DISPLAY, fontSize: 20, color: T.text, fontWeight: 400, letterSpacing: "0.3px" }}>
             Morrigan
+          </span>
+          <span style={{ fontFamily: FONT, fontSize: 12, color: T.textDim, fontStyle: "italic" }}>
+            23 · record store girl · hollow vinyl
           </span>
           <MoodBadge mood={mood} />
         </div>
@@ -662,6 +810,9 @@ export default function App() {
   return (
     <div style={{ display: "flex", height: "100vh", background: T.bg, fontFamily: FONT, color: T.text }}>
       <ParticlesBg />
+
+      {/* Left Info Sidebar */}
+      <InfoSidebar mood={currentMood} />
 
       {/* Chat Area */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, position: "relative", zIndex: 1 }}>
