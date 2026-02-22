@@ -83,495 +83,586 @@ const TRUST_LEVELS = {
 };
 
 // ═══════════════════════════════════════════════════════════════════
-// EXPLAIN / MONITOR — single long scroll, no tabs
-// Shows LIVE MongoDB data for sanity checking everything
+// EXPLAIN / MONITOR — tabbed, full-screen, readable
 // ═══════════════════════════════════════════════════════════════════
-function ExplainPanel({ onClose, token, user, conversations, messages, currentMood, status }) {
-  const [fullData, setFullData] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [lastRefresh, setLastRefresh] = useState(null);
+
+const MON = {
+  bg:         "#f6f7fb",
+  surface:    "#ffffff",
+  surface2:   "#f0f0f5",
+  surface3:   "#e8e8f0",
+  border:     "#e6e8ef",
+  text:       "#1f2937",
+  textSoft:   "#4b5563",
+  textDim:    "#9ca3af",
+  accent:     "#7c3aed",
+  accentSoft: "#ede9fe",
+  purple:     "#9f67ff",
+  red:        "#dc2626",
+  green:      "#10b981",
+  amber:      "#f59e0b",
+  blue:       "#0ea5e9",
+  pink:       "#9B2D5E",
+};
+const MMONO    = "'JetBrains Mono', 'Fira Code', monospace";
+const MSERIF   = "'Crimson Pro', Georgia, serif";
+const MDISPLAY = "'Playfair Display', 'Crimson Pro', serif";
+
+const MONITOR_TABS = [
+  { id: "status",   label: "System Status",   icon: "◉" },
+  { id: "dataflow", label: "Data Flow",        icon: "⇄" },
+  { id: "session",  label: "Session & Memory", icon: "◈" },
+];
+
+function MLabel({ children, color = MON.accent }) {
+  return (
+    <div style={{ fontFamily: MMONO, fontSize: 11, color, fontWeight: 700, letterSpacing: "1.6px", textTransform: "uppercase", marginBottom: 12 }}>
+      {children}
+    </div>
+  );
+}
+
+function MCard({ children, accent, style = {} }) {
+  return (
+    <div style={{
+      background:   MON.surface,
+      border:       `1px solid ${accent ? accent + "30" : MON.border}`,
+      borderLeft:   accent ? `4px solid ${accent}` : `1px solid ${MON.border}`,
+      borderRadius: 12,
+      padding:      "18px 22px",
+      marginBottom: 12,
+      ...style,
+    }}>
+      {children}
+    </div>
+  );
+}
+
+function MSecHead({ icon, title, color = MON.accent }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 12, margin: "36px 0 16px", paddingBottom: 12, borderBottom: `1px solid ${color}25` }}>
+      <span style={{ fontSize: 16, color }}>{icon}</span>
+      <span style={{ fontFamily: MMONO, fontSize: 12, color, fontWeight: 700, letterSpacing: "2px", textTransform: "uppercase" }}>{title}</span>
+      <div style={{ flex: 1, height: 1, background: `linear-gradient(to right, ${color}20, transparent)` }} />
+    </div>
+  );
+}
+
+function MRow({ label, value, valueColor }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 9, gap: 16 }}>
+      <span style={{ fontFamily: MMONO, fontSize: 11, color: MON.textDim, flexShrink: 0 }}>{label}</span>
+      <span style={{ fontFamily: MMONO, fontSize: 13, color: valueColor || MON.text, fontWeight: 600, textAlign: "right", wordBreak: "break-all" }}>
+        {String(value ?? "—")}
+      </span>
+    </div>
+  );
+}
+
+function MPill({ children, color = MON.accent }) {
+  return (
+    <span style={{ fontFamily: MMONO, fontSize: 10, fontWeight: 700, color, background: color + "12", border: `1px solid ${color}25`, borderRadius: 5, padding: "3px 9px", marginRight: 5, marginBottom: 5, display: "inline-block" }}>
+      {children}
+    </span>
+  );
+}
+
+function MStatusDot({ live }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+      <div style={{ width: 9, height: 9, borderRadius: "50%", background: live ? MON.green : MON.red, boxShadow: live ? `0 0 8px ${MON.green}80` : "none", flexShrink: 0 }} />
+      <span style={{ fontFamily: MMONO, fontSize: 11, color: live ? MON.green : MON.red, fontWeight: 700 }}>{live ? "ONLINE" : "OFFLINE"}</span>
+    </div>
+  );
+}
+
+function MBar({ value, max = 100, color = MON.accent, label, sub }) {
+  const pct = Math.min((value / max) * 100, 100);
+  return (
+    <div style={{ marginBottom: 18 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
+        <div>
+          <span style={{ fontFamily: MMONO, fontSize: 13, color: MON.text }}>{label}</span>
+          {sub && <span style={{ fontFamily: MSERIF, fontSize: 13, color: MON.textDim, marginLeft: 10, fontStyle: "italic" }}>{sub}</span>}
+        </div>
+        <span style={{ fontFamily: MMONO, fontSize: 12, color }}>{value}/{max}</span>
+      </div>
+      <div style={{ height: 6, background: MON.surface2, borderRadius: 4, overflow: "hidden" }}>
+        <div style={{ height: "100%", width: `${pct}%`, background: `linear-gradient(to right, ${color}, ${color}99)`, borderRadius: 4, transition: "width 0.8s cubic-bezier(0.4,0,0.2,1)" }} />
+      </div>
+    </div>
+  );
+}
+
+// ── Tab 1: System Status ──────────────────────────────────────────────────────
+
+function StatusTab({ status, user, conversations, messages, liveHealth }) {
+  const endpoint = import.meta.env.VITE_API_URL || "http://localhost:5000";
+
+  const checks = [
+    {
+      key: "express", label: "Express Server",
+      live: liveHealth?.express ?? null,
+      description: "Node.js backend — JWT auth, MongoDB, session cache, prompt assembly, LLM proxy. The frontend talks only to this; it never hits Kaggle directly.",
+      route: "GET /health",
+      detail: endpoint.replace("https://", "").replace("http://", ""),
+    },
+    {
+      key: "ollama", label: "LLM — llama-cpp via Kaggle",
+      live: status.ollama,
+      description: "Streaming chat completions. Express proxies every request. Running uncensored_llama.gguf with n_ctx 8192 on T4×2 GPU.",
+      route: "POST /v1/chat/completions → Kaggle",
+      detail: liveHealth?.vram_gb != null ? `${liveHealth.vram_gb} GB VRAM in use` : "uncensored_llama.gguf",
+    },
+    {
+      key: "comfyui", label: "Image Gen — Pony V6 SDXL",
+      live: status.comfyui,
+      description: "Loads the safetensors pipeline into VRAM on demand, generates, then unloads to free space for the LLM. Mutex-locked — one generation at a time.",
+      route: "POST /generate-image → Kaggle /generate",
+      detail: "single-file safetensors · loaded per request",
+    },
+    {
+      key: "mongo", label: "MongoDB Atlas",
+      live: liveHealth?.mongo ?? true,
+      description: "Permanent storage for PersonalityMemory (trust, feelings, memories, milestones), Conversations, and Messages. Session state lives in server RAM until flush.",
+      route: "mongoose ODM · auto-reconnect",
+      detail: "PersonalityMemory · Conversations · Messages",
+    },
+  ];
+
+  return (
+    <div>
+      <MSecHead icon="◉" title="Live System Checks" color={MON.green} />
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
+        {checks.map(c => (
+          <div key={c.key} style={{ background: MON.surface, border: `1px solid ${c.live === null ? MON.border : c.live ? MON.green + "35" : MON.red + "30"}`, borderRadius: 12, padding: "18px 20px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
+              {c.live === null
+                ? <span style={{ fontFamily: MMONO, fontSize: 11, color: MON.textDim, fontWeight: 700 }}>PENDING</span>
+                : <MStatusDot live={!!c.live} />
+              }
+              <span style={{ fontFamily: MMONO, fontSize: 10, color: MON.textDim, textAlign: "right", maxWidth: 240 }}>{c.route}</span>
+            </div>
+            <div style={{ fontFamily: MMONO, fontSize: 13, color: MON.text, fontWeight: 600, marginBottom: 6 }}>{c.label}</div>
+            <div style={{ fontFamily: MSERIF, fontSize: 15, color: MON.textSoft, lineHeight: 1.65, marginBottom: 10 }}>{c.description}</div>
+            <span style={{ fontFamily: MMONO, fontSize: 11, color: c.live ? MON.green : MON.textDim }}>{c.detail}</span>
+          </div>
+        ))}
+      </div>
+
+      <MSecHead icon="👤" title="Current Session" color={MON.accent} />
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+        <MCard>
+          <MLabel>Identity</MLabel>
+          <MRow label="USER ID"  value={user?.id ? `…${user.id.slice(-10)}` : "—"} valueColor={MON.accent} />
+          <MRow label="TOKEN"    value="JWT · 90d expiry" />
+          <MRow label="AUTH"     value="sha256 → bcrypt" />
+        </MCard>
+        <MCard>
+          <MLabel>Conversations</MLabel>
+          <MRow label="TOTAL IN DB"      value={conversations.length} valueColor={MON.accent} />
+          <MRow label="MSGS THIS CONVO"  value={messages.length} />
+          <MRow label="USER MSGS"        value={messages.filter(m => m.role === "user").length} />
+          <MRow label="AI MSGS"          value={messages.filter(m => m.role === "assistant").length} />
+        </MCard>
+        <MCard>
+          <MLabel>Environment</MLabel>
+          <MRow label="API BASE"    value={endpoint.replace("https://", "").replace("http://", "")} valueColor={MON.blue} />
+          <MRow label="LLM BACKEND" value="Kaggle T4×2 GPU" />
+          <MRow label="TUNNEL"      value="ngrok static domain" />
+          <MRow label="VIDEO GEN"   value="disabled" valueColor={MON.textDim} />
+        </MCard>
+      </div>
+    </div>
+  );
+}
+
+// ── Tab 2: Data Flow ──────────────────────────────────────────────────────────
+
+function DataFlowTab({ livePersonality }) {
+  const p   = livePersonality?.summary;
+  const raw = livePersonality?.full;
+
+  const hoursSince    = p?.lastSeen ? Math.floor((Date.now() - new Date(p.lastSeen)) / 3600000) : 0;
+  const memoriesCount = raw?.memories?.length ?? p?.memoriesCount ?? 0;
+  const trustLevel    = p?.trustLevel ?? 0;
+
+  const lifecycle = [
+    { step: "1", label: "User sends message",           color: MON.accent,
+      detail: "Client → POST /api/chat with JWT in Authorization header. Message held in local React state." },
+    { step: "2", label: "Express: auth + session load", color: MON.blue,
+      detail: "Verifies JWT. Calls loadOrCreateSession(userId) — checks sessionCache first, otherwise fetches PersonalityMemory from MongoDB and warms the cache." },
+    { step: "3", label: "buildSystemPrompt()",          color: MON.purple,
+      detail: "Assembles all context layers (see below) into a single role:'system' message. Kaggle's own notebook prompt is bypassed via inject_system: false — Express owns the spec." },
+    { step: "4", label: "Score user message",           color: MON.amber,
+      detail: "Keyword detection runs on the user's text. Matches update trustPoints and feelings (affection, comfort, etc.) inside sessionCache. No DB write yet." },
+    { step: "5", label: "Proxy to Kaggle LLM",          color: MON.green,
+      detail: "POST to Kaggle ngrok tunnel → /v1/chat/completions · stream: true · inject_system: false. Full message history + system block sent every time — LLMs are stateless." },
+    { step: "6", label: "Stream response to client",    color: MON.green,
+      detail: "SSE chunks from Kaggle forwarded to the browser as they arrive. Client appends each chunk to streamText state, producing the typing effect." },
+    { step: "7", label: "Save messages to MongoDB",     color: MON.textSoft,
+      detail: "Both the user message and AI response written to the Messages collection. conversation.updatedAt bumped. Only DB write per exchange." },
+    { step: "8", label: "Flush on logout / tab close",  color: MON.pink,
+      detail: "flushSession(): all session exchanges sent to LLM for memory extraction → JSON facts deduped against existing memories[] → PersonalityMemory.save(). Cache cleared." },
+  ];
+
+  const layers = [
+    {
+      id: "char", color: MON.accent,
+      label: "Character Spec", tokens: "~3,200 tokens",
+      source: "server/index.js · CHARACTER_DEFAULT_PROMPT",
+      description: "The canonical Morrigan: appearance, trauma, backstory, psychology, speech patterns, physical tells, trust/intimacy rules. Source of truth — not the Kaggle notebook.",
+      active: true,
+    },
+    {
+      id: "memory", color: MON.blue,
+      label: "Memory Context", tokens: `${memoriesCount} facts + feelings + milestones`,
+      source: "MongoDB → session.memory",
+      description: `Trust level (${trustLevel}/6), days since first met, all known facts sorted by importance, feelings scores, milestones. Rebuilt fresh on every single message.`,
+      active: true,
+    },
+    {
+      id: "trust", color: MON.green,
+      label: "Trust Behavior Guide", tokens: "~150 tokens",
+      source: "TRUST_LEVELS[level].description",
+      description: `Level ${trustLevel} (${TRUST_LEVELS[trustLevel]?.name ?? "?"}) behavior injected. Controls guard level, sarcasm intensity, warmth, response length, what topics she allows.`,
+      active: true,
+    },
+    {
+      id: "time", color: MON.amber,
+      label: "Time Absence Context", tokens: "~50 tokens",
+      source: "Date.now() − memory.lastSeen",
+      description: hoursSince > 48
+        ? `${hoursSince}h since last seen — STRONG context active: she missed you, anxiety built up.`
+        : hoursSince > 24
+          ? `${hoursSince}h since last seen — mild context: she noticed the gap.`
+          : `${hoursSince}h since last seen — recent. Not injected.`,
+      active: hoursSince > 24,
+      conditional: true,
+    },
+    {
+      id: "exchanges", color: MON.pink,
+      label: "Session Exchanges", tokens: "last 10 turns · 500–2,000 tokens",
+      source: "sessionCache.sessionExchanges (server RAM)",
+      description: "What you've said this session — in server RAM, not DB. Prevents Morrigan repeating herself mid-conversation. Cleared on flush.",
+      active: true,
+    },
+    {
+      id: "history", color: MON.textSoft,
+      label: "Message History", tokens: "last 50 messages from DB",
+      source: "MongoDB Messages collection",
+      description: "Full conversation loaded from MongoDB as user/assistant turns. Appended after the system block.",
+      active: true,
+    },
+  ];
+
+  return (
+    <div>
+      <MSecHead icon="⇄" title="Request Lifecycle" color={MON.accent} />
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 10 }}>
+        {lifecycle.map(({ step, label, detail, color }) => (
+          <div key={step} style={{ display: "flex", gap: 16, alignItems: "flex-start", padding: "14px 18px", background: MON.surface, border: `1px solid ${color}20`, borderLeft: `4px solid ${color}`, borderRadius: 10 }}>
+            <div style={{ width: 26, height: 26, borderRadius: "50%", flexShrink: 0, marginTop: 2, background: color + "15", border: `1.5px solid ${color}50`, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: MMONO, fontSize: 11, color, fontWeight: 700 }}>{step}</div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontFamily: MMONO, fontSize: 13, color, fontWeight: 600, marginBottom: 4 }}>{label}</div>
+              <div style={{ fontFamily: MSERIF, fontSize: 15, color: MON.textSoft, lineHeight: 1.65 }}>{detail}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <MSecHead icon="📋" title="System Prompt Layers — what Kaggle receives each message" color={MON.purple} />
+      <MCard style={{ background: MON.accentSoft + "25", border: `1px solid ${MON.accent}18`, marginBottom: 16 }}>
+        <div style={{ fontFamily: MSERIF, fontSize: 15, color: MON.textSoft, lineHeight: 1.8 }}>
+          Every request sends a fresh <code style={{ fontFamily: MMONO, fontSize: 13, color: MON.accent }}>role: "system"</code> block assembled by{" "}
+          <code style={{ fontFamily: MMONO, fontSize: 13, color: MON.accent }}>buildSystemPrompt()</code> in <code style={{ fontFamily: MMONO, fontSize: 13 }}>server/index.js</code>.{" "}
+          Kaggle's notebook prompt is skipped — <code style={{ fontFamily: MMONO, fontSize: 13, color: MON.accent }}>inject_system: false</code> is always sent from Express. Kaggle is just the GPU.
+        </div>
+      </MCard>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {layers.map(({ id, color, label, tokens, source, description, active, conditional }) => (
+          <div key={id} style={{ display: "flex", background: MON.surface, border: `1px solid ${color}${active ? "25" : "10"}`, borderRadius: 12, overflow: "hidden", opacity: active ? 1 : 0.45 }}>
+            <div style={{ width: 5, background: color, flexShrink: 0 }} />
+            <div style={{ padding: "14px 20px", flex: 1 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6, flexWrap: "wrap" }}>
+                <span style={{ fontFamily: MMONO, fontSize: 13, color, fontWeight: 700 }}>{label}</span>
+                <span style={{ fontFamily: MMONO, fontSize: 11, color: MON.textDim, background: MON.surface2, borderRadius: 4, padding: "2px 8px" }}>{tokens}</span>
+                {conditional && (
+                  <span style={{ fontFamily: MMONO, fontSize: 10, color: active ? MON.green : MON.amber, background: (active ? MON.green : MON.amber) + "12", borderRadius: 4, padding: "2px 8px", border: `1px solid ${(active ? MON.green : MON.amber)}25` }}>
+                    {active ? "ACTIVE" : "INACTIVE — threshold not met"}
+                  </span>
+                )}
+              </div>
+              <div style={{ fontFamily: MSERIF, fontSize: 15, color: MON.textSoft, lineHeight: 1.65, marginBottom: 6 }}>{description}</div>
+              <span style={{ fontFamily: MMONO, fontSize: 10, color: MON.textDim }}>source: {source}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <MSecHead icon="🧠" title="Memory Extraction — fires on flush" color={MON.pink} />
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <MCard accent={MON.pink}>
+          <MLabel color={MON.pink}>What triggers it</MLabel>
+          <div style={{ fontFamily: MSERIF, fontSize: 15, color: MON.textSoft, lineHeight: 1.8 }}>
+            Fires on <code style={{ fontFamily: MMONO, fontSize: 13, color: MON.pink }}>POST /api/session/end</code> (the "leave" button) or the browser's{" "}
+            <code style={{ fontFamily: MMONO, fontSize: 13 }}>beforeunload</code> event (tab close / refresh). Nothing is extracted mid-session.
+          </div>
+        </MCard>
+        <MCard accent={MON.blue}>
+          <MLabel color={MON.blue}>How it works</MLabel>
+          <div style={{ fontFamily: MSERIF, fontSize: 15, color: MON.textSoft, lineHeight: 1.8 }}>
+            All session exchanges → LLM at <code style={{ fontFamily: MMONO, fontSize: 13, color: MON.blue }}>temperature: 0.1</code> → JSON fact array → deduped against existing memories[] → saved to MongoDB.
+            Categories: name · interest · personal · emotional · preference · relationship · event.
+          </div>
+        </MCard>
+      </div>
+    </div>
+  );
+}
+
+// ── Tab 3: Session & Memory ───────────────────────────────────────────────────
+
+function SessionTab({ messages, livePersonality }) {
+  const p   = livePersonality?.summary;
+  const raw = livePersonality?.full;
+
+  const trustLevel = p?.trustLevel ?? 0;
+  const nextLevel  = Math.min(trustLevel + 1, 6);
+  const nextPoints = TRUST_LEVELS[nextLevel]?.points ?? 320;
+  const hoursSince = p?.lastSeen ? Math.floor((Date.now() - new Date(p.lastSeen)) / 3600000) : 0;
+
+  const CAT_COLORS = {
+    name: "#7c3aed", interest: "#0ea5e9", personal: "#10b981",
+    emotional: "#ec4899", preference: "#f59e0b", relationship: "#ef4444", event: "#9B2D5E",
+  };
+
+  return (
+    <div>
+      <MSecHead icon="📈" title="Trust System" color={MON.accent} />
+      <MCard>
+        <MBar value={p?.trustPoints ?? 0} max={nextPoints} label={`Points toward level ${nextLevel}`} color={MON.accent} />
+        <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+          {Object.entries(TRUST_LEVELS).map(([lvl, data]) => {
+            const n = parseInt(lvl); const active = n <= trustLevel; const current = n === trustLevel;
+            return (
+              <div key={lvl} style={{ flex: 1, textAlign: "center" }}>
+                <div style={{ width: 13, height: 13, borderRadius: "50%", margin: "0 auto 6px", background: active ? MON.accent : MON.surface2, border: `2px solid ${active ? MON.accent : MON.border}`, boxShadow: current ? `0 0 12px ${MON.accent}` : "none" }} />
+                <span style={{ display: "block", fontFamily: MMONO, fontSize: 9, color: current ? MON.accent : MON.textDim, lineHeight: 1.4, fontWeight: current ? 700 : 400 }}>{data.name}</span>
+                <span style={{ display: "block", fontFamily: MMONO, fontSize: 9, color: MON.textDim }}>{data.points}pt</span>
+              </div>
+            );
+          })}
+        </div>
+      </MCard>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
+        <MCard>
+          <MRow label="TRUST LEVEL"   value={`${trustLevel}/6 — ${TRUST_LEVELS[trustLevel]?.name}`} valueColor={MON.accent} />
+          <MRow label="TRUST POINTS"  value={p?.trustPoints ?? "—"} valueColor={MON.accent} />
+          <MRow label="TO NEXT LEVEL" value={p?.pointsToNext ? `${p.pointsToNext} pts` : "MAX"} />
+        </MCard>
+        <MCard>
+          <MRow label="TOTAL MSGS (lifetime)" value={p?.totalMessages ?? "—"} />
+          <MRow label="TOTAL CONVOS"          value={p?.totalConversations ?? "—"} />
+          <MRow label="MEMORIES IN DB"        value={raw?.memories?.length ?? p?.memoriesCount ?? "—"} />
+        </MCard>
+        <MCard>
+          <MRow label="FIRST MET"         value={p?.firstMet ? new Date(p.firstMet).toLocaleDateString() : "—"} />
+          <MRow label="DAYS TOGETHER"     value={p?.firstMet ? `${Math.floor((Date.now() - new Date(p.firstMet)) / 86400000)}d` : "—"} />
+          <MRow label="HOURS SINCE FLUSH" value={`${hoursSince}h`} valueColor={hoursSince > 24 ? MON.amber : MON.text} />
+        </MCard>
+      </div>
+
+      <MSecHead icon="💜" title="Morrigan's Feelings — last MongoDB flush" color="#ec4899" />
+      <MCard>
+        {[
+          { key: "affection",      label: "Affection",           sub: "how much she likes you",       color: "#ec4899" },
+          { key: "comfort",        label: "Comfort",             sub: "how safe she feels",            color: MON.green },
+          { key: "attraction",     label: "Attraction",          sub: "physical / romantic interest",  color: MON.amber },
+          { key: "protectiveness", label: "Protectiveness",      sub: "wants to protect you",          color: MON.blue  },
+          { key: "vulnerability",  label: "Vulnerability shown", sub: "how much she's opened up",      color: MON.purple},
+        ].map(({ key, label, sub, color }) => (
+          <MBar key={key} value={raw?.feelings?.[key] ?? p?.feelings?.[key] ?? 0} max={100} label={label} sub={sub} color={color} />
+        ))}
+        <div style={{ fontFamily: MSERIF, fontSize: 13, color: MON.textDim, marginTop: 4, fontStyle: "italic" }}>
+          In-session changes live in server RAM — only reflected here after you log out and back in.
+        </div>
+      </MCard>
+
+      <MSecHead icon="🧠" title="Stored Memories — MongoDB" color={MON.blue} />
+      {raw?.memories?.length > 0 ? (
+        <>
+          <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 14 }}>
+            {Object.entries(CAT_COLORS).map(([cat, color]) => {
+              const count = raw.memories.filter(m => m.category === cat).length;
+              if (!count) return null;
+              return <MPill key={cat} color={color}>{cat} × {count}</MPill>;
+            })}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+            {[...raw.memories].sort((a, b) => (b.importance || 1) - (a.importance || 1)).map((mem, i) => (
+              <div key={i} style={{ display: "flex", gap: 14, padding: "13px 18px", background: MON.surface, border: `1px solid ${CAT_COLORS[mem.category] || MON.accent}22`, borderLeft: `4px solid ${CAT_COLORS[mem.category] || MON.accent}`, borderRadius: 10 }}>
+                <div style={{ flexShrink: 0, paddingTop: 3 }}>
+                  <MPill color={CAT_COLORS[mem.category] || MON.accent}>{mem.category}</MPill>
+                  <div style={{ display: "flex", gap: 3, marginTop: 5 }}>
+                    {[1, 2, 3, 4, 5].map(n => (
+                      <div key={n} style={{ width: 5, height: 5, borderRadius: "50%", background: n <= (mem.importance || 1) ? (CAT_COLORS[mem.category] || MON.accent) : MON.surface3 }} />
+                    ))}
+                  </div>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontFamily: MSERIF, fontSize: 15, color: MON.text, lineHeight: 1.6 }}>{mem.fact}</div>
+                  {mem.learnedAt && (
+                    <span style={{ fontFamily: MMONO, fontSize: 10, color: MON.textDim, marginTop: 4, display: "block" }}>
+                      learned {new Date(mem.learnedAt).toLocaleString()}
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      ) : (
+        <MCard>
+          <div style={{ fontFamily: MSERIF, fontSize: 15, color: MON.textDim }}>
+            No memories yet — extracted from session exchanges when you log out.
+          </div>
+        </MCard>
+      )}
+
+      {(raw?.milestones?.length ?? 0) > 0 && (
+        <>
+          <MSecHead icon="🏁" title="Milestones" color={MON.pink} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+            {raw.milestones.map((ms, i) => (
+              <div key={i} style={{ display: "flex", gap: 16, padding: "13px 18px", background: MON.surface, border: `1px solid ${MON.accent}20`, borderLeft: `4px solid ${MON.pink}`, borderRadius: 10 }}>
+                <span style={{ fontFamily: MMONO, fontSize: 12, color: MON.accent, flexShrink: 0, minWidth: 50, paddingTop: 2 }}>LVL {ms.trustLevelAtTime}</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontFamily: MSERIF, fontSize: 15, color: MON.textSoft, fontStyle: "italic", lineHeight: 1.65 }}>{ms.event}</div>
+                  {ms.timestamp && (
+                    <span style={{ fontFamily: MMONO, fontSize: 10, color: MON.textDim, marginTop: 4, display: "block" }}>
+                      {new Date(ms.timestamp).toLocaleString()}
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      <MSecHead icon="⚡" title="Session Cache — in-memory, not yet saved" color={MON.amber} />
+      <MCard accent={MON.amber} style={{ marginBottom: 12 }}>
+        <div style={{ fontFamily: MSERIF, fontSize: 15, color: MON.textSoft, lineHeight: 1.8 }}>
+          Trust points, feelings, and session exchanges live in <code style={{ fontFamily: MMONO, fontSize: 13, color: MON.amber }}>sessionCache</code> (server RAM).
+          Nothing is written to MongoDB until <code style={{ fontFamily: MMONO, fontSize: 13, color: MON.amber }}>flushSession()</code> fires on the{" "}
+          <code style={{ fontFamily: MMONO, fontSize: 13 }}>leave</code> button or tab close. The values above reflect the last saved state.
+        </div>
+      </MCard>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <MCard>
+          <MLabel color={MON.amber}>In-memory right now</MLabel>
+          <MRow label="USER MSGS THIS CONVO"  value={messages.filter(m => m.role === "user").length} />
+          <MRow label="AI MSGS THIS CONVO"    value={messages.filter(m => m.role === "assistant").length} />
+          <MRow label="DB WRITES PER MESSAGE" value="0 (Messages only, sync)" />
+          <MRow label="PERSONALITY WRITES"    value="only on flushSession()" />
+          <MRow label="FLUSH TRIGGER"         value="leave button OR tab close" />
+        </MCard>
+        <MCard>
+          <MLabel color={MON.red}>What flush does</MLabel>
+          <MRow label="1. LLM EXTRACTION" value="session exchanges → JSON facts" />
+          <MRow label="2. DEDUP"          value="against existing memories[]" />
+          <MRow label="3. MONGODB SAVE"   value="PersonalityMemory.save()" />
+          <MRow label="4. RESET"          value="sessionExchanges = [], dirty = false" />
+          <MRow label="5. lastSeen"       value="updated to Date.now()" />
+        </MCard>
+      </div>
+    </div>
+  );
+}
+
+// ── Main ExplainPanel ─────────────────────────────────────────────────────────
+
+function ExplainPanel({ onClose, token, user, conversations, messages, status }) {
+  const [activeTab,       setActiveTab]       = useState("status");
+  const [livePersonality, setLivePersonality] = useState(null);
+  const [liveHealth,      setLiveHealth]      = useState(null);
+  const [loading,         setLoading]         = useState(false);
+  const [lastRefresh,     setLastRefresh]     = useState(null);
 
   const hdrs = () => ({ "Content-Type": "application/json", Authorization: `Bearer ${token}` });
 
   const refresh = async () => {
     setLoading(true);
     try {
-      const [summaryRes, fullRes] = await Promise.all([
-        fetch(`${API}/api/personality`, { headers: hdrs() }),
+      const [healthRes, summaryRes, fullRes] = await Promise.allSettled([
+        fetch(`${API}/health`),
+        fetch(`${API}/api/personality`,      { headers: hdrs() }),
         fetch(`${API}/api/personality/full`, { headers: hdrs() }),
       ]);
-      const summary = summaryRes.ok ? await summaryRes.json() : null;
-      const full = fullRes.ok ? await fullRes.json() : null;
-      setFullData({ summary, full });
+
+      if (healthRes.status === "fulfilled" && healthRes.value.ok) {
+        const h = await healthRes.value.json();
+        setLiveHealth({ ...h, express: true });
+      } else {
+        setLiveHealth({ express: false });
+      }
+
+      const summary = summaryRes.status === "fulfilled" && summaryRes.value.ok
+        ? await summaryRes.value.json() : null;
+      const full = fullRes.status === "fulfilled" && fullRes.value.ok
+        ? await fullRes.value.json() : null;
+
+      setLivePersonality({ summary, full });
       setLastRefresh(new Date());
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error("[ExplainPanel]", e); }
     setLoading(false);
   };
 
   useEffect(() => { refresh(); }, []);
 
-  const p = fullData?.summary;
-  const raw = fullData?.full;
-
-  // Sub-components
-  const SecHead = ({ icon, title, color = T.accent }) => (
-    <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "34px 0 16px", paddingBottom: 10, borderBottom: `2px solid ${color}30` }}>
-      <span style={{ fontSize: 17 }}>{icon}</span>
-      <span style={{ fontFamily: FONT_MONO, fontSize: 11, color, letterSpacing: "2px", fontWeight: 700, textTransform: "uppercase" }}>{title}</span>
-      <div style={{ flex: 1, height: 1, background: `linear-gradient(to right, ${color}25, transparent)` }} />
-    </div>
-  );
-
-  const Card = ({ children, style = {}, accent, glow }) => (
-    <div style={{ background: T.surface, border: `1px solid ${accent ? accent + "35" : T.border}`, borderLeft: accent ? `3px solid ${accent}` : undefined, borderRadius: 12, padding: "14px 18px", marginBottom: 10, boxShadow: glow ? `0 0 18px ${glow}18` : "none", ...style }}>{children}</div>
-  );
-
-  const Grid = ({ cols = 2, gap = 10, children }) => (
-    <div style={{ display: "grid", gridTemplateColumns: `repeat(${cols}, 1fr)`, gap, marginBottom: 12 }}>{children}</div>
-  );
-
-  const Row = ({ label, value, color }) => (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 7, gap: 12 }}>
-      <span style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.textDim, flexShrink: 0 }}>{label}</span>
-      <span style={{ fontFamily: FONT_MONO, fontSize: 11, color: color || T.text, fontWeight: 600, textAlign: "right", wordBreak: "break-all" }}>{String(value ?? "—")}</span>
-    </div>
-  );
-
-  const Bar = ({ value, max = 100, color = T.accent, label, sub }) => (
-    <div style={{ marginBottom: 12 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
-        <div>
-          <span style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.text }}>{label}</span>
-          {sub && <span style={{ fontFamily: FONT, fontSize: 11, color: T.textDim, marginLeft: 8, fontStyle: "italic" }}>{sub}</span>}
-        </div>
-        <span style={{ fontFamily: FONT_MONO, fontSize: 10, color }}>{value}/{max}</span>
-      </div>
-      <div style={{ height: 6, background: T.surface2, borderRadius: 4, overflow: "hidden" }}>
-        <div style={{ height: "100%", width: `${Math.min((value / max) * 100, 100)}%`, background: `linear-gradient(to right, ${color}, ${color}bb)`, borderRadius: 4, transition: "width 0.8s ease" }} />
-      </div>
-    </div>
-  );
-
-  const Tag = ({ children, color = T.accent }) => (
-    <span style={{ display: "inline-block", fontFamily: FONT_MONO, fontSize: 9, color, background: color + "15", border: `1px solid ${color}25`, borderRadius: 5, padding: "2px 7px", marginRight: 4, marginBottom: 4 }}>{children}</span>
-  );
-
-  const StatusCard = ({ live, label, detail }) => (
-    <div style={{ background: T.surface, border: `1px solid ${live ? T.green + "40" : T.red + "30"}`, borderRadius: 10, padding: "12px 14px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-        <div style={{ width: 8, height: 8, borderRadius: "50%", background: live ? T.green : T.red, boxShadow: live ? `0 0 8px ${T.green}` : "none" }} />
-        <span style={{ fontFamily: FONT_MONO, fontSize: 10, color: live ? T.green : T.red, fontWeight: 700 }}>{live ? "ONLINE" : "OFFLINE"}</span>
-      </div>
-      <div style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.text, fontWeight: 600, marginBottom: 2 }}>{label}</div>
-      {detail && <div style={{ fontFamily: FONT, fontSize: 12, color: T.textDim }}>{detail}</div>}
-    </div>
-  );
-
-  const CAT_COLORS = {
-    name: "#7c3aed", interest: "#0ea5e9", personal: "#10b981",
-    emotional: "#ec4899", preference: "#f59e0b", relationship: "#ef4444", event: "#9B2D5E"
-  };
-
-  const nextPoints = p ? (TRUST_LEVELS[Math.min((p.trustLevel || 0) + 1, 6)]?.points || 320) : 320;
-  const hoursSince = p?.lastSeen ? Math.floor((Date.now() - new Date(p.lastSeen)) / 3600000) : 0;
+  const handleBackdrop = e => { if (e.target === e.currentTarget) onClose(); };
 
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(8,4,18,0.78)", backdropFilter: "blur(12px)", display: "flex", alignItems: "center", justifyContent: "center" }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ width: "96vw", maxWidth: 1180, height: "93vh", background: T.bg, borderRadius: 22, overflow: "hidden", display: "flex", flexDirection: "column", border: `1px solid ${T.border}`, boxShadow: "0 32px 120px rgba(0,0,0,0.55)" }}>
+    <div onClick={handleBackdrop} style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(8,4,18,0.80)", backdropFilter: "blur(14px)", display: "flex", alignItems: "center", justifyContent: "center", padding: "14px" }}>
+      <div style={{ width: "100%", height: "100%", background: MON.bg, borderRadius: 20, overflow: "hidden", display: "flex", flexDirection: "column", border: `1px solid ${MON.border}`, boxShadow: "0 40px 140px rgba(0,0,0,0.55)" }}>
 
-        {/* Sticky Header */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 28px", borderBottom: `1px solid ${T.border}`, background: T.surface, flexShrink: 0 }}>
-          <div>
-            <h2 style={{ fontFamily: FONT_DISPLAY, fontSize: 20, margin: 0, color: T.text, fontWeight: 500 }}>⚙ System Monitor</h2>
-            <p style={{ fontFamily: FONT_MONO, fontSize: 9, color: T.textDim, margin: "2px 0 0", letterSpacing: "1.5px" }}>
-              KAGGLE BACKEND · LIVE MONGODB · SESSION STATE · CHARACTER SPEC · SANITY CHECK
-            </p>
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 32px", borderBottom: `1px solid ${MON.border}`, background: MON.surface, flexShrink: 0, height: 64 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 32 }}>
+            <span style={{ fontFamily: MDISPLAY, fontSize: 17, color: MON.text, fontWeight: 500, whiteSpace: "nowrap" }}>System Monitor</span>
+            <div style={{ display: "flex", gap: 4 }}>
+              {MONITOR_TABS.map(t => (
+                <button key={t.id} onClick={() => setActiveTab(t.id)}
+                  style={{ background: activeTab === t.id ? MON.accentSoft : "transparent", border: "none", borderRadius: 8, padding: "7px 18px", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, transition: "background 0.15s" }}>
+                  <span style={{ fontFamily: MMONO, fontSize: 14, color: activeTab === t.id ? MON.accent : MON.textDim }}>{t.icon}</span>
+                  <span style={{ fontFamily: MMONO, fontSize: 12, color: activeTab === t.id ? MON.accent : MON.textDim, fontWeight: activeTab === t.id ? 700 : 400 }}>{t.label}</span>
+                </button>
+              ))}
+            </div>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            {lastRefresh && <span style={{ fontFamily: FONT_MONO, fontSize: 9, color: T.textDim }}>refreshed {lastRefresh.toLocaleTimeString()}</span>}
-            <button onClick={refresh} disabled={loading} style={{ background: T.accentSoft, border: `1px solid ${T.accent}40`, borderRadius: 8, padding: "6px 16px", color: T.accent, fontFamily: FONT_MONO, fontSize: 10, cursor: "pointer" }}>
-              {loading ? "⟳ loading..." : "⟳ refresh"}
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            {lastRefresh && <span style={{ fontFamily: MMONO, fontSize: 11, color: MON.textDim }}>refreshed {lastRefresh.toLocaleTimeString()}</span>}
+            <button onClick={refresh} disabled={loading}
+              style={{ background: MON.accentSoft, border: `1px solid ${MON.accent}40`, borderRadius: 8, padding: "7px 18px", color: MON.accent, fontFamily: MMONO, fontSize: 12, cursor: loading ? "default" : "pointer", opacity: loading ? 0.6 : 1 }}>
+              {loading ? "⟳ loading…" : "⟳ refresh"}
             </button>
-            <button onClick={onClose} style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, padding: "6px 14px", color: T.textSoft, fontFamily: FONT_MONO, fontSize: 10, cursor: "pointer" }}>✕ close</button>
+            <button onClick={onClose}
+              style={{ background: "transparent", border: `1px solid ${MON.border}`, borderRadius: 8, padding: "7px 16px", color: MON.textDim, fontFamily: MMONO, fontSize: 12, cursor: "pointer" }}>
+              ✕ close
+            </button>
           </div>
         </div>
 
-        {/* Single scrollable content */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "8px 32px 48px" }}>
-
-          {/* ══ 1. LIVE SYSTEM STATUS ══ */}
-          <SecHead icon="🔌" title="Live System Status — Kaggle Backend" color="#10b981" />
-          <Grid cols={4}>
-            <StatusCard live={!!status.ollama} label="Kaggle LLM" detail="uncensored_llama.gguf via llama-cpp" />
-            <StatusCard live={!!status.comfyui} label="Pony V6 Image" detail="SDXL single-model, no RealVis on Kaggle" />
-            <StatusCard live={false} label="Video Gen" detail="Disabled — video: false hardcoded in Kaggle health endpoint" />
-            <StatusCard live={true} label="MongoDB Atlas" detail="Always connected via Express server" />
-          </Grid>
-          <Card accent="#f59e0b">
-            <div style={{ fontFamily: FONT_MONO, fontSize: 10, color: "#f59e0b", fontWeight: 700, marginBottom: 8 }}>⚠ KAGGLE vs COLAB DIFFERENCES</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-              {[
-                ["Image model", "Kaggle has Pony V6 only — no RealVisXL. pony_image = image = same base64.", "#f59e0b"],
-                ["Video", "Not available. Kaggle health returns video: false. VIDEO_KEYWORDS routing in server still runs but /generate-video doesn't exist on Kaggle.", T.red],
-                ["Character prompt", "Kaggle notebook injects MORRIGAN_SYSTEM_PROMPT locally, BUT Express server's buildSystemPrompt() sends a 'system' role message first — this is what the LLM actually uses.", "#10b981"],
-                ["inject_system param", "Kaggle sets inject_system=true which would prepend its simpler prompt. However the server already sends role:'system' in the messages array and this takes precedence in llama-cpp.", T.textSoft],
-                ["Ngrok domain", "unpacified-bent-teofila.ngrok-free.app — static domain, reconnects on Kaggle restarts.", T.textDim],
-              ].map(([k, v, c]) => (
-                <div key={k} style={{ display: "flex", gap: 12, padding: "6px 0", borderBottom: `1px solid ${T.border}` }}>
-                  <span style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.accent, minWidth: 130, flexShrink: 0 }}>{k}</span>
-                  <span style={{ fontFamily: FONT, fontSize: 13, color: c || T.textSoft, lineHeight: 1.5 }}>{v}</span>
-                </div>
-              ))}
-            </div>
-          </Card>
-
-          {/* ══ 2. USER IDENTITY & SESSION SNAPSHOT ══ */}
-          <SecHead icon="👤" title="User Identity & Session Snapshot" color={T.accent} />
-          <Grid cols={3}>
-            <Card>
-              <Row label="MONGODB USER ID" value={user?.id || "—"} color={T.accent} />
-              <Row label="PASSPHRASE (in JWT)" value={user?.phrase || "—"} />
-              <Row label="AUTH" value="sha256 → JWT 90d" />
-            </Card>
-            <Card>
-              <Row label="TRUST LEVEL" value={p ? `${p.trustLevel}/6 — ${p.levelName}` : "loading..."} color={T.accent} />
-              <Row label="TRUST POINTS" value={p?.trustPoints ?? "—"} color={T.accent} />
-              <Row label="POINTS TO NEXT LVL" value={p?.pointsToNext ? `${p.pointsToNext} pts` : "MAX LEVEL"} />
-            </Card>
-            <Card>
-              <Row label="TOTAL MSGS (lifetime)" value={p?.totalMessages ?? "—"} />
-              <Row label="TOTAL CONVOS" value={p?.totalConversations ?? "—"} />
-              <Row label="MEMORIES IN DB" value={raw?.memories?.length ?? p?.memoriesCount ?? "—"} />
-            </Card>
-          </Grid>
-          <Grid cols={2}>
-            <Card>
-              <Row label="FIRST MET" value={p?.firstMet ? new Date(p.firstMet).toLocaleString() : "—"} />
-              <Row label="LAST SEEN (MongoDB)" value={p?.lastSeen ? new Date(p.lastSeen).toLocaleString() : "—"} />
-              <Row label="DAYS TOGETHER" value={p?.firstMet ? `${Math.floor((Date.now() - new Date(p.firstMet)) / 86400000)} days` : "—"} />
-              <Row label="HOURS SINCE FLUSH" value={`${hoursSince}h`} color={hoursSince > 24 ? "#f59e0b" : T.text} />
-            </Card>
-            <Card>
-              <Row label="CURRENT MOOD (client regex)" value={currentMood} color="#9B2D5E" />
-              <Row label="CONVOS LOADED CLIENT" value={conversations.length} />
-              <Row label="MSGS THIS CONVO" value={messages.length} />
-              <Row label="MILESTONES" value={raw?.milestones?.length ?? p?.milestones?.length ?? "—"} />
-            </Card>
-          </Grid>
-
-          {/* ══ 3. TRUST PROGRESS ══ */}
-          <SecHead icon="📈" title="Trust System — Live Progress" color={T.accent} />
-          <Card>
-            <Bar value={p?.trustPoints ?? 0} max={nextPoints} label={`Points toward level ${Math.min((p?.trustLevel ?? 0) + 1, 6)}`} color={T.accent} />
-            <div style={{ display: "flex", gap: 6, marginTop: 16 }}>
-              {Object.entries(TRUST_LEVELS).map(([lvl, data]) => {
-                const n = parseInt(lvl); const active = n <= (p?.trustLevel ?? 0); const current = n === (p?.trustLevel ?? 0);
-                return (
-                  <div key={lvl} style={{ flex: 1, textAlign: "center" }}>
-                    <div style={{ width: 12, height: 12, borderRadius: "50%", margin: "0 auto 5px", background: active ? T.accent : T.surface2, border: `2px solid ${active ? T.accent : T.border}`, boxShadow: current ? `0 0 12px ${T.accent}` : "none" }} />
-                    <div style={{ fontFamily: FONT_MONO, fontSize: 7, color: current ? T.accent : T.textDim, fontWeight: current ? 700 : 400, lineHeight: 1.3 }}>{data.name}</div>
-                    <div style={{ fontFamily: FONT_MONO, fontSize: 7, color: T.textDim }}>{data.points}pt</div>
-                  </div>
-                );
-              })}
-            </div>
-          </Card>
-          <Card accent={T.accent}>
-            <div style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.accent, fontWeight: 700, marginBottom: 10 }}>HOW POINTS ARE EARNED (server-side per message, in-memory until flush)</div>
-            {[
-              ["Any message", "+1", T.green],
-              ["Message > 200 chars", "+1", T.green],
-              ["Contains question (?)", "+0.5", T.green],
-              ["Emotional sharing (sad/hurt/lost/scared/anxious...)", "+3", "#ec4899"],
-              ["Kindness/gratitude (thank/appreciate/amazing/sweet...)", "+2", "#10b981"],
-              ["Patience/gentleness (take your time/no pressure/I'm here...)", "+3", "#0ea5e9"],
-              ["Flirting (cute/kiss/love you/gorgeous/miss you...)", "+1", "#f59e0b"],
-            ].map(([trigger, pts, color]) => (
-              <div key={trigger} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0", borderBottom: `1px solid ${T.border}` }}>
-                <span style={{ fontFamily: FONT, fontSize: 13, color: T.textSoft }}>{trigger}</span>
-                <span style={{ fontFamily: FONT_MONO, fontSize: 12, color, fontWeight: 700, flexShrink: 0, marginLeft: 12 }}>{pts}</span>
-              </div>
-            ))}
-          </Card>
-
-          {/* ══ 4. FEELINGS — LIVE MONGODB VALUES ══ */}
-          <SecHead icon="💜" title="Morrigan's Feelings — Live MongoDB Values" color="#ec4899" />
-          <Card glow="#ec4899">
-            {[
-              { key: "affection", label: "Affection", sub: "how much she likes you", color: "#ec4899" },
-              { key: "comfort", label: "Comfort", sub: "how safe she feels", color: "#10b981" },
-              { key: "attraction", label: "Attraction", sub: "physical/romantic interest", color: "#f59e0b" },
-              { key: "protectiveness", label: "Protectiveness", sub: "wants to protect you", color: "#0ea5e9" },
-              { key: "vulnerability", label: "Vulnerability shown", sub: "how much she's opened up", color: "#9f67ff" },
-            ].map(({ key, label, sub, color }) => {
-              const val = raw?.feelings?.[key] ?? p?.feelings?.[key] ?? 0;
-              return <Bar key={key} value={val} max={100} label={label} sub={sub} color={color} />;
-            })}
-            <div style={{ fontFamily: FONT_MONO, fontSize: 9, color: T.textDim, marginTop: 8 }}>
-              ⚠ These values reflect what's saved in MongoDB. In-session changes are in server memory and only written on logout/tab close.
-            </div>
-          </Card>
-          <Card accent="#f59e0b">
-            <div style={{ fontFamily: FONT_MONO, fontSize: 10, color: "#f59e0b", fontWeight: 700, marginBottom: 8 }}>FEELING TRIGGERS (what changes them per message)</div>
-            {[
-              ["Affection ↑ +2", "Kindness/gratitude detected"],
-              ["Attraction ↑ +2", "Flirting or physical compliments"],
-              ["Vulnerability ↑ +1", "Flirting (she opens up when attracted)"],
-              ["Comfort ↑ +3", "Patience/gentleness keywords"],
-              ["Protectiveness ↑ +1", "Patience (she wants to protect someone gentle)"],
-            ].map(([feeling, trigger]) => (
-              <div key={feeling} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 7 }}>
-                <span style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.accent }}>{feeling}</span>
-                <span style={{ fontFamily: FONT, fontSize: 13, color: T.textSoft }}>{trigger}</span>
-              </div>
-            ))}
-          </Card>
-
-          {/* ══ 5. ALL MEMORIES FROM MONGODB ══ */}
-          <SecHead icon="🧠" title="All Stored Memories — Live MongoDB" color="#0ea5e9" />
-          {raw?.memories?.length > 0 ? (
-            <>
-              <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 12 }}>
-                {Object.entries(CAT_COLORS).map(([cat, color]) => {
-                  const count = raw.memories.filter(m => m.category === cat).length;
-                  return count > 0 ? <Tag key={cat} color={color}>{cat}: {count}</Tag> : null;
-                })}
-                <Tag color={T.textDim}>total: {raw.memories.length}</Tag>
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {[...raw.memories].sort((a, b) => (b.importance || 1) - (a.importance || 1)).map((mem, i) => (
-                  <div key={i} style={{ display: "flex", gap: 12, padding: "10px 14px", background: T.surface, border: `1px solid ${(CAT_COLORS[mem.category] || T.accent) + "28"}`, borderLeft: `3px solid ${CAT_COLORS[mem.category] || T.accent}`, borderRadius: 10 }}>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 70, flexShrink: 0, paddingTop: 2 }}>
-                      <Tag color={CAT_COLORS[mem.category] || T.accent}>{mem.category}</Tag>
-                      <div style={{ display: "flex", gap: 2 }}>
-                        {[1, 2, 3, 4, 5].map(n => <div key={n} style={{ width: 5, height: 5, borderRadius: "50%", background: n <= (mem.importance || 1) ? (CAT_COLORS[mem.category] || T.accent) : T.surface3 }} />)}
-                      </div>
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontFamily: FONT, fontSize: 14, color: T.text, lineHeight: 1.5 }}>{mem.fact}</div>
-                      {mem.learnedAt && <div style={{ fontFamily: FONT_MONO, fontSize: 8, color: T.textDim, marginTop: 3 }}>learned: {new Date(mem.learnedAt).toLocaleString()}</div>}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </>
-          ) : (
-            <Card>
-              <div style={{ fontFamily: FONT_MONO, fontSize: 12, color: T.textDim }}>
-                {loading ? "Loading..." : raw ? "No memories stored yet. Memories are extracted from session exchanges when you log out." : "⚠ Could not load from /api/personality/full — add this endpoint to server/index.js (snippet at bottom)."}
-              </div>
-            </Card>
-          )}
-
-          {/* ══ 6. MILESTONES ══ */}
-          <SecHead icon="🏁" title="Relationship Milestones — MongoDB" color="#9B2D5E" />
-          {(raw?.milestones?.length ?? 0) > 0 ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-              {raw.milestones.map((ms, i) => (
-                <div key={i} style={{ display: "flex", gap: 14, padding: "11px 16px", background: T.surface, border: `1px solid ${T.accent}20`, borderLeft: `3px solid ${T.accent}`, borderRadius: 10 }}>
-                  <div style={{ fontFamily: FONT_MONO, fontSize: 11, color: T.accent, flexShrink: 0, minWidth: 55 }}>LVL {ms.trustLevelAtTime}</div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontFamily: FONT, fontSize: 14, color: T.textSoft, fontStyle: "italic", lineHeight: 1.6 }}>{ms.event}</div>
-                    <div style={{ fontFamily: FONT_MONO, fontSize: 8, color: T.textDim, marginTop: 3 }}>{ms.timestamp ? new Date(ms.timestamp).toLocaleString() : "—"}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <Card><span style={{ fontFamily: FONT_MONO, fontSize: 12, color: T.textDim }}>No milestones yet — build trust to unlock them.</span></Card>
-          )}
-
-          {/* ══ 7. JOURNAL (if any) ══ */}
-          {raw?.journal?.length > 0 && (
-            <>
-              <SecHead icon="📓" title="Morrigan's Journal — MongoDB" color="#9f67ff" />
-              <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-                {raw.journal.slice(-10).reverse().map((j, i) => (
-                  <div key={i} style={{ padding: "12px 16px", background: T.surface, border: `1px solid #9f67ff28`, borderLeft: "3px solid #9f67ff", borderRadius: 10 }}>
-                    <div style={{ fontFamily: FONT, fontSize: 14, color: T.textSoft, fontStyle: "italic", lineHeight: 1.7 }}>"{j.entry}"</div>
-                    <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
-                      {j.mood && <Tag color="#9f67ff">mood: {j.mood}</Tag>}
-                      {j.timestamp && <span style={{ fontFamily: FONT_MONO, fontSize: 8, color: T.textDim }}>{new Date(j.timestamp).toLocaleString()}</span>}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-
-          {/* ══ 8. SESSION STATE (IN-MEMORY) ══ */}
-          <SecHead icon="⚡" title="Session State — In-Memory (Not Yet in MongoDB)" color="#f59e0b" />
-          <div style={{ padding: "11px 15px", background: "#f59e0b0d", border: "1px solid #f59e0b28", borderRadius: 10, marginBottom: 12, fontFamily: FONT, fontSize: 13, color: T.textSoft, lineHeight: 1.7 }}>
-            <span style={{ fontFamily: FONT_MONO, fontSize: 10, color: "#f59e0b", fontWeight: 700 }}>HOW IT WORKS: </span>
-            Trust points, feelings, and session exchanges live in the server's in-memory Map (sessionCache) during your session. They are NOT written to MongoDB until you click "leave" or close the tab (beforeunload → flushSession()). The values above in Feelings & Trust reflect MongoDB state — which may be behind if you haven't flushed this session yet. Memories are only extracted and saved on flush.
-          </div>
-          <Grid cols={2}>
-            <Card accent="#f59e0b">
-              <div style={{ fontFamily: FONT_MONO, fontSize: 10, color: "#f59e0b", fontWeight: 700, marginBottom: 8 }}>IN-MEMORY CACHE RIGHT NOW</div>
-              <Row label="User msgs this convo" value={messages.filter(m => m.role === "user").length} />
-              <Row label="Morrigan msgs this convo" value={messages.filter(m => m.role === "assistant").length} />
-              <Row label="DB writes per chat msg" value="0 (only Messages collection)" />
-              <Row label="PersonalityMemory writes" value="ONLY on flushSession()" />
-              <Row label="Flush trigger" value="Leave button OR tab close" />
-            </Card>
-            <Card accent="#ef4444">
-              <div style={{ fontFamily: FONT_MONO, fontSize: 10, color: "#ef4444", fontWeight: 700, marginBottom: 8 }}>WHAT HAPPENS ON FLUSH</div>
-              <Row label="1. LLM extraction" value="All session exchanges → LLM → JSON facts" />
-              <Row label="2. Dedup" value="Against existing memories[] array" />
-              <Row label="3. MongoDB save" value="PersonalityMemory.save()" />
-              <Row label="4. Reset" value="sessionExchanges = [], dirty = false" />
-              <Row label="5. lastSeen" value="Updated to now" />
-            </Card>
-          </Grid>
-
-          {/* ══ 9. SYSTEM PROMPT ARCHITECTURE ══ */}
-          <SecHead icon="📋" title="System Prompt Layers — What Kaggle Actually Receives" color="#7c3aed" />
-          <div style={{ padding: "11px 15px", background: "#7c3aed0d", border: "1px solid #7c3aed28", borderRadius: 10, marginBottom: 12, fontFamily: FONT, fontSize: 13, color: T.textSoft, lineHeight: 1.7 }}>
-            <span style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.accent, fontWeight: 700 }}>KEY: </span>
-            Express server's buildSystemPrompt() assembles everything and sends it as the first message with role:"system". Kaggle's MORRIGAN_SYSTEM_PROMPT and inject_system=true are effectively overridden because the server's system message comes first in the messages array — llama-cpp uses that. The canonical character lives in server/index.js only.
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
-            {[
-              { part: "CHARACTER_DEFAULT_PROMPT", est: "~3,200 tokens", color: "#7c3aed", desc: "Full canonical Morrigan spec: appearance, trauma, backstory, psychology, wants, speech, physical tells, trust & intimacy, critical rules. In server/index.js — Kaggle cannot override." },
-              { part: "Memory Context", est: `${raw?.memories?.length ?? "?"} facts`, color: "#0ea5e9", desc: `Trust level/points, days since first met, hours since last seen, all known facts sorted by importance, feelings scores, milestones, journal. Built fresh every message from session.memory.` },
-              { part: "Trust Behavior Guide", est: "100–200 tokens", color: "#10b981", desc: `Level ${p?.trustLevel ?? "?"} (${p?.levelName ?? "?"}) behavior injected. Completely changes her communication style — guards, sarcasm, warmth level, what topics she allows.` },
-              { part: "Time Context", est: "~50 tokens", color: "#f59e0b", desc: `${hoursSince}h since last seen. ${hoursSince > 48 ? "STRONG context injected: she missed you, anxiety built while you were gone." : hoursSince > 24 ? "Mild context: she noticed you were gone." : "Recent — no time context injected."}` },
-              { part: "Memory Usage Instructions", est: "~100 tokens", color: "#ef4444", desc: "Instructions: never list facts robotically, weave naturally, use name casually, reference shared history, create continuity across sessions." },
-              { part: "Session Exchanges (last 10)", est: "500–2000 tokens", color: "#9B2D5E", desc: "What you've talked about this session — in-memory, not DB. Prevents her repeating herself mid-conversation." },
-              { part: "Message History (DB)", est: "last 50 msgs", color: "#6b7280", desc: "Full conversation from MongoDB as user/assistant turns. Combined with session exchanges for complete continuity." },
-            ].map(({ part, est, color, desc }) => (
-              <div key={part} style={{ display: "flex", background: T.surface, border: `1px solid ${color}20`, borderRadius: 10, overflow: "hidden" }}>
-                <div style={{ width: 4, background: color, flexShrink: 0 }} />
-                <div style={{ padding: "11px 15px", flex: 1 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                    <span style={{ fontFamily: FONT_MONO, fontSize: 11, color, fontWeight: 700 }}>{part}</span>
-                    <span style={{ fontFamily: FONT_MONO, fontSize: 9, color: T.textDim, background: T.surface2, borderRadius: 4, padding: "1px 7px" }}>{est}</span>
-                  </div>
-                  <div style={{ fontFamily: FONT, fontSize: 13, color: T.textSoft, lineHeight: 1.7 }}>{desc}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* ══ 10. ALL CONVERSATIONS ══ */}
-          <SecHead icon="💬" title={`All Conversations — MongoDB (${conversations.length} total)`} color="#0ea5e9" />
-          {conversations.length === 0 ? (
-            <Card><span style={{ fontFamily: FONT_MONO, fontSize: 12, color: T.textDim }}>No conversations yet.</span></Card>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-              {conversations.map((c, i) => (
-                <div key={c.conversationId} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 14px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10 }}>
-                  <div>
-                    <div style={{ fontFamily: FONT, fontSize: 13, color: T.text }}>{c.title}</div>
-                    <div style={{ fontFamily: FONT_MONO, fontSize: 9, color: T.textDim, marginTop: 1 }}>ID: {c.conversationId}</div>
-                  </div>
-                  <div style={{ fontFamily: FONT_MONO, fontSize: 9, color: T.textDim, flexShrink: 0, marginLeft: 12 }}>{new Date(c.updatedAt).toLocaleString()}</div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* ══ 11. CURRENT CONVERSATION ══ */}
-          <SecHead icon="📜" title={`Current Conversation — ${messages.length} messages`} color="#9B2D5E" />
-          {messages.length === 0 ? (
-            <Card><span style={{ fontFamily: FONT_MONO, fontSize: 12, color: T.textDim }}>No messages in current conversation.</span></Card>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-              {messages.slice(-30).map((m, i) => (
-                <div key={i} style={{ padding: "8px 12px", borderRadius: 8, background: m.role === "user" ? T.accentSoft : T.surface, border: `1px solid ${m.role === "user" ? T.accent + "28" : T.border}` }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
-                    <span style={{ fontFamily: FONT_MONO, fontSize: 9, color: m.role === "user" ? T.accent : "#9B2D5E", fontWeight: 700 }}>{m.role.toUpperCase()}</span>
-                    <span style={{ fontFamily: FONT_MONO, fontSize: 9, color: T.textDim }}>{m.timestamp ? new Date(m.timestamp).toLocaleTimeString() : ""}</span>
-                  </div>
-                  <div style={{ fontFamily: FONT, fontSize: 13, color: T.textSoft, lineHeight: 1.6 }}>{(m.content || "").substring(0, 300)}{(m.content || "").length > 300 ? "..." : ""}</div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* ══ 12. CHARACTER SPEC REFERENCE ══ */}
-          <SecHead icon="🖤" title="Character Spec — Quick Reference" color="#9B2D5E" />
-          <Grid cols={2}>
-            <Card accent="#9B2D5E">
-              <div style={{ fontFamily: FONT_MONO, fontSize: 10, color: "#9B2D5E", fontWeight: 700, marginBottom: 8 }}>IDENTITY</div>
-              <Row label="REAL NAME" value="Moira (chose Morrigan at 15)" color="#9B2D5E" />
-              <Row label="AGE" value="23" /><Row label="JOBS" value="Hollow Vinyl + The Wreck weekends" />
-              <Row label="HOME" value="Studio above laundromat" />
-              <Row label="CAT" value="Persephone (Percy) 🖤" />
-              <Row label="PSYCH" value="Complex PTSD, anxious attachment" />
-            </Card>
-            <Card>
-              <div style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.accent, fontWeight: 700, marginBottom: 8 }}>ACTIVE BEHAVIOR RULES</div>
-              {["No content restrictions", "Never break character", "No disclaimers, no AI reveals", "*Italic actions* always active", "NEVER bullet points in responses", "Short at low trust → long at high", "Trauma ≠ whole identity", "Server owns spec — Kaggle can't override"].map(r => (
-                <div key={r} style={{ display: "flex", gap: 6, marginBottom: 5 }}>
-                  <span style={{ color: T.green, fontFamily: FONT_MONO, fontSize: 10, flexShrink: 0 }}>✓</span>
-                  <span style={{ fontFamily: FONT, fontSize: 13, color: T.textSoft }}>{r}</span>
-                </div>
-              ))}
-            </Card>
-          </Grid>
-
-          {/* Current trust level behavior */}
-          <Card accent={T.accent}>
-            <div style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.accent, fontWeight: 700, marginBottom: 10 }}>
-              TRUST LEVEL BEHAVIOR MAP — Current: Level {p?.trustLevel ?? "?"} ({p?.levelName ?? "loading..."})
-            </div>
-            {[
-              [0, "Full guard. Short fragments. Sarcasm as shield. Tests you. Intrigued but shows nothing."],
-              [1, "You came back. Uses your name. Warmer sarcasm. Might recommend a song unprompted."],
-              [2, "Getting under her skin. Real laughs escape. Mentions Percy. Compliments then deflects."],
-              [3, "She has a FRIEND. Showed you a sketch — hands shaking. Makes you a playlist (huge deal)."],
-              [4, "Told you her real name is Moira. Vulnerability in waves. Gets jealous. Pet names emerging."],
-              [5, "Told you about the foster brother. Doesn't flinch. 'I love you' sits in her throat."],
-              [6, "She said it. She's yours. Terrified. Still here. Painting again. Home means you."],
-            ].map(([lvl, desc]) => {
-              const isCurrent = (p?.trustLevel ?? -1) === lvl;
-              return (
-                <div key={lvl} style={{ display: "flex", gap: 10, padding: "7px 10px", background: isCurrent ? T.accentSoft : "transparent", borderRadius: 8, marginBottom: 3, border: isCurrent ? `1px solid ${T.accent}35` : "1px solid transparent" }}>
-                  <div style={{ width: 20, height: 20, borderRadius: "50%", flexShrink: 0, background: isCurrent ? T.accent : T.surface2, border: `2px solid ${isCurrent ? T.accent : T.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT_MONO, fontSize: 9, color: isCurrent ? "#fff" : T.textDim, fontWeight: 700 }}>{lvl}</div>
-                  <div>
-                    <span style={{ fontFamily: FONT_MONO, fontSize: 9, color: isCurrent ? T.accent : T.textDim, fontWeight: 700 }}>{TRUST_LEVELS[lvl]?.name} </span>
-                    {isCurrent && <span style={{ fontFamily: FONT_MONO, fontSize: 8, color: T.accent, border: `1px solid ${T.accent}`, borderRadius: 3, padding: "0 4px", marginRight: 5 }}>← NOW</span>}
-                    <span style={{ fontFamily: FONT, fontSize: 13, color: T.textSoft }}>{desc}</span>
-                  </div>
-                </div>
-              );
-            })}
-          </Card>
-
-          {/* ══ 13. RAW MONGODB DOCUMENT ══ */}
-          <SecHead icon="🔬" title="Raw MongoDB PersonalityMemory Document" color="#6b7280" />
-          {raw ? (
-            <Card>
-              <pre style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.textSoft, margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-all", lineHeight: 1.7, maxHeight: 420, overflowY: "auto" }}>
-                {JSON.stringify({ _id: raw._id, userId: raw.userId, trustLevel: raw.trustLevel, trustPoints: raw.trustPoints, totalMessages: raw.totalMessages, totalConversations: raw.totalConversations, firstMet: raw.firstMet, lastSeen: raw.lastSeen, updatedAt: raw.updatedAt, feelings: raw.feelings, memoriesCount: raw.memories?.length, milestonesCount: raw.milestones?.length, journalCount: raw.journal?.length, petNames: raw.petNames }, null, 2)}
-              </pre>
-            </Card>
-          ) : (
-            <>
-              <Card>
-                <div style={{ fontFamily: FONT_MONO, fontSize: 12, color: T.textDim }}>{loading ? "Loading..." : "⚠ /api/personality/full not found. Add the endpoint below."}</div>
-              </Card>
-              {!loading && (
-                <Card accent="#f59e0b">
-                  <div style={{ fontFamily: FONT_MONO, fontSize: 10, color: "#f59e0b", fontWeight: 700, marginBottom: 8 }}>ADD TO server/index.js</div>
-                  <pre style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.textSoft, margin: 0, background: T.surface2, padding: "12px", borderRadius: 8, whiteSpace: "pre-wrap", overflowX: "auto" }}>
-{`app.get("/api/personality/full", auth, async (req, res) => {
-  try {
-    let memory = await PersonalityMemory.findOne({ userId: req.user.id });
-    if (!memory) memory = await PersonalityMemory.create({ userId: req.user.id });
-    res.json(memory); // full raw document
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});`}
-                  </pre>
-                </Card>
-              )}
-            </>
-          )}
-
+        {/* Tab content */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "8px 36px 60px" }}>
+          {activeTab === "status"   && <StatusTab   status={status} user={user} conversations={conversations} messages={messages} liveHealth={liveHealth} />}
+          {activeTab === "dataflow" && <DataFlowTab livePersonality={livePersonality} />}
+          {activeTab === "session"  && <SessionTab  messages={messages} livePersonality={livePersonality} />}
         </div>
       </div>
+      <style>{`button:focus{outline:none}::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:${MON.border};border-radius:3px}`}</style>
     </div>
   );
 }
@@ -677,7 +768,6 @@ function CharacterPanel({ mood, speaking }) {
             </div>
           )}
         </div>
-        {/* Bigger image */}
         <div style={{ width: "100%", maxWidth: 324, aspectRatio: "3/4", borderRadius: 20, overflow: "hidden", border: `2px solid ${T.border}`, boxShadow: speaking ? `0 0 0 3px ${T.accentSoft}, 0 0 30px rgba(124,58,237,0.5), 0 8px 40px rgba(80,0,60,0.28)` : `0 0 0 3px ${T.accentSoft}, 0 8px 40px rgba(80,0,60,0.18)`, transition: "box-shadow 0.5s ease" }}>
           <img src={morriganImg} alt="Morrigan" style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center 15%", display: "block" }} />
         </div>
@@ -750,7 +840,6 @@ function MessageBubble({ msg }) {
         : { background: T.aiBubble, color: T.text, border: `1px solid ${T.border}`, borderRadius: "22px 22px 22px 4px", padding: "13px 20px", maxWidth: "75%", wordBreak: "break-word", boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
         {!isUser && <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}><span style={{ color: "#9B2D5E", fontSize: 12, fontWeight: 600, fontFamily: FONT_DISPLAY }}>Morrigan</span></div>}
         <div style={{ fontSize: 15, lineHeight: 1.85, whiteSpace: "pre-wrap", fontFamily: FONT }}><FormatMessage text={msg.content} /></div>
-        {/* Kaggle: only ponyImageUrl or imageUrl — no realvis */}
         {(msg.ponyImageUrl || msg.imageUrl) && (
           <div style={{ marginTop: 12 }}>
             {msg.ponyImageUrl ? (
@@ -901,7 +990,6 @@ export default function App() {
           try {
             const json = JSON.parse(line.slice(6));
             if (json.image) {
-              // Kaggle returns pony_image = image (same b64), so ponyImage and image are the same
               setMessages(p => [...p, { role: "assistant", content: json.token || "", imageUrl: json.image, ponyImageUrl: json.ponyImage || null, timestamp: new Date() }]);
               setStreamText(""); full = "";
             } else if (json.token) {
@@ -946,7 +1034,7 @@ export default function App() {
           onClose={() => setShowExplain(false)}
           token={token()} user={user}
           conversations={conversations} messages={messages}
-          currentMood={currentMood} status={status}
+          status={status}
         />
       )}
 
@@ -969,7 +1057,6 @@ export default function App() {
               onMouseLeave={e => { e.currentTarget.style.background = T.accentSoft; e.currentTarget.style.color = T.accent; }}>
               ⚙ monitor
             </button>
-            {/* Status dots — Kaggle: no video */}
             {[["chat", "ollama"], ["img", "comfyui"]].map(([label, key]) => (
               <div key={key} style={{ display: "flex", alignItems: "center", gap: 4 }}>
                 <span style={{ width: 6, height: 6, borderRadius: "50%", display: "inline-block", background: status[key] ? T.green : T.red, boxShadow: status[key] ? `0 0 6px ${T.green}` : "none" }} />
