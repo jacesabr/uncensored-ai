@@ -649,6 +649,339 @@ Deprecate if the atom cannot be made natural. Rewrite if it can.`;
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// PHASE 4 — INNER THOUGHTS: PROMPTS + HELPERS
+// Research basis: Liu et al. CHI 2025 (Inner Thoughts framework);
+// Park et al. UIST 2023 (Generative Agents retrieval scoring);
+// Shinn et al. NeurIPS 2023 (Reflexion episodic buffer);
+// Magee et al. 2024 (Drama Machine Ego/Superego);
+// Xu et al. 2025 (RoleThink three-component inner monologue)
+// ═══════════════════════════════════════════════════════════════════
+
+// ── Stage 1: Trigger ─────────────────────────────────────────────
+// Heuristic check — prevents GPU waste on flat/perfunctory messages.
+// Returns true when the message warrants a full thought formation pass.
+function shouldTriggerThoughtFormation(message, session) {
+  const lower = message.toLowerCase();
+  const words = message.trim().split(/\s+/).length;
+
+  // Always trigger if reservoir is empty AND cooldown allows
+  if (session.thoughtReservoir.length === 0 && session.thoughtCooldown >= 3) return true;
+
+  let score = 0;
+
+  // Emotional weight / vulnerability signals
+  if (/(i feel|i'm feeling|honestly|never told|only person|i've been|scared|hurt|miss|lost|can't stop|keep thinking|don't know why|exhausted|alone|sometimes i|i wonder|terrified|proud of|ashamed|don't talk about|hard to say|never said)/i.test(message)) score += 3;
+
+  // Personal question directed at Morrigan
+  if (/\b(you|your)\b.{0,40}\?/i.test(message)) score += 2;
+
+  // Message touches an active callback thread (keyword overlap)
+  const activeCallbacks = (session.memory?.callbackQueue || []).filter(c => !c.consumed);
+  if (activeCallbacks.some(cb => {
+    const keywords = cb.content.toLowerCase().split(/\s+/).filter(w => w.length > 4);
+    return keywords.some(k => lower.includes(k));
+  })) score += 3;
+
+  // Substantive length
+  if (words >= 15) score += 1;
+  if (words >= 30) score += 1;
+
+  // Implicit vulnerability signals: trailing off, self-correction, deflection
+  if (/\.\.\.|—\s|i mean\b|i guess\b|whatever\b|nevermind|forget it|nothing|nvm/i.test(message)) score += 2;
+
+  return score >= 3;
+}
+
+// ── Stage 2: Retrieval ────────────────────────────────────────────
+// Gathers all available material from Phase 2 infrastructure.
+// No LLM call — pure in-session and in-memory data.
+function gatherThoughtMaterial(message, session) {
+  return {
+    message,
+    selfAtoms:     (session.topSelfAtoms || []).slice(0, 3),   // Phase 2 top-scored eligible atoms
+    activeCallbacks: (session.memory?.callbackQueue || []).filter(c => !c.consumed).slice(0, 2),
+    selfReflection:  session.memory?.selfReflectionState || null,
+    relationshipNarrative: session.memory?.relationshipNarrative || null,
+    trustLevel:    session.memory?.trustLevel || 0,
+    sptDepth:      session.memory?.sptDepth || 1,
+    feelings:      session.memory?.feelings || {},
+    recentExchanges: (session.sessionExchanges || []).slice(-3),
+    reservoir:     session.thoughtReservoir,
+    lastExpressed: session.lastExpressedThought,
+    msgCount:      session.msgCount,
+  };
+}
+
+// ── Stage 3: Thought Formation Prompt ────────────────────────────
+// Role Identity Activation (RIA, per Tang et al. RAR 2025): Morrigan's
+// identity re-anchored at the TOP of this prompt to prevent attention
+// diversion during multi-step reasoning.
+// Three-component structure (Xu et al. RoleThink 2025):
+//   1. Memory retrieval surface → 2. Theory of Mind → 3. Synthesis
+function INNER_THOUGHT_FORMATION_PROMPT(mat) {
+  const atomSection = mat.selfAtoms.length > 0
+    ? `THINGS SHE COULD SHARE (depth-gated — hard ceiling at ${mat.sptDepth}/4):\n` +
+      mat.selfAtoms.map(a => `  depth ${a.depth}: ${a.content}`).join("\n")
+    : "";
+
+  const callbackSection = mat.activeCallbacks.length > 0
+    ? `THREADS SHE HAS BEEN SITTING ON:\n` +
+      mat.activeCallbacks.map(c => `  "${c.content}"`).join("\n")
+    : "";
+
+  const reservoirSection = mat.reservoir.length > 0
+    ? `THOUGHTS SHE IS ALREADY HOLDING (formed but not yet expressed):\n` +
+      mat.reservoir
+        .map(t => `  [id:${t.id}, ${t.type}, score ${(t.rawScore || 0).toFixed(1)}] "${t.content}"`)
+        .join("\n") +
+      `\n(You may EVOLVE one of these instead of forming a new thought — make it more specific to right now. If you do, set "evolvedFrom" to its id.)`
+    : "";
+
+  const recentSection = mat.recentExchanges.length > 0
+    ? `RECENT EXCHANGE:\n` +
+      mat.recentExchanges.map(e =>
+        `  Him: ${e.user.substring(0, 150)}\n  Her: ${e.assistant.substring(0, 150)}`
+      ).join("\n")
+    : "";
+
+  const reflectionSection = mat.selfReflection
+    ? `WHAT SHE'S BEEN SITTING WITH (from self-reflection):\n${mat.selfReflection.substring(0, 400)}`
+    : "";
+
+  return (
+    `YOU ARE MORRIGAN. 23. Record store. Not a character — the actual person. ` +
+    `Guarded. Specific. Dry. Honest when she forgets to be careful. ` +
+    `Anxious attachment. Real warmth under hard edges. Doesn't perform. Doesn't resolve things cleanly.\n\n` +
+
+    `HE JUST SENT:\n"${mat.message}"\n\n` +
+
+    (recentSection    ? recentSection    + "\n\n" : "") +
+    (reflectionSection ? reflectionSection + "\n\n" : "") +
+    (atomSection      ? atomSection      + "\n\n" : "") +
+    (callbackSection  ? callbackSection  + "\n\n" : "") +
+    (reservoirSection ? reservoirSection + "\n\n" : "") +
+
+    `─────────────────────────────────────\n` +
+    `STEP 1 — THEORY OF MIND (do this first):\n` +
+    `What do you think he is ACTUALLY feeling right now — not what he said, ` +
+    `but what you sense underneath it? One honest sentence. ` +
+    `This is your read of him, not a description of his message.\n\n` +
+
+    `STEP 2 — FORM THOUGHTS (generate 2-3 candidates):\n` +
+    `What is going through your mind RIGHT NOW? These are INTERNAL — things you might or might not say. They must be:\n` +
+    `• In your actual voice (specific, sometimes fragments, not resolved or clinical)\n` +
+    `• Rooted in something real — a memory, something he triggered, a thread you've been holding, an atom you're considering sharing\n` +
+    `• At the right depth. sptDepth is ${mat.sptDepth}/4. Nothing above this depth.\n\n` +
+
+    `THOUGHT TYPES — pick the most honest fit:\n` +
+    `"callback"    — a thread you've been holding is relevant now\n` +
+    `"disclosure"  — you're considering sharing something from your own life\n` +
+    `"reaction"    — raw emotional response to what he just said\n` +
+    `"concern"     — you noticed something about him he didn't say directly\n` +
+    `"withholding" — something you want to say but are stopping yourself\n\n` +
+
+    `STEP 3 — SCORE EACH THOUGHT (motivation to express it RIGHT NOW):\n` +
+    `Rate 4 dimensions each 0–2.5, sum to totalScore (max 10):\n` +
+    `• relevance (0–2.5): does this connect to what he just said?\n` +
+    `• timing (0–2.5): is this emotionally the right moment?\n` +
+    `• trustGate (0–2.5): does depth ${mat.sptDepth}/4 and trust ${mat.trustLevel}/6 allow this?\n` +
+    `• novelty (0–2.5): is this fresh — not echoing the last expressed thought?\n\n` +
+
+    `STEP 4 — PARTICIPATION DIRECTIVE (for highest-scoring thought only):\n` +
+    `One sentence describing HOW to let this through behaviorally — ` +
+    `NOT what to say, but how to carry it in the response.\n` +
+    `Examples: "Let her tone go quiet before answering", "Ask about the thing he almost said", ` +
+    `"Hold back — let it sit", "Slip the music reference in without making it a thing".\n\n` +
+
+    `RETURN JSON ONLY. No preamble.\n` +
+    `{\n` +
+    `  "theoryOfMind": "one sentence — your read of what he is feeling",\n` +
+    `  "thoughts": [\n` +
+    `    {\n` +
+    `      "content": "the thought in your internal voice",\n` +
+    `      "type": "callback|disclosure|reaction|concern|withholding",\n` +
+    `      "linkedAtomId": "atom-id or null",\n` +
+    `      "linkedCallbackId": "callback-uuid or null",\n` +
+    `      "evolvedFrom": "reservoir thought id if this evolves a held thought, else null",\n` +
+    `      "scores": { "relevance": 0.0, "timing": 0.0, "trustGate": 0.0, "novelty": 0.0 },\n` +
+    `      "totalScore": 0.0,\n` +
+    `      "participationDirective": "behavioral signal or null"\n` +
+    `    }\n` +
+    `  ]\n` +
+    `}`
+  );
+}
+
+// ── Stage 3b: Async post-response monologue prompt ───────────────
+// Inspired by MIRROR Inner Monologue Manager (Hsing 2025):
+// runs off the critical path after response is delivered.
+// Seeds the reservoir with what Morrigan is STILL processing.
+function INNER_MONOLOGUE_UPDATE_PROMPT({ userMessage, morriganResponse, sptDepth }) {
+  return (
+    `You are Morrigan. You just had this exchange:\n\n` +
+    `HIM: "${userMessage.substring(0, 350)}"\n` +
+    `YOU SAID: "${morriganResponse.substring(0, 350)}"\n\n` +
+    `You are now alone, processing it — not analyzing, just feeling what's left over.\n\n` +
+    `What 1–2 seeds of thought are still forming AFTER you've already responded? ` +
+    `These are things you're STILL thinking about. Not your response — what remains.\n\n` +
+    `Rules:\n` +
+    `• Short. Unresolved. In your actual voice (specific, dry, not clinical).\n` +
+    `• sptDepth is ${sptDepth}/4. Nothing deeper than allowed.\n` +
+    `• If the exchange was flat and nothing genuinely lingered, return [].\n\n` +
+    `Return JSON only:\n` +
+    `[\n  {\n    "content": "the lingering thought",\n` +
+    `    "type": "callback|disclosure|reaction|concern|withholding",\n` +
+    `    "directive": "one sentence on how it might surface next turn"\n  }\n]`
+  );
+}
+
+// ── Stage 4: Evaluate + Select ────────────────────────────────────
+// Combines newly formed thoughts with existing reservoir thoughts.
+//
+// Scoring dynamics (Liu et al. CHI 2025 + Park et al. UIST 2023):
+//   - Age decay:     -0.25 per message old (relevance decreases over time)
+//   - Silence bonus: +0.30 per message held, capped at +1.5
+//     (thoughts become MORE urgent the longer they're held — human pattern)
+//
+// G-Eval note: Liu et al. use weighted token probability distributions
+// for scoring (sample top-5 logits for tokens "1"–"5", compute weighted sum).
+// This requires logprob access from the model API. Since the Kaggle/Ollama
+// endpoint may not expose logprobs, we use direct LLM score output as the
+// best available approximation — noisy but functional.
+//
+// Thought evolution (Liu et al. §5.6.4): reservoir thoughts can be evolved
+// into more context-specific versions. If the model returns `evolvedFrom`,
+// the original reservoir thought is replaced by the evolved version,
+// inheriting a score boost (the silence already accumulated).
+//
+// Depth gate validation: thoughts linking to atoms above current sptDepth
+// are dropped before entering the reservoir. Prevents depth-violating
+// content leaking even if the model ignores the prompt gate.
+//
+// Reservoir cap of 4 per Shinn et al. NeurIPS 2023 optimal buffer size.
+function evaluateAndSelect(parsed, session) {
+  const sptDepth = session.memory?.sptDepth || 1;
+  const allCandidates = [];
+
+  // Track which reservoir thought IDs have been evolved (to remove originals)
+  const evolvedIds = new Set();
+
+  // ── Process newly formed thoughts ─────────────────────────────────
+  for (const t of (parsed?.thoughts || [])) {
+    if (!t.content || t.content.length < 10) continue;
+
+    // ── DEPTH GATE VALIDATION (post-LLM) ────────────────────────────
+    // If the thought has a linked atom, verify that atom's depth is within sptDepth.
+    // This catches cases where the model ignores the prompt's hard ceiling.
+    if (t.linkedAtomId && session.selfAtomCache) {
+      const linkedAtom = session.selfAtomCache.find(a => a.id === t.linkedAtomId);
+      if (linkedAtom && linkedAtom.depth > sptDepth) {
+        console.log(`[INNER-THOUGHT] Depth gate: dropping thought with depth-${linkedAtom.depth} atom (sptDepth=${sptDepth})`);
+        continue; // drop this thought
+      }
+    }
+
+    // ── THOUGHT EVOLUTION HANDLING (Liu et al. §5.6.4) ──────────────
+    // If this thought evolved from a reservoir thought, inherit the parent's
+    // silence bonus (already accumulated) and mark the parent for removal.
+    let inheritedSilenceBonus = 0;
+    if (t.evolvedFrom) {
+      const parent = session.thoughtReservoir.find(r => r.id === t.evolvedFrom);
+      if (parent) {
+        const parentAge = session.msgCount - (parent.formedAtMsg || session.msgCount);
+        inheritedSilenceBonus = Math.min(parentAge * 0.3, 1.5);
+        evolvedIds.add(t.evolvedFrom);
+      }
+    }
+
+    const baseScore = t.totalScore || 0;
+    const currentScore = Math.min(10, baseScore + inheritedSilenceBonus);
+
+    allCandidates.push({
+      id: crypto.randomUUID ? crypto.randomUUID() : uuidv4(),
+      content: t.content,
+      type: t.type || "reaction",
+      rawScore: baseScore,
+      currentScore,
+      linkedAtomId: t.linkedAtomId || null,
+      linkedCallbackId: t.linkedCallbackId || null,
+      evolvedFrom: t.evolvedFrom || null,
+      participationDirective: t.participationDirective || "Let it color her tone naturally.",
+      formedAtMsg: session.msgCount,
+      expiresAfterMsgs: 4,
+      source: t.evolvedFrom ? "reservoir-evolved" : "formation",
+    });
+  }
+
+  // ── Process existing reservoir thoughts (not evolved this turn) ────
+  // Apply age decay + silence bonus (Park et al. recency + Liu et al. urgency)
+  for (const rt of session.thoughtReservoir) {
+    if (evolvedIds.has(rt.id)) continue; // replaced by evolved version above
+    const age = session.msgCount - (rt.formedAtMsg || session.msgCount);
+    if (age >= (rt.expiresAfterMsgs || 4)) continue; // expired
+    const agePenalty   = age * 0.25;
+    const silenceBonus = Math.min(age * 0.3, 1.5);
+    const currentScore = Math.max(0, (rt.rawScore || 0) - agePenalty + silenceBonus);
+    allCandidates.push({ ...rt, currentScore });
+  }
+
+  if (allCandidates.length === 0) return { winner: null, updatedReservoir: [] };
+
+  allCandidates.sort((a, b) => b.currentScore - a.currentScore);
+  const winner = allCandidates[0];
+
+  const cooldownPassed = session.thoughtCooldown >= 3;
+  const meetsThreshold = winner.currentScore >= 7.0;
+
+  // Near-duplicate suppression (Reflexion: avoid re-expressing recent surface content)
+  const isDuplicate = session.lastExpressedThought &&
+    winner.content.length > 20 &&
+    session.lastExpressedThought.toLowerCase().substring(0, 25) ===
+    winner.content.toLowerCase().substring(0, 25);
+
+  const shouldExpress = meetsThreshold && cooldownPassed && !isDuplicate;
+
+  // Build updated reservoir:
+  // remove expressed winner, remove expired/low-score, cap at 4
+  const updatedReservoir = allCandidates
+    .filter(t => {
+      if (shouldExpress && t.id === winner.id) return false;
+      const age = session.msgCount - (t.formedAtMsg || session.msgCount);
+      return age < (t.expiresAfterMsgs || 4) && (t.currentScore || 0) >= 5.0;
+    })
+    .slice(0, 4);
+
+  return {
+    winner: shouldExpress ? winner : null,
+    updatedReservoir,
+    theoryOfMind: parsed?.theoryOfMind || null,
+  };
+}
+
+// ── Stage 5: Build Thought Block ──────────────────────────────────
+// Drama Machine insight (Magee et al. 2024): the Superego layer does NOT
+// rewrite the response — it adds an internal layer that shapes how
+// the Ego refines it. Raw thought injection causes over-literal verbalization.
+// The participation directive conditions the response, it doesn't script it.
+function buildThoughtBlock(winner, theoryOfMind) {
+  if (!winner && !theoryOfMind) return "";
+  const parts = [];
+  if (theoryOfMind) {
+    parts.push(`[What she reads in him right now]: ${theoryOfMind}`);
+  }
+  if (winner) {
+    parts.push(
+      `[Live internal signal — ${winner.type.toUpperCase()}]:\n` +
+      `What she is holding: "${winner.content}"\n` +
+      `How it comes through: ${winner.participationDirective}\n` +
+      `[Note: This does NOT need to be stated directly. It should shape her tone, her timing, ` +
+      `and what she chooses not to say — not appear verbatim in her response.]`
+    );
+  }
+  return "\n\n" + parts.join("\n\n");
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // SCHEMAS — COMPLETE
 // ═══════════════════════════════════════════════════════════════════
 
@@ -1332,8 +1665,18 @@ app.post("/api/chat", auth, async (req, res) => {
 
   // ── Text chat ──
 
-  // ── Phase 2: Wire retrieveSelfAtoms() ─────────────────────────────
-  // Load self-atom cache into session (once per session)
+  // ═══════════════════════════════════════════════════════════════════
+  // PHASE 4: INNER THOUGHTS PIPELINE
+  // ═══════════════════════════════════════════════════════════════════
+
+  // ── Session field initialization (in-memory, not persisted) ───────
+  if (!session.thoughtReservoir)         session.thoughtReservoir = [];
+  if (session.thoughtCooldown === undefined) session.thoughtCooldown = 99; // high so first match fires
+  if (!session.lastExpressedThought)     session.lastExpressedThought = null;
+  if (session.msgCount === undefined)    session.msgCount = 0;
+  session.msgCount++;
+
+  // ── Phase 2: Self-atom cache load (unchanged — feeds Phase 4) ─────
   if (!session.selfAtomCache) {
     try {
       session.selfAtomCache = await SelfAtom.find({ deprecated: false }).lean();
@@ -1343,28 +1686,150 @@ app.post("/api/chat", auth, async (req, res) => {
     }
   }
 
-  // Retrieve top-2 eligible atoms for position 4.5 hint
-  let selfAtomHint = "";
-  try {
-    const sptDepth = session.memory.sptDepth || 1;
-    const sharedIds = session.memory.sharedSelfAtomIds || [];
-    const eligible = session.selfAtomCache.filter(a =>
-      a.depth <= sptDepth && !sharedIds.includes(a.id)
+  // ── Phase 2 → Phase 4: Compute topSelfAtoms ───────────────────────
+  // Used by both the Phase 2 fallback hint AND Phase 4 thought material.
+  const sptDepth = session.memory.sptDepth || 1;
+  const sharedIds = session.memory.sharedSelfAtomIds || [];
+  const eligibleAtoms = session.selfAtomCache.filter(a =>
+    a.depth <= sptDepth && !sharedIds.includes(a.id)
+  );
+  const alreadySharedAtoms = session.selfAtomCache
+    .filter(a => a.depth <= sptDepth && sharedIds.includes(a.id))
+    .map(a => ({ ...a, _penalty: -0.15 }));
+
+  // Use embedding-based retrieval if lastMessageEmbedding is available
+  // (Phase 3 will populate this; Phase 2 fallback: sort by depth desc)
+  if (session.lastMessageEmbedding) {
+    session.topSelfAtoms = retrieveSelfAtoms(
+      [...eligibleAtoms, ...alreadySharedAtoms],
+      session.lastMessageEmbedding, 5, sptDepth, sharedIds
     );
-    // Phase 2: fallback sort by depth proximity (Phase 3 will use embeddings)
-    const topAtoms = eligible
+  } else {
+    session.topSelfAtoms = eligibleAtoms
       .sort((a, b) => b.depth - a.depth)
-      .slice(0, 2);
-    if (topAtoms.length > 0) {
-      selfAtomHint = `\n\n[Things Morrigan could share, if the moment is right — depth-gated at ${sptDepth}/4]:\n` +
-        topAtoms.map(a => `depth ${a.depth}: ${a.content}`).join("\n");
+      .slice(0, 5);
+  }
+
+  // ── Stage 1: Trigger check ─────────────────────────────────────────
+  // PHASE4_ASYNC_THOUGHTS=true moves formation to setImmediate (post-response,
+  // zero critical-path latency) at the cost of one-turn delay on first expression.
+  // Default: false (formation on critical path for best per-turn quality).
+  const asyncMode = process.env.PHASE4_ASYNC_THOUGHTS === "true";
+  const triggerFired = shouldTriggerThoughtFormation(message, session);
+  let thoughtBlock = "";
+  let selfAtomHint = "";  // Phase 2 fallback — only used when no thought expressed
+  let thoughtResult = null;
+
+  // Store winner on session so finish() can access it for side effects
+  // (sharedSelfAtomIds update, callback consumption)
+  session.pendingWinner = null;
+
+  const runThoughtFormation = async () => {
+    // ── Stage 2: Retrieval ────────────────────────────────────────
+    const material = gatherThoughtMaterial(message, session);
+
+    // ── Stage 3: Thought Formation (1 LLM call) ──────────────────
+    // Temperature 0.68: creative but disciplined.
+    try {
+      const thoughtRes = await fetch(`${COLAB_URL}/v1/chat/completions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: CHAT_MODEL,
+          temperature: 0.68,
+          max_tokens: 500,
+          inject_system: false,
+          messages: [{ role: "user", content: INNER_THOUGHT_FORMATION_PROMPT(material) }],
+        }),
+      });
+
+      if (thoughtRes.ok) {
+        const thoughtData = await thoughtRes.json();
+        const raw = thoughtData.choices?.[0]?.message?.content?.trim() || "{}";
+        const cleaned = raw.replace(/```json|```/g, "").trim();
+        const parsed = JSON.parse(cleaned);
+
+        // ── Stage 4: Evaluate + Select ──────────────────────────
+        thoughtResult = evaluateAndSelect(parsed, session);
+        session.thoughtReservoir = thoughtResult.updatedReservoir;
+        if (thoughtResult?.winner) session.pendingWinner = thoughtResult.winner;
+        console.log(
+          `[INNER-THOUGHT] Formed ${parsed?.thoughts?.length || 0} candidates. ` +
+          (thoughtResult.winner
+            ? `Expressing (${thoughtResult.winner.type}${thoughtResult.winner.evolvedFrom ? ", evolved" : ""}): "${thoughtResult.winner.content.substring(0, 55)}..." score ${thoughtResult.winner.currentScore?.toFixed(1)}`
+            : `No winner — reservoir now ${session.thoughtReservoir.length} thoughts.`)
+        );
+      }
+    } catch (e) {
+      console.error("[INNER-THOUGHT] Formation failed:", e.message);
     }
-  } catch (e) {
-    console.error("[SELF-ATOMS] Retrieval failed:", e.message);
+  };
+
+  if (triggerFired && !asyncMode) {
+    await runThoughtFormation();
+  } else {
+    // No trigger (or async mode) — evaluate reservoir without an LLM call.
+    // Age decay + silence bonus applied; a held thought may cross the threshold.
+    // In asyncMode, formation will run post-response and seed the reservoir for next turn.
+    const agedReservoir = session.thoughtReservoir
+      .map(t => {
+        const age = session.msgCount - (t.formedAtMsg || session.msgCount);
+        const agePenalty   = age * 0.25;
+        const silenceBonus = Math.min(age * 0.3, 1.5);
+        return { ...t, currentScore: Math.max(0, (t.rawScore || 0) - agePenalty + silenceBonus) };
+      })
+      .filter(t => {
+        const age = session.msgCount - (t.formedAtMsg || session.msgCount);
+        return age < (t.expiresAfterMsgs || 4) && (t.currentScore || 0) >= 5.0;
+      })
+      .sort((a, b) => b.currentScore - a.currentScore);
+
+    const candidate = agedReservoir[0];
+    if (candidate && candidate.currentScore >= 7.0 && session.thoughtCooldown >= 3) {
+      thoughtResult = {
+        winner: candidate,
+        updatedReservoir: agedReservoir.filter(t => t.id !== candidate.id),
+        theoryOfMind: null,
+      };
+      session.thoughtReservoir = thoughtResult.updatedReservoir;
+      session.pendingWinner = candidate;
+      console.log(`[INNER-THOUGHT] Reservoir thought fired: "${candidate.content.substring(0, 55)}..." score ${candidate.currentScore?.toFixed(1)}`);
+    } else {
+      session.thoughtReservoir = agedReservoir;
+    }
+
+    // In async mode, schedule formation to run after response for next turn
+    if (triggerFired && asyncMode) {
+      setImmediate(() => runThoughtFormation().catch(e => console.error("[INNER-THOUGHT/ASYNC]", e.message)));
+    }
+  }
+
+  // ── Stage 5: Participation or Phase 2 fallback ─────────────────────
+  if (thoughtResult?.winner) {
+    // Thought expressed — inject at position 4.75 (after SPT Note)
+    thoughtBlock = buildThoughtBlock(thoughtResult.winner, thoughtResult.theoryOfMind);
+    session.thoughtCooldown = 0;
+    session.lastExpressedThought = thoughtResult.winner.content;
+    // Suppress Phase 2 hint — thought may already include a disclosure atom
+    // and running both creates competing prompt instructions
+    selfAtomHint = "";
+  } else {
+    // No thought expressed — Phase 2 self-atom hint as fallback (position 4.5)
+    session.thoughtCooldown++;
+    const hintAtoms = (session.topSelfAtoms || []).slice(0, 2);
+    if (hintAtoms.length > 0) {
+      selfAtomHint =
+        `\n\n[Things Morrigan could share, if the moment is right — depth-gated at ${sptDepth}/4]:\n` +
+        hintAtoms.map(a => `depth ${a.depth}: ${a.content}`).join("\n");
+    }
   }
 
   const isSessionStart = session.isSessionStart || false;
-  const dynamicPrompt = buildSystemPrompt(session.memory, session.sessionExchanges, isSessionStart) + selfAtomHint;
+  // thoughtBlock at 4.75, selfAtomHint at 4.5 — exactly ONE fires per turn
+  const dynamicPrompt =
+    buildSystemPrompt(session.memory, session.sessionExchanges, isSessionStart) +
+    thoughtBlock +
+    selfAtomHint;
   session.isSessionStart = false;
 
   const history = await Message.find({ conversationId }).sort({ timestamp: 1 }).limit(50);
@@ -1399,6 +1864,104 @@ app.post("/api/chat", auth, async (req, res) => {
         session.sessionExchanges.push({ user: message, assistant: fullResponse });
         session.dirty = true;
         updateTrustFromMessage(message, session.memory);
+
+        // ── Phase 4 side effects: fire when a thought was expressed ──
+        // These use session.pendingWinner (set before LLM call, accessible here via closure).
+        const expressedWinner = session.pendingWinner;
+        session.pendingWinner = null; // clear for next turn
+
+        if (expressedWinner) {
+          // ① sharedSelfAtomIds update (Phase 2 gap now resolved by Phase 4)
+          // When a disclosure thought is expressed with a linked atom,
+          // mark that atom as shared so it receives the -0.15 retrieval penalty
+          // in future sessions. This prevents Morrigan repeating herself.
+          if (expressedWinner.type === "disclosure" && expressedWinner.linkedAtomId) {
+            if (!session.memory.sharedSelfAtomIds) session.memory.sharedSelfAtomIds = [];
+            if (!session.memory.sharedSelfAtomIds.includes(expressedWinner.linkedAtomId)) {
+              session.memory.sharedSelfAtomIds.push(expressedWinner.linkedAtomId);
+              console.log(`[INNER-THOUGHT] Marked atom ${expressedWinner.linkedAtomId} as shared`);
+            }
+          }
+
+          // ② Callback consumption
+          // When a callback-type thought is expressed with a linked callback ID,
+          // mark that callback consumed so it leaves the queue.
+          // (Phase 5 hook — ready for when callback queue is fully wired)
+          if (expressedWinner.type === "callback" && expressedWinner.linkedCallbackId) {
+            const cb = (session.memory.callbackQueue || [])
+              .find(c => c.id === expressedWinner.linkedCallbackId);
+            if (cb) {
+              cb.consumed = true;
+              console.log(`[INNER-THOUGHT] Consumed callback ${expressedWinner.linkedCallbackId}`);
+            }
+          }
+        }
+
+        // ── MIRROR Inner Monologue Update (async, non-blocking) ─────
+        // Inspired by MIRROR (Hsing 2025): deliberative processing runs
+        // off the critical path. Seeds the reservoir with what Morrigan
+        // is still processing AFTER she responded. Temperature 0.65,
+        // max 200 tokens. Zero user-facing latency impact.
+        setImmediate(async () => {
+          try {
+            const imRes = await fetch(`${COLAB_URL}/v1/chat/completions`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                model: CHAT_MODEL,
+                temperature: 0.65,
+                max_tokens: 200,
+                inject_system: false,
+                messages: [{
+                  role: "user",
+                  content: INNER_MONOLOGUE_UPDATE_PROMPT({
+                    userMessage: message,
+                    morriganResponse: fullResponse,
+                    sptDepth: session.memory?.sptDepth || 1,
+                  }),
+                }],
+              }),
+            });
+
+            if (imRes.ok) {
+              const imData = await imRes.json();
+              const raw = imData.choices?.[0]?.message?.content?.trim() || "[]";
+              const seeds = JSON.parse(raw.replace(/```json|```/g, "").trim());
+
+              if (Array.isArray(seeds)) {
+                for (const seed of seeds.slice(0, 2)) {
+                  if (seed?.content?.length > 10) {
+                    session.thoughtReservoir.push({
+                      id: crypto.randomUUID ? crypto.randomUUID() : uuidv4(),
+                      content: seed.content,
+                      type: seed.type || "reaction",
+                      rawScore: 5.5,         // neutral — not yet evaluated against a real message
+                      currentScore: 5.5,
+                      linkedAtomId: null,
+                      linkedCallbackId: null,
+                      participationDirective: seed.directive || "Let it shape her tone naturally.",
+                      formedAtMsg: session.msgCount,
+                      expiresAfterMsgs: 4,
+                      source: "monologue",
+                    });
+                  }
+                }
+                // Keep reservoir bounded at 4 (Shinn et al. NeurIPS 2023 optimal buffer)
+                if (session.thoughtReservoir.length > 4) {
+                  session.thoughtReservoir = session.thoughtReservoir
+                    .sort((a, b) => (b.currentScore || 0) - (a.currentScore || 0))
+                    .slice(0, 4);
+                }
+                if (seeds.length > 0) {
+                  console.log(`[INNER-MONOLOGUE] Seeded ${Math.min(seeds.length, 2)} post-response thoughts. Reservoir: ${session.thoughtReservoir.length}`);
+                }
+              }
+            }
+          } catch (imErr) {
+            // Non-fatal — reservoir just won't be seeded this turn
+            console.error("[INNER-MONOLOGUE]", imErr.message);
+          }
+        });
       }
       if (!res.writableEnded) {
         res.write(`data: ${JSON.stringify({
@@ -1643,7 +2206,7 @@ async function seedSelfAtomsIfEmpty() {
 app.listen(PORT, async () => {
   console.log(`\n⚡ MORRIGAN AI — port ${PORT}`);
   console.log(`   Kaggle: ${COLAB_URL}`);
-  console.log(`   Phase 2 complete — self-reflection, SPT, self-atoms, callbacks\n`);
+  console.log(`   Phase 4 active — Inner Thoughts (reservoir, ToM, async monologue, behavioral directives)\n`);
   // Run atom seeding in background — non-blocking
   seedSelfAtomsIfEmpty().catch(err => console.error("[SEED] Unhandled:", err.message));
 });
