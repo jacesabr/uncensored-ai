@@ -1094,9 +1094,10 @@ export default function App() {
             const json = JSON.parse(line.slice(6));
             if (json.token) { full += json.token; setStreamText(full); }
             if (json.done) {
-              if (full.trim()) {
-                setMessages(p => [...p, { role: "assistant", content: full, timestamp: new Date() }]);
-                setConversations(p => p.map(c => c.conversationId === cid ? { ...c, title: `🖤 ${full.substring(0, 40)}${full.length > 40 ? "..." : ""}`, updatedAt: new Date() } : c));
+              const finalText = json.finalResponse || full;
+              if (finalText.trim()) {
+                setMessages(p => [...p, { role: "assistant", content: finalText, timestamp: new Date() }]);
+                setConversations(p => p.map(c => c.conversationId === cid ? { ...c, title: `🖤 ${finalText.substring(0, 40)}${finalText.length > 40 ? "..." : ""}`, updatedAt: new Date() } : c));
               }
               setStreamText("");
             }

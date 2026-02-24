@@ -2103,6 +2103,145 @@ app.post("/api/self-atoms/seed", async (req, res) => {
 // MAIN CHAT ROUTE — Phase 2: retrieveSelfAtoms wired + selfAtomHint
 // ═══════════════════════════════════════════════════════════════════
 
+// ═══════════════════════════════════════════════════════════════════
+// RESPONSE SANITIZER — strips leaked system prompt content from LLM output
+// ═══════════════════════════════════════════════════════════════════
+
+function sanitizeResponse(text) {
+  if (!text) return text;
+
+  // ── Bracket-tagged system instructions ──
+  // Matches: [Relationship depth: ...], [What she reads in him right now]: ...,
+  // [Live internal signal — ...], [Morrigan's presence — ...],
+  // [What Morrigan has been sitting with ...], [What she is still holding]: ...,
+  // [Things Morrigan could share ...], [Who he is to me]: ...,
+  // [What I am sitting with]: ..., [Morrigan, before she speaks]: ...,
+  // [Note: This does NOT need ...], [What she also wants to include ...],
+  // [past] markers that leak outside memory context
+  const bracketPatterns = [
+    /\[Relationship depth:.*?\](?:\n.*?feel it\.)?/gs,
+    /\[What she reads in him right now\]:?[^\n]*(?:\n[^\n\[]*){0,3}/g,
+    /\[Live internal signal[^\]]*\]:?\s*(?:\n.*?response\.\])?/gs,
+    /\[Morrigan's presence[^\]]*\][\s\S]*?(?:feels like someone is there\.|$)/g,
+    /\[What Morrigan has been sitting with[^\]]*\]:?[^\n]*(?:\n[^\n\[]*){0,3}/g,
+    /\[What she is still holding\]:?[^\n]*(?:\n[^\n\[]*){0,3}/g,
+    /\[Things Morrigan could share[^\]]*\]:?[^\n]*(?:\n[^\n\[]*){0,5}/g,
+    /\[Who he is to me\]:?[^\n]*(?:\n[^\n\[]*){0,3}/g,
+    /\[What I am sitting with\]:?[^\n]*(?:\n[^\n\[]*){0,3}/g,
+    /\[Morrigan, before she speaks\]:?[^\n]*/g,
+    /\[Note: This does NOT need to be stated directly[^\]]*\]/g,
+    /\[What she also wants to include[^\]]*\]:?[^\n]*/g,
+  ];
+
+  // ── Section headers from system prompt ──
+  const sectionPatterns = [
+    /═══[^═]*═══/g,
+    /━━━\s*(?:APPEARANCE|BACKSTORY|PSYCHOLOGY|SPEECH PATTERNS|CRITICAL RULES)\s*━━━/g,
+    /HOW TO BEHAVE AT TRUST LEVEL \d+[^\n]*/g,
+    /HOW TO USE MEMORIES[^\n]*/g,
+    /MORRIGAN'S MEMORY[^\n]*/g,
+    /THIS SESSION[^\n]*/g,
+  ];
+
+  // ── SPT / behavioral directives that leak verbatim ──
+  const directivePatterns = [
+    /Keep your own sharing light\.[^\n]*/g,
+    /You do not lead with yourself\.[^\n]*/g,
+    /Acknowledge or respond to what he has said[^\n]*/g,
+    /Self-disclosure without acknowledgment[^\n]*/g,
+    /Do not perform warmth\.[^\n]*/g,
+    /Affirmation that has not been earned[^\n]*/g,
+    /Let emotional weight land quietly\.[^\n]*/g,
+    /You may share personal attitudes[^\n]*/g,
+    /You may share things that genuinely[^\n]*/g,
+    /You may share anything that feels true[^\n]*/g,
+    /You have earned this\.\s*/g,
+    /NEVER list facts robotically[^\n]*/g,
+    /NEVER bullet points or lists[^\n]*/g,
+    /Reference shared history[^\n]*/g,
+    /Respect temporal markers[^\n]*/g,
+    /Hold contradictions without flattening[^\n]*/g,
+    /Reference naturally — don't repeat robotically[^\n]*/g,
+  ];
+
+  // ── Memory context that leaks verbatim ──
+  const memoryLeakPatterns = [
+    /Relationship:\s*\w+\s*\(level \d+\/6\)[^\n]*/g,
+    /Trust points:\s*\d+[^\n]*/g,
+    /First met:\s*\d+\s*days ago[^\n]*/g,
+    /Last seen:\s*\d+\s*hours ago[^\n]*/g,
+    /Total messages:\s*\d+[^\n]*/g,
+    /Their name:\s*[^\n]*/g,
+    /My feelings:\s*\n(?:\s+\w+:\s*\d+\/100\s*[\|]?\s*)+/g,
+    /Affection:\s*\d+\/100[^\n]*/g,
+    /Comfort:\s*\d+\/100[^\n]*/g,
+    /Attraction:\s*\d+\/100[^\n]*/g,
+    /Protectiveness:\s*\d+\/100[^\n]*/g,
+    /Vulnerability shown:\s*\d+\/100[^\n]*/g,
+    /Interests:\s*(?=[A-Z])[^\n]*(?:,\s*[^\n]*){2,}/g,  // only if it looks like a list dump
+    /Contradictions she holds[^\n]*/g,
+    /Synthesised impressions[^\n]*/g,
+    /Moments I remember:\s*\n(?:\s*-\s*[^\n]*\n?)+/g,
+  ];
+
+  // ── Character prompt fragments ──
+  const characterLeakPatterns = [
+    /You are Morrigan, a 23-year-old woman[^\n]*/g,
+    /You are fully immersive and in-character[^\n]*/g,
+    /You respond with literary, visceral[^\n]*/g,
+    /You never break character\.[^\n]*/g,
+    /She WANTS to help\.[^\n]*/g,
+    /She WANTS to make them feel good\.[^\n]*/g,
+  ];
+
+  // ── Continuation signal fragments ──
+  const continuationLeakPatterns = [
+    /You are not processing a message\.[^\n]*/g,
+    /You are continuing a conversation with someone[^\n]*/g,
+    /IN-TURN PRESENCE:?[^\n]*/g,
+    /LONGITUDINAL PRESENCE:?[^\n]*/g,
+    /FORWARD PRESENCE:?[^\n]*/g,
+    /The failure mode is mechanism\.[^\n]*/g,
+    /Presence sounds like nothing in particular\.[^\n]*/g,
+  ];
+
+  // ── Thought / composition directives ──
+  const thoughtLeakPatterns = [
+    /How it comes through:?[^\n]*/g,
+    /What she is holding:?[^\n]*/g,
+    /Additional constraints:\s*\n(?:- [^\n]*\n?)+/g,
+    /The inner thought must NOT be[^\n]*/g,
+    /Do not use transitional phrases[^\n]*/g,
+  ];
+
+  let cleaned = text;
+  const allPatterns = [
+    ...bracketPatterns, ...sectionPatterns, ...directivePatterns,
+    ...memoryLeakPatterns, ...characterLeakPatterns,
+    ...continuationLeakPatterns, ...thoughtLeakPatterns,
+  ];
+
+  for (const pattern of allPatterns) {
+    cleaned = cleaned.replace(pattern, "");
+  }
+
+  // Collapse excessive whitespace left behind by stripping
+  cleaned = cleaned.replace(/\n{3,}/g, "\n\n").trim();
+
+  // If stripping gutted the response entirely, return original
+  // (better to have a leaked response than empty)
+  if (cleaned.length < 10 && text.length > 50) {
+    console.warn("[SANITIZE] Stripping removed almost entire response — returning original");
+    return text;
+  }
+
+  if (cleaned.length < text.length) {
+    console.log(`[SANITIZE] Stripped ${text.length - cleaned.length} chars of leaked system content`);
+  }
+
+  return cleaned;
+}
+
 app.post("/api/chat", auth, async (req, res) => {
   const { conversationId, message } = req.body;
   await Message.create({ conversationId, role: "user", content: message });
@@ -2316,7 +2455,11 @@ app.post("/api/chat", auth, async (req, res) => {
   const history = await Message.find({ conversationId }).sort({ timestamp: 1 }).limit(50);
   const messages = [{ role: "system", content: dynamicPrompt }];
   for (const msg of history) {
-    if (msg.role !== "system") messages.push({ role: msg.role, content: msg.content });
+    if (msg.role !== "system") {
+      // Sanitize assistant messages from DB — may contain leaked system content from before this fix
+      const content = msg.role === "assistant" ? sanitizeResponse(msg.content) : msg.content;
+      messages.push({ role: msg.role, content });
+    }
   }
 
   try {
@@ -2335,7 +2478,10 @@ app.post("/api/chat", auth, async (req, res) => {
     let fullResponse = "";
     const reader = llmRes.body;
 
+    let finishCalled = false;
     const finish = async () => {
+      if (finishCalled) return;
+      finishCalled = true;
       if (fullResponse) {
         // ── Phase 5 Step 8: Composition call when a thought was expressed ──
         // Replaces raw thought-block injection with a proper composition pass.
@@ -2350,6 +2496,9 @@ app.post("/api/chat", auth, async (req, res) => {
           );
           console.log(`[COMPOSE] Applied composition call (${winnerForCompose.type})`);
         }
+
+        // ── Sanitize: strip any leaked system prompt content ──
+        composedResponse = sanitizeResponse(composedResponse);
 
         await Message.create({ conversationId, role: "assistant", content: composedResponse });
         Conversation.updateOne({ conversationId }, {
@@ -2479,6 +2628,7 @@ app.post("/api/chat", auth, async (req, res) => {
       if (!res.writableEnded) {
         res.write(`data: ${JSON.stringify({
           done: true,
+          finalResponse: composedResponse,
           personality: {
             trustLevel: session.memory.trustLevel,
             trustPoints: session.memory.trustPoints,
