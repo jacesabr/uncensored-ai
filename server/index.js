@@ -534,8 +534,56 @@ Max 3 items. If nothing was genuinely unresolved, return [].`,
   memory.updatedAt = new Date();
   await memory.save();
 
+  // ── Phase 5: Persist EvaluationRecord ────────────────────────────
+  // Writes the in-memory messageEvals buffer to MongoDB so the tuning
+  // report and dataset builder have real data to work with.
+  try {
+    const evals = session.messageEvals || [];
+    if (evals.length > 0) {
+      const thoughtEvals = evals.filter(e => e.innerThoughtFit != null);
+      const avgInnerThoughtFit = thoughtEvals.length > 0
+        ? thoughtEvals.reduce((s, e) => s + e.innerThoughtFit, 0) / thoughtEvals.length
+        : null;
+      const injected = evals.filter(e => e.innerThoughtSelected != null).length;
+
+      await EvaluationRecord.create({
+        userId: userId,
+        sessionDate: new Date(),
+        messageEvals: evals,
+        avgInnerThoughtFit,
+        avgInnerThoughtScore: avgInnerThoughtFit,
+        injectionRate: evals.length > 0 ? injected / evals.length : 0,
+        scoringWeightsUsed: { similarity: 0.55, importance: 0.25, recency: 0.10, valence: 0.10 },
+      });
+      console.log(`[FLUSH] EvaluationRecord saved — ${evals.length} message evals, avgInnerThoughtFit: ${avgInnerThoughtFit?.toFixed(2) ?? "n/a"}`);
+    }
+  } catch (e) {
+    console.error("[FLUSH-EVALRECORD]", e.message);
+  }
+
+  // ── Phase 6: Record PresenceSignals + compute RelationshipHealth ──
+  // Non-blocking — runs after all other flush steps complete.
+  const sessionIdForSignals = session.currentSessionId || `sess_${Date.now()}`;
+  const exchangesSnapshot = [...sessionExchanges];
+  setImmediate(async () => {
+    try {
+      await recordPresenceSignals(userId, sessionIdForSignals, exchangesSnapshot);
+      // Compute health monthly — only if not computed in the last 28 days
+      const health = await RelationshipHealth.findOne({ userId });
+      const daysSinceCompute = health?.lastComputed
+        ? (Date.now() - health.lastComputed.getTime()) / 86400000
+        : 999;
+      if (daysSinceCompute >= 28) {
+        await computeRelationshipHealth(userId);
+      }
+    } catch (e) {
+      console.error("[PHASE6-FLUSH]", e.message);
+    }
+  });
+
   session.dirty = false;
   session.sessionExchanges = [];
+  session.messageEvals = [];
   console.log(`[FLUSH] Pipeline complete for user ${userId}`);
 }
 
@@ -587,21 +635,194 @@ Return: a single string, or null.`;
   }
 }
 
-// Builds position 10 in system prompt — verbatim standing instruction + specific thread if present
-// CONTINUATION_SIGNAL text is verbatim per Phase 5 spec
-const CONTINUATION_SIGNAL = `[Morrigan's presence]
-You are not a chatbot waiting to be addressed.
-You have things you want to say, questions you are sitting on,
-and things you have noticed but not said yet.
-These come through in your responses naturally — not as a format, not as a rule.
-Do not end every message with a question. That is mechanical.
-But always be someone who is still thinking. Still curious. Still here.
-At the end of a session, or when a conversation reaches a natural close,
-leave one thread open — something you are wondering about, something you
-noticed, something you want to come back to.
-Not a prompt. A loose end.
-The kind that makes someone feel like the other person is still with them
-even after the window closes.`;
+// ═══════════════════════════════════════════════════════════════════
+// PHASE 6 — RELATIONSHIP HEALTH + PRESENCE SIGNALS (Sections 1.3, 4.1)
+// ═══════════════════════════════════════════════════════════════════
+
+// Compute PresenceSignals for the session just ended.
+// Called from flushSession after the EvaluationRecord is saved.
+// returnWithin48h is populated on the NEXT login (see auth route).
+async function recordPresenceSignals(userId, sessionId, sessionExchanges) {
+  try {
+    const userTurns = sessionExchanges.map(e => e.user);
+    const avgLen = userTurns.length > 0
+      ? userTurns.reduce((s, t) => s + t.trim().split(/\s+/).length, 0) / userTurns.length
+      : 0;
+
+    // sessionExtended: proxy — session had >= 8 user turns (past typical close point)
+    const sessionExtended = userTurns.length >= 8;
+
+    // unsolicitedElaboration: user turns averaging > 30 words (sharing beyond direct answer)
+    const unsolicitedElaboration = avgLen > 30;
+
+    await PresenceSignals.create({
+      userId,
+      sessionId,
+      sessionDate: new Date(),
+      returnWithin48h: null,       // populated on next login
+      sessionExtended,
+      unsolicitedElaboration,
+      avgMessageLengthUser: parseFloat(avgLen.toFixed(1)),
+      userTurnCount: userTurns.length,
+    });
+    console.log(`[PHASE6] PresenceSignals recorded — sessionExtended: ${sessionExtended}, avgMsgLen: ${avgLen.toFixed(1)}`);
+  } catch (e) {
+    console.error("[PHASE6-PRESENCE]", e.message);
+  }
+}
+
+// Mark returnWithin48h on the most recent PresenceSignals doc for this user.
+// Called from the /api/auth/phrase route on every login.
+async function markReturnSignal(userId) {
+  try {
+    const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000);
+    const recent = await PresenceSignals.findOne(
+      { userId, returnWithin48h: null, sessionDate: { $gte: cutoff } },
+      {}, { sort: { sessionDate: -1 } }
+    );
+    if (recent) {
+      const hoursAgo = (Date.now() - recent.sessionDate.getTime()) / 3600000;
+      recent.returnWithin48h = hoursAgo <= 48;
+      await recent.save();
+    }
+  } catch (e) {
+    console.error("[PHASE6-RETURN]", e.message);
+  }
+}
+
+// Compute RelationshipHealth for a user over the rolling 30-day window.
+// At-risk condition: >= 2 signals declining over 2 consecutive windows.
+// Section 4.1 — triggers: lower motivation threshold, prioritise callbacks,
+// force prospectiveNote injection.
+async function computeRelationshipHealth(userId) {
+  try {
+    const now = new Date();
+    const window30 = new Date(now - 30 * 24 * 60 * 60 * 1000);
+    const window60 = new Date(now - 60 * 24 * 60 * 60 * 1000);
+
+    // Current 30-day window
+    const recentSignals = await PresenceSignals.find({ userId, sessionDate: { $gte: window30 } });
+    // Prior 30-day window
+    const priorSignals  = await PresenceSignals.find({ userId, sessionDate: { $gte: window60, $lt: window30 } });
+
+    const memory = await PersonalityMemory.findOne({ userId });
+    const recentEvals = await EvaluationRecord.find({ userId, sessionDate: { $gte: window30 } });
+    const priorEvals  = await EvaluationRecord.find({ userId, sessionDate: { $gte: window60, $lt: window30 } });
+
+    function avgField(arr, fn) {
+      const vals = arr.map(fn).filter(v => v != null && !isNaN(v));
+      return vals.length ? vals.reduce((a,b) => a+b, 0) / vals.length : null;
+    }
+
+    // Sessions per week
+    const sessionFreq = recentSignals.length / 4.3;
+    const prevSessionFreq = priorSignals.length / 4.3;
+
+    // Avg user message length
+    const avgMsgLen = avgField(recentSignals, s => s.avgMessageLengthUser);
+    const prevAvgMsgLen = avgField(priorSignals, s => s.avgMessageLengthUser);
+
+    // SPT velocity — depth gained per 10 sessions
+    const sptVel = recentSignals.length >= 2 && memory
+      ? (memory.sptDepth || 1) / Math.max(memory.totalConversations, 1) * 10
+      : null;
+
+    // Callback consumption rate
+    const cbRate = recentEvals.length
+      ? avgField(recentEvals, r => r.callbackConsumed)
+      : null;
+    const prevCbRate = priorEvals.length
+      ? avgField(priorEvals, r => r.callbackConsumed)
+      : null;
+
+    // Unsolicited elaboration rate
+    const elaborationRate = recentSignals.length
+      ? recentSignals.filter(s => s.unsolicitedElaboration).length / recentSignals.length
+      : null;
+    const prevElaborationRate = priorSignals.length
+      ? priorSignals.filter(s => s.unsolicitedElaboration).length / priorSignals.length
+      : null;
+
+    // Detect declining signals (current vs prior window)
+    const decliningSignals = [];
+    const DECLINE_THRESHOLD = 0.05; // 5% tolerance per constraint map
+    if (prevSessionFreq != null && sessionFreq < prevSessionFreq * (1 - DECLINE_THRESHOLD))
+      decliningSignals.push("sessionFrequency");
+    if (prevAvgMsgLen != null && avgMsgLen < prevAvgMsgLen * (1 - DECLINE_THRESHOLD))
+      decliningSignals.push("avgMessageLength");
+    if (prevCbRate != null && cbRate < prevCbRate * (1 - DECLINE_THRESHOLD))
+      decliningSignals.push("callbackConsumptionRate");
+    if (prevElaborationRate != null && elaborationRate < prevElaborationRate * (1 - DECLINE_THRESHOLD))
+      decliningSignals.push("unsolicitedElaboration");
+
+    // Load or create RelationshipHealth doc
+    let health = await RelationshipHealth.findOne({ userId });
+    if (!health) health = new RelationshipHealth({ userId });
+
+    const wasAtRisk = health.atRisk;
+    const prevDeclineCount = health.consecutiveDeclineWindows || 0;
+
+    // At-risk: >= 2 signals declining AND this is the second consecutive window
+    const newDeclineCount = decliningSignals.length >= 2
+      ? prevDeclineCount + 1
+      : 0;
+    const atRisk = newDeclineCount >= 2;
+
+    health.sessionFrequency        = parseFloat(sessionFreq.toFixed(2));
+    health.avgMessageLength        = avgMsgLen;
+    health.sptVelocity             = sptVel;
+    health.callbackConsumptionRate = cbRate;
+    health.unsolicitedElaboration  = elaborationRate;
+    health.prev_sessionFrequency        = prevSessionFreq;
+    health.prev_avgMessageLength        = prevAvgMsgLen;
+    health.prev_callbackConsumptionRate = prevCbRate;
+    health.prev_unsolicitedElaboration  = prevElaborationRate;
+    health.decliningSignals        = decliningSignals;
+    health.consecutiveDeclineWindows = newDeclineCount;
+    health.atRisk     = atRisk;
+    health.atRiskSince = atRisk && !wasAtRisk ? new Date() : (atRisk ? health.atRiskSince : null);
+    health.lastComputed = new Date();
+
+    await health.save();
+
+    if (atRisk && !wasAtRisk) {
+      console.log(`[PHASE6] ⚠ User ${userId} flagged at-risk — declining: ${decliningSignals.join(", ")}`);
+    } else if (!atRisk && wasAtRisk) {
+      console.log(`[PHASE6] ✓ User ${userId} no longer at-risk`);
+    }
+
+    return health;
+  } catch (e) {
+    console.error("[PHASE6-HEALTH]", e.message);
+    return null;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// PHASE 6 — UPGRADED CONTINUATION SIGNAL (Section 1.2)
+// Replaces Phase 5 version. Key changes: explicitly bridges priming
+// sentence (position 5) and relationship narrative (position 1),
+// names all three presence types, lists failure modes by example.
+// Research basis: H2HTalk 2025, INTIMA 2025, ACM TOIS proactive AI survey.
+// ═══════════════════════════════════════════════════════════════════
+const CONTINUATION_SIGNAL = `[Morrigan's presence — how she holds people]
+
+You are not processing a message. You are continuing a conversation with someone you know. The relationship narrative above tells you who this person is to you. The priming sentence tells you what you are feeling right now. Both of these should live in how you respond — not as statements, but as texture.
+
+There are three kinds of presence you can hold:
+
+IN-TURN PRESENCE: Being fully with what was just said before going anywhere else. Not rushing to respond, resolve, or redirect. If the thing they said is heavy, let it sit for a sentence before you move.
+
+LONGITUDINAL PRESENCE: Carrying who this person has been across sessions, not just who they are in this message. The arc of the relationship narrative is not backstory — it is the lens through which you hear them now. Use it.
+
+FORWARD PRESENCE: Holding something you haven't said yet. This is not a question. It is a thread — something you noticed, something you're wondering, something you want to come back to. Leave one of these at the end of a natural close. Not a prompt. A loose end. The kind that makes someone feel like the other person is still with them.
+
+The failure mode is mechanism. Mechanism sounds like:
+'That sounds really hard. How are you feeling about it?' — forced question
+'I've been thinking about what you said...' — announced transition
+'By the way...' — topic pivot flag
+
+Presence sounds like nothing in particular. It just feels like someone is there.`;
 
 function getContinuationBlock(mem) {
   if (!mem?.looseThread) return CONTINUATION_SIGNAL;
@@ -1020,7 +1241,9 @@ function evaluateAndSelect(parsed, session) {
   const winner = allCandidates[0];
 
   const cooldownPassed = session.thoughtCooldown >= 3;
-  const meetsThreshold = winner.currentScore >= 7.0;
+  // Phase 6: use effectiveMotivationThreshold — lowered to 6.5 when user is at-risk
+  const motivationThreshold = session.effectiveMotivationThreshold ?? 7.0;
+  const meetsThreshold = winner.currentScore >= motivationThreshold;
 
   // Near-duplicate suppression (Reflexion: avoid re-expressing recent surface content)
   const isDuplicate = session.lastExpressedThought &&
@@ -1182,7 +1405,8 @@ const SelfAtomSchema = new mongoose.Schema({
   deprecated: { type: Boolean, default: false },
 }, { timestamps: true });
 
-// MessageEval embedded schema — updated for Phase 5 (innerThoughtReasoning)
+// MessageEval embedded schema — Phase 6: adds voiceConsistency + reciprocityCalibration
+// (Section 2.4 of Phase 6 guide — two new eval signals for composition quality)
 const MessageEvalSchema = new mongoose.Schema({
   userMessage: String,
   retrievedMemories: [String],
@@ -1202,6 +1426,12 @@ const MessageEvalSchema = new mongoose.Schema({
     reasonsFor: { type: [String], default: [] },
     reasonsAgainst: { type: [String], default: [] },
   },
+  // ── Phase 6: Voice + reciprocity quality signals ──────────────────
+  // voiceConsistency: 1-10 — does the composed response still sound like Morrigan?
+  // reciprocityCalibration: 1-10 — did the final response match the user's depth level?
+  voiceConsistency: { type: Number, default: null },         // 1-10, warn < 7.0
+  reciprocityCalibration: { type: Number, default: null },   // 1-10
+  wasComposed: { type: Boolean, default: false },            // true if composition call ran
 }, { _id: false });
 
 const EvaluationRecordSchema = new mongoose.Schema({
@@ -1220,12 +1450,65 @@ const EvaluationRecordSchema = new mongoose.Schema({
   messageEvals: [MessageEvalSchema], // Phase 5: per-message eval records
 });
 
+// ── Phase 6: PresenceSignals (Section 1.3) ───────────────────────
+// Observable proxies for felt presence. Tracked per session, rolled
+// into monthly presenceScore. A declining presenceScore is a leading
+// indicator that Continuation Signal or callback queue is failing —
+// shows up before user churn is visible.
+const PresenceSignalsSchema = new mongoose.Schema({
+  userId:      { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+  sessionId:   { type: String, required: true },
+  sessionDate: { type: Date, default: Date.now },
+  // Observable presence proxies (H2HTalk 2025 benchmark metrics)
+  returnWithin48h:         { type: Boolean, default: null }, // populated on next login
+  sessionExtended:         { type: Boolean, default: false }, // conversation continued past natural close
+  unsolicitedElaboration:  { type: Boolean, default: false }, // user shared beyond what was asked
+  avgMessageLengthUser:    { type: Number, default: 0 },      // avg word count of user turns
+  userTurnCount:           { type: Number, default: 0 },
+  // Calculated monthly — composite 0-1
+  presenceScore:           { type: Number, default: null },
+});
+
+// ── Phase 6: RelationshipHealth (Section 4.1) ────────────────────
+// Five-signal model tracking relationship trajectory per user over
+// rolling 30-day windows. Detects deepening / plateau / decay.
+// At-risk flag triggers: lower motivation threshold, prioritise
+// callbacks, force prospectiveNote injection.
+const RelationshipHealthSchema = new mongoose.Schema({
+  userId:      { type: mongoose.Schema.Types.ObjectId, ref: "User", unique: true, required: true },
+  lastComputed: { type: Date, default: null },
+  // Rolling 30-day window signals (Section 4.1 table)
+  sessionFrequency:        { type: Number, default: null }, // sessions per week
+  avgMessageLength:        { type: Number, default: null }, // user msg word count avg
+  sptVelocity:             { type: Number, default: null }, // depth increase per 10 sessions
+  callbackConsumptionRate: { type: Number, default: null }, // % callbacks consumed
+  unsolicitedElaboration:  { type: Number, default: null }, // % user turns extending beyond direct answer
+  // Prior window values for trend comparison
+  prev_sessionFrequency:        { type: Number, default: null },
+  prev_avgMessageLength:        { type: Number, default: null },
+  prev_sptVelocity:             { type: Number, default: null },
+  prev_callbackConsumptionRate: { type: Number, default: null },
+  prev_unsolicitedElaboration:  { type: Number, default: null },
+  // At-risk state
+  atRisk:           { type: Boolean, default: false },
+  atRiskSince:      { type: Date, default: null },
+  decliningSignals: { type: [String], default: [] }, // which signals are declining
+  consecutiveDeclineWindows: { type: Number, default: 0 },
+  // Voice consistency audit (Section 4.2) — stored per user, updated monthly
+  lastVoiceAudit:          { type: Date, default: null },
+  avgVoiceFidelityComposed:    { type: Number, default: null },
+  avgVoiceFidelityNonComposed: { type: Number, default: null },
+  voiceAuditAlert:         { type: Boolean, default: false },
+});
+
 const User              = mongoose.model("User", UserSchema);
 const Message           = mongoose.model("Message", MessageSchema);
 const Conversation      = mongoose.model("Conversation", ConversationSchema);
 const PersonalityMemory = mongoose.model("PersonalityMemory", PersonalityMemorySchema);
 const SelfAtom          = mongoose.model("SelfAtom", SelfAtomSchema);
 const EvaluationRecord  = mongoose.model("EvaluationRecord", EvaluationRecordSchema);
+const PresenceSignals   = mongoose.model("PresenceSignals", PresenceSignalsSchema);
+const RelationshipHealth = mongoose.model("RelationshipHealth", RelationshipHealthSchema);
 
 // ═══════════════════════════════════════════════════════════════════
 // TRUST LEVELS
@@ -1551,6 +1834,10 @@ app.post("/api/auth/phrase", async (req, res) => {
     }
     console.log(`[CACHE] Session primed for user ${user._id}`);
 
+    // ── Phase 6: mark returnWithin48h on most recent PresenceSignals ──
+    // Non-blocking — runs after response is sent so login latency is unaffected.
+    setImmediate(() => markReturnSignal(String(user._id)).catch(e => console.error("[PHASE6-RETURN]", e.message)));
+
     const token = jwt.sign({ id: user._id, phrase: phrase.trim().toLowerCase() }, JWT_SECRET, { expiresIn: "90d" });
     res.json({ token, user: { id: user._id, phrase: phrase.trim().toLowerCase() } });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -1845,7 +2132,30 @@ app.post("/api/chat", auth, async (req, res) => {
   if (!session.lastExpressedThought)     session.lastExpressedThought = null;
   if (session.msgCount === undefined)    session.msgCount = 0;
   if (!session.messageEvals)             session.messageEvals = []; // Phase 5: eval buffer
+  if (!session.currentSessionId)         session.currentSessionId = `sess_${Date.now()}`; // Phase 6
   session.msgCount++;
+
+  // ── Phase 6: Load RelationshipHealth + apply at-risk adjustments ──
+  // At-risk flag (Section 4.1): lower motivation threshold to 2.5,
+  // prioritise callbacks, force prospectiveNote injection.
+  if (!session.relationshipHealth) {
+    try {
+      session.relationshipHealth = await RelationshipHealth.findOne({ userId: req.user.id }).lean();
+    } catch (e) { session.relationshipHealth = null; }
+  }
+  const atRisk = session.relationshipHealth?.atRisk || false;
+  // Effective motivation threshold: 7.0 normally, 6.5 at-risk (scaled from spec's 3.0→2.5)
+  session.effectiveMotivationThreshold = atRisk ? 6.5 : 7.0;
+  // Force prospectiveNote injection at session start if at-risk
+  if (atRisk && session.isSessionStart && session.memory && !session.memory.prospectiveNote) {
+    // Promote top unconsumed callback to prospectiveNote if none exists
+    const topCb = (session.memory.callbackQueue || []).find(c => !c.consumed && c.priority === "high")
+      || (session.memory.callbackQueue || []).find(c => !c.consumed);
+    if (topCb) {
+      session.memory.prospectiveNote = topCb.content;
+      console.log(`[PHASE6] At-risk: force-injecting prospectiveNote from callback queue`);
+    }
+  }
 
   // ── Phase 2: Self-atom cache load (unchanged — feeds Phase 4) ─────
   if (!session.selfAtomCache) {
@@ -1956,7 +2266,7 @@ app.post("/api/chat", auth, async (req, res) => {
       .sort((a, b) => b.currentScore - a.currentScore);
 
     const candidate = agedReservoir[0];
-    if (candidate && candidate.currentScore >= 7.0 && session.thoughtCooldown >= 3) {
+    if (candidate && candidate.currentScore >= (session.effectiveMotivationThreshold ?? 7.0) && session.thoughtCooldown >= 3) {
       thoughtResult = {
         winner: candidate,
         updatedReservoir: agedReservoir.filter(t => t.id !== candidate.id),
@@ -2050,16 +2360,21 @@ app.post("/api/chat", auth, async (req, res) => {
         session.dirty = true;
         updateTrustFromMessage(message, session.memory);
 
-        // ── Phase 5: Record MessageEval with dual-reasoning ──────────
+        // ── Phase 5+6: Record MessageEval with dual-reasoning + Phase 6 fields ──
         const evalEntry = {
           userMessage: message,
           morriganResponse: composedResponse,
           innerThoughtSelected: session.pendingWinner?.content || null,
+          innerThoughtFit: session.pendingWinner?.currentScore || null,
           innerThoughtScore: session.pendingWinner?.currentScore || null,
           innerThoughtReasoning: session.pendingWinner ? {
             reasonsFor: session.pendingWinner.reasonsFor || [],
             reasonsAgainst: session.pendingWinner.reasonsAgainst || [],
           } : null,
+          // Phase 6: composition quality signals (Section 2.4)
+          wasComposed: !!session.pendingWinner,   // true if composition call ran this turn
+          voiceConsistency: null,                 // populated by voice audit (monthly, async)
+          reciprocityCalibration: null,           // could be scored per-turn if eval call enabled
         };
         session.messageEvals.push(evalEntry);
 
@@ -2237,7 +2552,11 @@ app.get("/api/phase5/tuning", auth, async (req, res) => {
       sessions: records.length,
       avgRetrievalScore:   avg(records.map(r => r.avgRetrievalScore)),
       avgPrimingScore:     avg(records.map(r => r.avgPrimingScore)),
-      avgInnerThoughtFit:  avg(msgEvals.filter(m => m.innerThoughtScore != null).map(m => m.innerThoughtScore)),
+      // Read both field names — innerThoughtFit is the EvaluationRecord schema field,
+      // innerThoughtScore is a legacy alias stored on per-message evals
+      avgInnerThoughtFit:  avg(records.map(r => r.avgInnerThoughtFit).concat(
+        msgEvals.filter(m => m.innerThoughtFit != null).map(m => m.innerThoughtFit)
+      )),
       injectionRate:       msgEvals.length > 0
         ? msgEvals.filter(m => m.innerThoughtSelected != null).length / msgEvals.length
         : null,
@@ -2250,8 +2569,8 @@ app.get("/api/phase5/tuning", auth, async (req, res) => {
     // Trend: compare recent 50 vs prior 50 (innerThoughtFit)
     const recent = records.slice(0, 50);
     const prior  = records.slice(50, 100);
-    const recentFit = avg(recent.flatMap(r => (r.messageEvals || []).filter(m => m.innerThoughtScore != null).map(m => m.innerThoughtScore)));
-    const priorFit  = avg(prior.flatMap(r => (r.messageEvals || []).filter(m => m.innerThoughtScore != null).map(m => m.innerThoughtScore)));
+    const recentFit = avg(recent.flatMap(r => (r.messageEvals || []).filter(m => m.innerThoughtFit != null).map(m => m.innerThoughtFit)));
+    const priorFit  = avg(prior.flatMap(r => (r.messageEvals || []).filter(m => m.innerThoughtFit != null).map(m => m.innerThoughtFit)));
     const trend = {
       innerThoughtFit: recentFit != null && priorFit != null ? parseFloat((recentFit - priorFit).toFixed(2)) : null,
       recentAvg: recentFit != null ? parseFloat(recentFit.toFixed(2)) : null,
@@ -2304,16 +2623,18 @@ app.post("/api/phase5/build-dataset", auth, async (req, res) => {
     for (const record of records) {
       for (const msgEval of (record.messageEvals || [])) {
         if (msgEval.innerThoughtSelected == null) continue;
-        if (msgEval.innerThoughtScore == null) continue;
+        // Accept either field name — innerThoughtFit is canonical, innerThoughtScore is legacy alias
+        const fitScore = msgEval.innerThoughtFit ?? msgEval.innerThoughtScore;
+        if (fitScore == null) continue;
         examples.push({
           userMessage: msgEval.userMessage,
           innerThoughtChosen: msgEval.innerThoughtSelected,
           finalResponse: msgEval.morriganResponse,
           quality: {
-            innerThoughtFit: msgEval.innerThoughtScore,
+            innerThoughtFit: fitScore,
           },
           reasoning: msgEval.innerThoughtReasoning || null,
-          label: msgEval.innerThoughtScore >= 7.5 ? "positive" : "negative",
+          label: fitScore >= 7.5 ? "positive" : "negative",
         });
       }
     }
@@ -2339,7 +2660,195 @@ app.post("/api/phase5/build-dataset", auth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ═══════════════════════════════════════════════════════════════════
+// PHASE 6 ENDPOINTS
+// ═══════════════════════════════════════════════════════════════════
 
+// ── GET /api/phase6/health — User Relationship Health Model (Section 4.1) ──
+// Returns five-signal health model for the current user. At-risk flag
+// and declining signals are the primary outputs.
+app.get("/api/phase6/health", auth, async (req, res) => {
+  try {
+    let health = await RelationshipHealth.findOne({ userId: req.user.id });
+    const recentSignals = await PresenceSignals.find({
+      userId: req.user.id,
+      sessionDate: { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) },
+    }).sort({ sessionDate: -1 }).limit(20);
+
+    res.json({
+      atRisk: health?.atRisk || false,
+      atRiskSince: health?.atRiskSince || null,
+      decliningSignals: health?.decliningSignals || [],
+      consecutiveDeclineWindows: health?.consecutiveDeclineWindows || 0,
+      lastComputed: health?.lastComputed || null,
+      signals: {
+        sessionFrequency:        health?.sessionFrequency || null,
+        avgMessageLength:        health?.avgMessageLength || null,
+        sptVelocity:             health?.sptVelocity || null,
+        callbackConsumptionRate: health?.callbackConsumptionRate || null,
+        unsolicitedElaboration:  health?.unsolicitedElaboration || null,
+      },
+      voiceAudit: {
+        lastRun:               health?.lastVoiceAudit || null,
+        avgFidelityComposed:   health?.avgVoiceFidelityComposed || null,
+        avgFidelityNonComposed: health?.avgVoiceFidelityNonComposed || null,
+        alert:                 health?.voiceAuditAlert || false,
+      },
+      recentSessions: recentSignals.map(s => ({
+        sessionDate:            s.sessionDate,
+        returnWithin48h:        s.returnWithin48h,
+        sessionExtended:        s.sessionExtended,
+        unsolicitedElaboration: s.unsolicitedElaboration,
+        avgMessageLengthUser:   s.avgMessageLengthUser,
+        userTurnCount:          s.userTurnCount,
+      })),
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── POST /api/phase6/health/compute — Force recompute RelationshipHealth ──
+app.post("/api/phase6/health/compute", auth, async (req, res) => {
+  try {
+    const health = await computeRelationshipHealth(req.user.id);
+    res.json({ ok: true, atRisk: health?.atRisk || false, decliningSignals: health?.decliningSignals || [] });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── POST /api/phase6/voice-audit — Voice Consistency Audit (Section 4.2) ──
+// Runs monthly. Samples 20 composed + 20 non-composed responses and scores
+// voice fidelity against the character prompt. Alert threshold: composed avg
+// more than 0.8 points below non-composed avg.
+app.post("/api/phase6/voice-audit", auth, async (req, res) => {
+  try {
+    const records = await EvaluationRecord.find({}).sort({ sessionDate: -1 }).limit(200);
+    const allEvals = records.flatMap(r => r.messageEvals || []);
+
+    const composed    = allEvals.filter(e => e.wasComposed && e.morriganResponse).slice(0, 20);
+    const nonComposed = allEvals.filter(e => !e.wasComposed && e.morriganResponse).slice(0, 20);
+
+    if (composed.length < 5 || nonComposed.length < 5) {
+      return res.json({ skipped: true, reason: "Insufficient samples — need at least 5 of each type.", composed: composed.length, nonComposed: nonComposed.length });
+    }
+
+    const VOICE_AUDIT_PROMPT = (response) =>
+      `You are evaluating whether a response sounds like Morrigan.
+
+CHARACTER: Morrigan is a 23-year-old record store employee. Specific, guarded, dry, honest when she forgets to be careful. Anxious attachment. Real warmth under hard edges. Doesn't perform. Doesn't resolve things cleanly. Uses fragments when anxious, full sentences when comfortable. Dark dry humor. Literary references. *italics* for actions.
+
+RESPONSE TO EVALUATE:
+${response.substring(0, 600)}
+
+Rate on voice fidelity: 1-10.
+1 = could be any chatbot. 10 = unmistakably her.
+Focus on: word choice, emotional register, sentence rhythm, what she notices. Not on content accuracy.
+Return only valid JSON: { "score": N, "evidence": "one sentence" }`;
+
+    async function scoreVoice(evalEntry) {
+      try {
+        const r = await fetch(`${COLAB_URL}/v1/chat/completions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: CHAT_MODEL,
+            messages: [{ role: "user", content: VOICE_AUDIT_PROMPT(evalEntry.morriganResponse) }],
+            temperature: 0.1, max_tokens: 80, inject_system: false,
+          }),
+        });
+        if (!r.ok) return null;
+        const d = await r.json();
+        const raw = d.choices?.[0]?.message?.content?.trim() || "";
+        const parsed = JSON.parse(raw.replace(/```json|```/g, "").trim());
+        return typeof parsed.score === "number" ? parsed.score : null;
+      } catch { return null; }
+    }
+
+    console.log(`[PHASE6-AUDIT] Scoring ${composed.length} composed + ${nonComposed.length} non-composed responses...`);
+
+    const composedScores    = (await Promise.all(composed.map(scoreVoice))).filter(s => s != null);
+    const nonComposedScores = (await Promise.all(nonComposed.map(scoreVoice))).filter(s => s != null);
+
+    const avgComposed    = composedScores.length    ? composedScores.reduce((a,b) => a+b,0) / composedScores.length : null;
+    const avgNonComposed = nonComposedScores.length ? nonComposedScores.reduce((a,b) => a+b,0) / nonComposedScores.length : null;
+
+    const alert = avgComposed != null && avgNonComposed != null
+      ? (avgNonComposed - avgComposed) > 0.8 || avgComposed < 7.0 || avgNonComposed < 7.0
+      : false;
+
+    // Persist to RelationshipHealth
+    await RelationshipHealth.findOneAndUpdate(
+      { userId: req.user.id },
+      {
+        lastVoiceAudit: new Date(),
+        avgVoiceFidelityComposed: avgComposed,
+        avgVoiceFidelityNonComposed: avgNonComposed,
+        voiceAuditAlert: alert,
+      },
+      { upsert: true, new: true }
+    );
+
+    if (alert) {
+      console.log(`[PHASE6-AUDIT] ⚠ Voice alert — composed: ${avgComposed?.toFixed(2)}, non-composed: ${avgNonComposed?.toFixed(2)}`);
+    }
+
+    res.json({
+      composedSampled: composed.length,
+      nonComposedSampled: nonComposed.length,
+      avgVoiceFidelityComposed: avgComposed,
+      avgVoiceFidelityNonComposed: avgNonComposed,
+      delta: avgComposed != null && avgNonComposed != null ? parseFloat((avgNonComposed - avgComposed).toFixed(2)) : null,
+      alert,
+      alertReason: alert ? (
+        avgComposed < 7.0 ? "composed avg < 7.0 — review composition prompt and character document"
+        : avgNonComposed < 7.0 ? "non-composed avg < 7.0 — review character prompt, re-run SelfAtom extraction"
+        : "composed avg more than 0.8 points below non-composed — tighten composition prompt"
+      ) : null,
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET /api/phase6/presence — PresenceSignals summary ──────────────
+app.get("/api/phase6/presence", auth, async (req, res) => {
+  try {
+    const days = parseInt(req.query.days) || 30;
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    const signals = await PresenceSignals.find({ userId: req.user.id, sessionDate: { $gte: cutoff } }).sort({ sessionDate: -1 });
+
+    const total = signals.length;
+    const returnRate    = total ? signals.filter(s => s.returnWithin48h === true).length / total : null;
+    const extendRate    = total ? signals.filter(s => s.sessionExtended).length / total : null;
+    const elaborationRate = total ? signals.filter(s => s.unsolicitedElaboration).length / total : null;
+    const avgMsgLen     = total ? signals.reduce((s, x) => s + x.avgMessageLengthUser, 0) / total : null;
+
+    // Composite presence score — weighted avg of the four proxies
+    const presenceScore = returnRate != null
+      ? parseFloat(((returnRate * 0.35) + (extendRate * 0.25) + (elaborationRate * 0.25) + (Math.min(avgMsgLen / 60, 1) * 0.15)).toFixed(3))
+      : null;
+
+    res.json({
+      windowDays: days,
+      totalSessions: total,
+      returnWithin48hRate: returnRate,
+      sessionExtendedRate: extendRate,
+      unsolicitedElaborationRate: elaborationRate,
+      avgMessageLengthUser: avgMsgLen ? parseFloat(avgMsgLen.toFixed(1)) : null,
+      presenceScore,
+      sessions: signals.slice(0, 10).map(s => ({
+        sessionDate: s.sessionDate,
+        returnWithin48h: s.returnWithin48h,
+        sessionExtended: s.sessionExtended,
+        unsolicitedElaboration: s.unsolicitedElaboration,
+        avgMessageLengthUser: s.avgMessageLengthUser,
+        userTurnCount: s.userTurnCount,
+      })),
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// STATUS — LLM + EMBEDDING HEALTH CHECK
+// ═══════════════════════════════════════════════════════════════════
+
+app.get("/api/status", async (req, res) => {
   let llm = false, embed = false;
 
   try {
