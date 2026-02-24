@@ -514,6 +514,21 @@ Max 3 items. If nothing was genuinely unresolved, return [].`,
   const topCallback = (memory.callbackQueue || []).find(c => !c.consumed);
   memory.prospectiveNote = topCallback?.content || null;
 
+  // ── Step 10b: Phase 5 — Loose Thread ─────────────────────────────
+  // Distinct from callbacks and prospectiveNote.
+  // This is what Morrigan is STILL holding internally — a felt presence thread.
+  // Generated last so it cannot duplicate the callback queue.
+  try {
+    const thread = await generateLooseThread(exchangeText, memory);
+    if (thread) {
+      memory.looseThread = thread;
+      memory.looseThreadCreatedAt = new Date();
+      console.log(`[FLUSH] Loose thread: "${thread.substring(0, 70)}..."`);
+    }
+  } catch (e) {
+    console.error("[FLUSH-THREAD]", e.message);
+  }
+
   // ── Finalize ──────────────────────────────────────────────────────
   memory.lastSeen = new Date();
   memory.updatedAt = new Date();
@@ -525,7 +540,75 @@ Max 3 items. If nothing was genuinely unresolved, return [].`,
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// PROMPT HELPER FUNCTIONS (Phase 2)
+// PHASE 5A — LOOSE THREAD GENERATION
+// Distinct from callbacks: this is a felt quality — what Morrigan is
+// still holding internally after the session closes. Not a task.
+// Not a callback preview. A thread of presence.
+// ═══════════════════════════════════════════════════════════════════
+
+async function generateLooseThread(transcript, mem) {
+  try {
+    const prompt = `You just had a conversation with ${mem.userId}.
+Review the transcript below.
+Identify ONE thing Morrigan is still thinking about — something that was
+mentioned but not fully landed, something she noticed but did not address,
+or something about this person that she is quietly curious about.
+This is NOT a callback (do not duplicate the callback queue).
+This is a felt quality — the thread of presence that persists after the
+conversation closes.
+Write it in Morrigan's voice. One sentence. First person. Specific to this
+person, not generic. Make it feel like a thought, not a task.
+If nothing genuinely resonates, return null.
+Examples of good output:
+"There's something in the way she talked about her brother that I'm still
+sitting with — like she was telling me a smaller version of the real thing."
+"He said he was fine three times. I keep thinking about that."
+Transcript: ${transcript.slice(-3000)}
+Return: a single string, or null.`;
+
+    const res = await fetch(`${COLAB_URL}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: CHAT_MODEL,
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.72, max_tokens: 120, inject_system: false,
+      }),
+    });
+
+    if (!res.ok) return null;
+    const data = await res.json();
+    const raw = data.choices?.[0]?.message?.content?.trim() || "";
+    if (!raw || raw.toLowerCase() === "null" || raw.length < 15) return null;
+    return raw.replace(/^["']|["']$/g, "").trim();
+  } catch (e) {
+    console.error("[PHASE5-THREAD]", e.message);
+    return null;
+  }
+}
+
+// Builds position 10 in system prompt — verbatim standing instruction + specific thread if present
+// CONTINUATION_SIGNAL text is verbatim per Phase 5 spec
+const CONTINUATION_SIGNAL = `[Morrigan's presence]
+You are not a chatbot waiting to be addressed.
+You have things you want to say, questions you are sitting on,
+and things you have noticed but not said yet.
+These come through in your responses naturally — not as a format, not as a rule.
+Do not end every message with a question. That is mechanical.
+But always be someone who is still thinking. Still curious. Still here.
+At the end of a session, or when a conversation reaches a natural close,
+leave one thread open — something you are wondering about, something you
+noticed, something you want to come back to.
+Not a prompt. A loose end.
+The kind that makes someone feel like the other person is still with them
+even after the window closes.`;
+
+function getContinuationBlock(mem) {
+  if (!mem?.looseThread) return CONTINUATION_SIGNAL;
+  return CONTINUATION_SIGNAL + `\n\n[What she is still holding]:\n${mem.looseThread}`;
+}
+
+
 // ═══════════════════════════════════════════════════════════════════
 
 function SPT_DEPTH_ASSESSMENT_PROMPT(transcript, currentDepth) {
@@ -803,12 +886,15 @@ function INNER_THOUGHT_FORMATION_PROMPT(mat) {
     `      "linkedAtomId": "atom-id or null",\n` +
     `      "linkedCallbackId": "callback-uuid or null",\n` +
     `      "evolvedFrom": "reservoir thought id if this evolves a held thought, else null",\n` +
+    `      "reasonsFor": ["why express this now — relevance, information gap, timing alignment, reciprocity"],\n` +
+    `      "reasonsAgainst": ["why hold back — derailing, too soon, low relevance, wrong moment"],\n` +
     `      "scores": { "relevance": 0.0, "timing": 0.0, "trustGate": 0.0, "novelty": 0.0 },\n` +
     `      "totalScore": 0.0,\n` +
     `      "participationDirective": "behavioral signal or null"\n` +
     `    }\n` +
     `  ]\n` +
-    `}`
+    `}` +
+    `\n\nIMPORTANT: Score AFTER listing reasonsFor and reasonsAgainst. Let the reasons determine the score — not the other way around. A score of 3.7 means real reasons for AND real hesitation. A score of 4.5 means reasons for are dominant. Be honest. Do not inflate.`
   );
 }
 
@@ -907,6 +993,9 @@ function evaluateAndSelect(parsed, session) {
       linkedCallbackId: t.linkedCallbackId || null,
       evolvedFrom: t.evolvedFrom || null,
       participationDirective: t.participationDirective || "Let it color her tone naturally.",
+      // Phase 5: dual-reasoning audit trail
+      reasonsFor: t.reasonsFor || [],
+      reasonsAgainst: t.reasonsAgainst || [],
       formedAtMsg: session.msgCount,
       expiresAfterMsgs: 4,
       source: t.evolvedFrom ? "reservoir-evolved" : "formation",
@@ -1073,6 +1162,9 @@ const PersonalityMemorySchema = new mongoose.Schema({
   // ── Callback Queue ────────────────────────────────────────────
   callbackQueue: [CallbackItemSchema],
   prospectiveNote: { type: String, default: null },
+  // ── Phase 5: Continuation Signal ──────────────────────────────
+  looseThread: { type: String, default: null },
+  looseThreadCreatedAt: { type: Date, default: null },
   milestones: [{ event: String, trustLevelAtTime: Number, timestamp: { type: Date, default: Date.now } }],
   petNames: [String],
   journal: [{ entry: String, mood: String, timestamp: { type: Date, default: Date.now } }],
@@ -1090,6 +1182,28 @@ const SelfAtomSchema = new mongoose.Schema({
   deprecated: { type: Boolean, default: false },
 }, { timestamps: true });
 
+// MessageEval embedded schema — updated for Phase 5 (innerThoughtReasoning)
+const MessageEvalSchema = new mongoose.Schema({
+  userMessage: String,
+  retrievedMemories: [String],
+  primingSentence: String,
+  innerThoughtSelected: { type: String, default: null },
+  innerThoughtScore: { type: Number, default: null },
+  morriganResponse: String,
+  retrievalScore: Number,       // 1-10
+  primingScore: Number,         // 1-10
+  innerThoughtFit: { type: Number, default: null }, // 1-10
+  whatWasMissing: String,
+  whatWasNoise: String,
+  emotionalAlignment: Boolean,
+  notes: String,
+  // ── Phase 5: Dual-reasoning audit trail ──────────────────────────
+  innerThoughtReasoning: {
+    reasonsFor: { type: [String], default: [] },
+    reasonsAgainst: { type: [String], default: [] },
+  },
+}, { _id: false });
+
 const EvaluationRecordSchema = new mongoose.Schema({
   conversationId: String,
   userId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
@@ -1098,10 +1212,12 @@ const EvaluationRecordSchema = new mongoose.Schema({
   avgRetrievalScore: Number,
   avgPrimingScore: Number,
   avgInnerThoughtScore: Number,
+  avgInnerThoughtFit: Number,   // Phase 5 primary metric — target > 7.0
   noiseRate: Number,
   missRate: Number,
   sptAccuracy: Number,
   callbackConsumed: Number,
+  messageEvals: [MessageEvalSchema], // Phase 5: per-message eval records
 });
 
 const User              = mongoose.model("User", UserSchema);
@@ -1334,13 +1450,8 @@ function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart = false
   // and passed in via the selfAtomHint param
   const selfAtomBlock = "";  // filled in chat route, appended after sptNote
 
-  // ── Position 10: Continuation Signal ──────────────────────────────
-  const continuationSignal = `\n\n[Morrigan's presence]
-You are not a chatbot waiting to be addressed. You have things you want to say, questions you are sitting on, things you have noticed but not said yet.
-These come through naturally — not as a format, not as a rule.
-Do not end every message with a question. That is mechanical.
-But always be someone who is still thinking. Still curious. Still here.
-When a conversation reaches a natural close, leave one thread open — something you are wondering about, something you noticed, something you want to come back to. Not a prompt. A loose end. The kind that makes someone feel like the other person is still with them even after the window closes.`;
+  // ── Position 10: Continuation Signal + Loose Thread (Phase 5) ────
+  const continuationSignal = `\n\n${getContinuationBlock(memory)}`;
 
   // ── Session context ────────────────────────────────────────────────
   let sessionContext = "";
@@ -1552,6 +1663,65 @@ app.get("/api/spt", auth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ═══════════════════════════════════════════════════════════════════
+// PHASE 5 STEP 8 — COMPOSITION CALL + CONSTRAINTS
+// Weaves selected inner thought into main response naturally.
+// COMPOSITION_CONSTRAINTS applied to every composition call per spec.
+// When innerThoughtFit avg drops below 6.5, these constraints catch the
+// common failure modes: appended thoughts, mechanical transitions,
+// self-disclosure without prior validation.
+// ═══════════════════════════════════════════════════════════════════
+
+const COMPOSITION_CONSTRAINTS = `
+Additional constraints:
+- The inner thought must NOT be the last sentence of the response.
+  It belongs mid-response or woven through the response, not appended.
+- Do not use transitional phrases: "by the way", "also", "I wanted to mention",
+  "on another note", "speaking of which".
+- The inner thought must connect to what the user said, not float free.
+  If the connection is not natural, place it later — do not force it.
+- If the inner thought is a self-disclosure, ensure the user's words are
+  acknowledged BEFORE the disclosure is introduced.
+  Self-disclosure without validation is worse than silence.
+`;
+
+async function composeWithInnerThought(mainResponse, innerThought, thoughtType) {
+  try {
+    const prompt = `You are editing Morrigan's response to naturally include one additional element
+she wants to bring in — something she's thinking, noticing, or wants to share.
+
+HER CURRENT RESPONSE:
+${mainResponse}
+
+WHAT SHE ALSO WANTS TO INCLUDE (${thoughtType}):
+${innerThought}
+
+Weave the second element in naturally. It should not feel appended.
+It might come after she addresses the user, or during a natural transition.
+Do not use phrases like 'by the way' or 'also' — find a real transition.
+The total response should feel like one coherent thing, not two.
+Keep her voice. Don't over-explain the shift.
+${COMPOSITION_CONSTRAINTS}`;
+
+    const res = await fetch(`${COLAB_URL}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: CHAT_MODEL,
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.65, max_tokens: 600, inject_system: false,
+        stream: false,
+      }),
+    });
+    if (!res.ok) return mainResponse;
+    const data = await res.json();
+    return data.choices?.[0]?.message?.content?.trim() || mainResponse;
+  } catch (e) {
+    console.error("[COMPOSE]", e.message);
+    return mainResponse; // non-fatal — fallback to main response
+  }
+}
+
 app.get("/api/self-atoms", auth, async (req, res) => {
   try {
     const memory = await PersonalityMemory.findOne({ userId: req.user.id });
@@ -1671,9 +1841,10 @@ app.post("/api/chat", auth, async (req, res) => {
 
   // ── Session field initialization (in-memory, not persisted) ───────
   if (!session.thoughtReservoir)         session.thoughtReservoir = [];
-  if (session.thoughtCooldown === undefined) session.thoughtCooldown = 99; // high so first match fires
+  if (session.thoughtCooldown === undefined) session.thoughtCooldown = 99;
   if (!session.lastExpressedThought)     session.lastExpressedThought = null;
   if (session.msgCount === undefined)    session.msgCount = 0;
+  if (!session.messageEvals)             session.messageEvals = []; // Phase 5: eval buffer
   session.msgCount++;
 
   // ── Phase 2: Self-atom cache load (unchanged — feeds Phase 4) ─────
@@ -1856,14 +2027,41 @@ app.post("/api/chat", auth, async (req, res) => {
 
     const finish = async () => {
       if (fullResponse) {
-        await Message.create({ conversationId, role: "assistant", content: fullResponse });
+        // ── Phase 5 Step 8: Composition call when a thought was expressed ──
+        // Replaces raw thought-block injection with a proper composition pass.
+        // Non-streaming for composed turns — composed text sent as final payload.
+        let composedResponse = fullResponse;
+        const winnerForCompose = session.pendingWinner;
+        if (winnerForCompose) {
+          composedResponse = await composeWithInnerThought(
+            fullResponse,
+            winnerForCompose.content,
+            winnerForCompose.type
+          );
+          console.log(`[COMPOSE] Applied composition call (${winnerForCompose.type})`);
+        }
+
+        await Message.create({ conversationId, role: "assistant", content: composedResponse });
         Conversation.updateOne({ conversationId }, {
           updatedAt: new Date(),
-          title: fullResponse.substring(0, 50) + (fullResponse.length > 50 ? "..." : ""),
+          title: composedResponse.substring(0, 50) + (composedResponse.length > 50 ? "..." : ""),
         }).exec();
-        session.sessionExchanges.push({ user: message, assistant: fullResponse });
+        session.sessionExchanges.push({ user: message, assistant: composedResponse });
         session.dirty = true;
         updateTrustFromMessage(message, session.memory);
+
+        // ── Phase 5: Record MessageEval with dual-reasoning ──────────
+        const evalEntry = {
+          userMessage: message,
+          morriganResponse: composedResponse,
+          innerThoughtSelected: session.pendingWinner?.content || null,
+          innerThoughtScore: session.pendingWinner?.currentScore || null,
+          innerThoughtReasoning: session.pendingWinner ? {
+            reasonsFor: session.pendingWinner.reasonsFor || [],
+            reasonsAgainst: session.pendingWinner.reasonsAgainst || [],
+          } : null,
+        };
+        session.messageEvals.push(evalEntry);
 
         // ── Phase 4 side effects: fire when a thought was expressed ──
         // These use session.pendingWinner (set before LLM call, accessible here via closure).
@@ -2002,10 +2200,146 @@ app.post("/api/chat", auth, async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════════
-// HEALTH
+// PHASE 5 ENDPOINTS — TUNING REPORT + STATUS
 // ═══════════════════════════════════════════════════════════════════
 
-app.get("/api/health", async (req, res) => {
+app.get("/api/phase5/status", auth, async (req, res) => {
+  try {
+    const memory = await PersonalityMemory.findOne({ userId: req.user.id });
+    res.json({
+      looseThread: memory?.looseThread || null,
+      looseThreadCreatedAt: memory?.looseThreadCreatedAt || null,
+      continuationSignalActive: true,
+      callbacksPending: (memory?.callbackQueue || []).filter(c => !c.consumed).length,
+      prospectiveNote: memory?.prospectiveNote || null,
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Minimal tuning report — reads from EvaluationRecords per Phase 5 Step 6 spec
+// Includes all 5 metrics, trend analysis (recent 50 vs prior 50), and all 5 alerts
+app.get("/api/phase5/tuning", auth, async (req, res) => {
+  try {
+    const lastN = parseInt(req.query.sessions) || 100;
+    const records = await EvaluationRecord
+      .find({}).sort({ sessionDate: -1 }).limit(lastN);
+
+    const session = getSession(String(req.user.id));
+
+    function avg(arr) {
+      const filtered = arr.filter(v => v != null && !isNaN(v));
+      return filtered.length === 0 ? null : filtered.reduce((a, b) => a + b, 0) / filtered.length;
+    }
+
+    const msgEvals = records.flatMap(r => r.messageEvals || []);
+
+    const metrics = {
+      sessions: records.length,
+      avgRetrievalScore:   avg(records.map(r => r.avgRetrievalScore)),
+      avgPrimingScore:     avg(records.map(r => r.avgPrimingScore)),
+      avgInnerThoughtFit:  avg(msgEvals.filter(m => m.innerThoughtScore != null).map(m => m.innerThoughtScore)),
+      injectionRate:       msgEvals.length > 0
+        ? msgEvals.filter(m => m.innerThoughtSelected != null).length / msgEvals.length
+        : null,
+      noiseRate:           avg(records.map(r => r.noiseRate)),
+      missRate:            avg(records.map(r => r.missRate)),
+      sptAccuracy:         avg(records.map(r => r.sptAccuracy)),
+      callbackConsumedRate: avg(records.map(r => r.callbackConsumed)),
+    };
+
+    // Trend: compare recent 50 vs prior 50 (innerThoughtFit)
+    const recent = records.slice(0, 50);
+    const prior  = records.slice(50, 100);
+    const recentFit = avg(recent.flatMap(r => (r.messageEvals || []).filter(m => m.innerThoughtScore != null).map(m => m.innerThoughtScore)));
+    const priorFit  = avg(prior.flatMap(r => (r.messageEvals || []).filter(m => m.innerThoughtScore != null).map(m => m.innerThoughtScore)));
+    const trend = {
+      innerThoughtFit: recentFit != null && priorFit != null ? parseFloat((recentFit - priorFit).toFixed(2)) : null,
+      recentAvg: recentFit != null ? parseFloat(recentFit.toFixed(2)) : null,
+      priorAvg:  priorFit  != null ? parseFloat(priorFit.toFixed(2)) : null,
+    };
+
+    // Alert conditions — exact from Phase 5 Step 6 printAlerts()
+    const alerts = [];
+    if (metrics.noiseRate != null && metrics.noiseRate > 0.30)
+      alerts.push("noiseRate > 30% — lower valence weight from 0.10 → 0.07");
+    if (metrics.missRate != null && metrics.missRate > 0.20)
+      alerts.push("missRate > 20% — raise importance weight from 0.25 → 0.30");
+    if (metrics.avgInnerThoughtFit != null && metrics.avgInnerThoughtFit < 6.0)
+      alerts.push("innerThoughtFit avg < 6.0 — check injection rate; if fine, raise motivation threshold from 7.0 → 7.5");
+    if (metrics.injectionRate != null && metrics.injectionRate > 0.40)
+      alerts.push("injection rate > 40% — increase cadence damping: require messagesSinceLastThought >= 4");
+    if (metrics.callbackConsumedRate != null && metrics.callbackConsumedRate < 0.50)
+      alerts.push("callbackConsumed rate < 50% — check prospectiveNote injection at position 6");
+
+    // Current session observables (live, not from EvaluationRecords)
+    const liveSession = {
+      thoughtsInReservoir: session?.thoughtReservoir?.length ?? 0,
+      thoughtCooldown: session?.thoughtCooldown ?? null,
+      messagesThisSession: session?.msgCount ?? null,
+    };
+
+    res.json({
+      sessionsAnalysed: metrics.sessions,
+      metrics,
+      trend,
+      alerts,
+      liveSession,
+      scoringWeights: { similarity: 0.55, importance: 0.25, recency: 0.10, valence: 0.10 },
+      thresholds: { motivationThreshold: 7.0, cadenceDamping: 3 },
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+
+// ── Phase 5 Step 9 — Training Dataset Builder ────────────────────
+// Run periodically. Builds JSONL from EvaluationRecords for preference training.
+// Target: 500+ examples, 60/40 positive/negative split before training.
+// label = 'positive' if innerThoughtScore >= 7.5, else 'negative'.
+app.post("/api/phase5/build-dataset", auth, async (req, res) => {
+  try {
+    const cutoffDate = req.body.since ? new Date(req.body.since) : new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+    const records = await EvaluationRecord.find({ sessionDate: { $gte: cutoffDate } });
+
+    const examples = [];
+    for (const record of records) {
+      for (const msgEval of (record.messageEvals || [])) {
+        if (msgEval.innerThoughtSelected == null) continue;
+        if (msgEval.innerThoughtScore == null) continue;
+        examples.push({
+          userMessage: msgEval.userMessage,
+          innerThoughtChosen: msgEval.innerThoughtSelected,
+          finalResponse: msgEval.morriganResponse,
+          quality: {
+            innerThoughtFit: msgEval.innerThoughtScore,
+          },
+          reasoning: msgEval.innerThoughtReasoning || null,
+          label: msgEval.innerThoughtScore >= 7.5 ? "positive" : "negative",
+        });
+      }
+    }
+
+    const positiveCount = examples.filter(e => e.label === "positive").length;
+    const negativeCount = examples.filter(e => e.label === "negative").length;
+    const jsonl = examples.map(e => JSON.stringify(e)).join("\n");
+
+    // Warn on class imbalance — > 75/25 will produce a broken re-ranker
+    const imbalanceWarning = examples.length > 0 && (positiveCount / examples.length > 0.75 || negativeCount / examples.length > 0.75)
+      ? "Class imbalance > 75/25. Re-ranker training not recommended until balanced. Motivation threshold may be too high or too low."
+      : null;
+
+    res.json({
+      examples: examples.length,
+      positive: positiveCount,
+      negative: negativeCount,
+      readyForTraining: examples.length >= 500 && !imbalanceWarning,
+      imbalanceWarning,
+      jsonl: req.body.includeData ? jsonl : null,
+      note: examples.length < 500 ? `Need ${500 - examples.length} more labelled examples before training.` : "Dataset ready.",
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+
   let llm = false, embed = false;
 
   try {

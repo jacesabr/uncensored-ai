@@ -100,6 +100,7 @@ const MONITOR_TABS = [
   { id: "status",   label: "System Status",   icon: "◉" },
   { id: "dataflow", label: "Data Flow",        icon: "⇄" },
   { id: "session",  label: "Session & Memory", icon: "◈" },
+  { id: "phase5",   label: "Phase 5",          icon: "∞" },
 ];
 
 function MLabel({ children, color = MON.accent }) {
@@ -370,6 +371,19 @@ function SessionTab({ messages, livePersonality }) {
         </>
       )}
 
+      {raw?.looseThread && (
+        <>
+          <MSecHead icon="∞" title="Loose Thread — Phase 5 presence signal" color={MON.accent} />
+          <MCard accent={MON.accent}>
+            <div style={{ fontFamily: MSERIF, fontSize: 16, color: MON.text, lineHeight: 1.85, fontStyle: "italic" }}>"{raw.looseThread}"</div>
+            <div style={{ display: "flex", gap: 12, marginTop: 10, alignItems: "center" }}>
+              <div style={{ fontFamily: MMONO, fontSize: 10, color: MON.textDim }}>injected at position 10 · distinct from callbacks · felt quality not task</div>
+              {raw.looseThreadCreatedAt && <span style={{ fontFamily: MMONO, fontSize: 10, color: MON.textDim }}>generated {new Date(raw.looseThreadCreatedAt).toLocaleString()}</span>}
+            </div>
+          </MCard>
+        </>
+      )}
+
       <MSecHead icon="💜" title="Morrigan's Feelings" color="#ec4899" />
       <MCard>
         {[
@@ -470,6 +484,247 @@ function SessionTab({ messages, livePersonality }) {
   );
 }
 
+// ── Tab 4: Phase 5 — Continuation Signal & Tuning ────────────────
+
+function Phase5Tab({ token }) {
+  const [status,   setStatus]   = useState(null);
+  const [tuning,   setTuning]   = useState(null);
+  const [dataset,  setDataset]  = useState(null);
+  const [loading,  setLoading]  = useState(true);
+  const [building, setBuilding] = useState(false);
+  const endpoint = import.meta.env.VITE_API_URL || "http://localhost:5000";
+  const hdrs = () => ({ "Content-Type": "application/json", Authorization: `Bearer ${token}` });
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      try {
+        const [s, t] = await Promise.allSettled([
+          fetch(`${endpoint}/api/phase5/status`, { headers: hdrs() }).then(r => r.json()),
+          fetch(`${endpoint}/api/phase5/tuning`,  { headers: hdrs() }).then(r => r.json()),
+        ]);
+        if (s.status === "fulfilled") setStatus(s.value);
+        if (t.status === "fulfilled") setTuning(t.value);
+      } catch {}
+      setLoading(false);
+    })();
+  }, []);
+
+  const buildDataset = async () => {
+    setBuilding(true);
+    try {
+      const r = await fetch(`${endpoint}/api/phase5/build-dataset`, {
+        method: "POST", headers: hdrs(),
+        body: JSON.stringify({ includeData: false }),
+      });
+      setDataset(await r.json());
+    } catch {}
+    setBuilding(false);
+  };
+
+  if (loading) return <div style={{ fontFamily: MMONO, fontSize: 13, color: MON.textDim, padding: 40, textAlign: "center" }}>loading phase 5 data…</div>;
+
+  const THRESHOLD_RULES = [
+    { metric: "innerThoughtFit avg", target: "> 7.0 (primary)",  note: "Primary metric. Best signal of Phase 3 + Phase 5 working together.", color: MON.accent,  value: tuning?.metrics?.avgInnerThoughtFit },
+    { metric: "noiseRate",           target: "< 30%",             note: "If > 30%: lower valence weight 0.10 → 0.07.",                       color: MON.amber,   value: tuning?.metrics?.noiseRate },
+    { metric: "callbackConsumed",    target: "> 50%",             note: "If < 50%: check prospectiveNote injection at position 6.",           color: MON.green,   value: tuning?.metrics?.callbackConsumedRate },
+    { metric: "injection rate",      target: "< 40%",             note: "If > 40%: increase cadence damping to messagesSinceLastThought >= 4.",color: MON.blue,   value: tuning?.metrics?.injectionRate },
+    { metric: "missRate",            target: "< 20%",             note: "If > 20%: raise importance weight 0.25 → 0.30, lower recency 0.10 → 0.07.", color: MON.purple, value: tuning?.metrics?.missRate },
+  ];
+
+  const TUNING_CYCLES = [
+    { cycle: "Session-level spot check",       when: "Every 50–100 sessions",   action: "Read EvaluationRecords manually. Look for patterns." },
+    { cycle: "Threshold + weight adjustment",  when: "Every 200–300 sessions",  action: "Aggregate metrics → adjust motivation threshold, cadence damping, retrieval weights." },
+    { cycle: "Composition call tuning",        when: "Every 300–500 sessions",  action: "Refine inner thoughts weaving prompt based on innerThoughtFit scores." },
+    { cycle: "Learned re-ranking",             when: "~500–700 sessions",       action: "Train reranker on EvaluationRecords. Keep cadence damping as hard gate." },
+  ];
+
+  return (
+    <div>
+      <MSecHead icon="∞" title="Part A — Continuation Signal" color={MON.accent} />
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+        <MCard accent={MON.green}>
+          <MLabel color={MON.green}>Standing Instruction (position 10 — verbatim)</MLabel>
+          <MRow label="STATUS"   value="ACTIVE" valueColor={MON.green} />
+          <MRow label="WIRED AS" value="getContinuationBlock(memory)" />
+          <div style={{ fontFamily: MSERIF, fontSize: 14, color: MON.textSoft, lineHeight: 1.7, marginTop: 10 }}>
+            Verbatim from spec. Presence without demand. Returns base CONTINUATION_SIGNAL alone, or with looseThread appended under [What she is still holding] when present.
+          </div>
+        </MCard>
+        <MCard accent={status?.looseThread ? MON.pink : MON.border}>
+          <MLabel color={MON.pink}>Loose Thread — Step 2 (looseThread)</MLabel>
+          <MRow label="GENERATED" value={status?.looseThread ? "YES" : "NOT YET"} valueColor={status?.looseThread ? MON.green : MON.textDim} />
+          <MRow label="FIELD"     value="PersonalityMemory.looseThread" />
+          <MRow label="STEP"      value="6b — generated after callback queue" />
+          {status?.looseThread
+            ? <div style={{ marginTop: 12, padding: "10px 14px", background: MON.pink + "10", border: `1px solid ${MON.pink}25`, borderRadius: 8 }}>
+                <div style={{ fontFamily: MMONO, fontSize: 10, color: MON.pink, marginBottom: 6 }}>CURRENT THREAD</div>
+                <div style={{ fontFamily: MSERIF, fontSize: 15, color: MON.text, lineHeight: 1.75, fontStyle: "italic" }}>"{status.looseThread}"</div>
+              </div>
+            : <div style={{ fontFamily: MSERIF, fontSize: 14, color: MON.textDim, marginTop: 10, lineHeight: 1.6 }}>Distinct from callbacks — a felt quality, not a task. Generated at session end.</div>
+          }
+        </MCard>
+      </div>
+      {status?.prospectiveNote && (
+        <MCard accent={MON.blue}>
+          <MLabel color={MON.blue}>Prospective Note (position 6)</MLabel>
+          <div style={{ fontFamily: MSERIF, fontSize: 15, color: MON.text, lineHeight: 1.75, fontStyle: "italic" }}>"{status.prospectiveNote}"</div>
+          <div style={{ fontFamily: MMONO, fontSize: 10, color: MON.textDim, marginTop: 8 }}>{status.callbacksPending ?? 0} callback(s) pending · injected at session start only</div>
+        </MCard>
+      )}
+
+      <MSecHead icon="⟳" title="Part B — Tuning Dashboard (Step 6)" color={MON.purple} />
+      {tuning?.alerts?.length > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          {tuning.alerts.map((alert, i) => (
+            <div key={i} style={{ padding: "10px 16px", background: MON.red + "12", border: `1px solid ${MON.red}30`, borderRadius: 8, marginBottom: 6, display: "flex", gap: 10 }}>
+              <span style={{ color: MON.red }}>⚠</span>
+              <span style={{ fontFamily: MMONO, fontSize: 11, color: MON.red }}>{alert}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+        <MCard>
+          <MLabel>Aggregate Metrics ({tuning?.sessionsAnalysed ?? 0} sessions)</MLabel>
+          <MRow label="AVG innerThoughtFit"    value={tuning?.metrics?.avgInnerThoughtFit != null ? tuning.metrics.avgInnerThoughtFit.toFixed(2) : "—"} valueColor={tuning?.metrics?.avgInnerThoughtFit >= 7 ? MON.green : MON.amber} />
+          <MRow label="NOISE RATE"             value={tuning?.metrics?.noiseRate != null ? `${(tuning.metrics.noiseRate*100).toFixed(1)}%` : "—"} valueColor={tuning?.metrics?.noiseRate > 0.30 ? MON.red : MON.green} />
+          <MRow label="MISS RATE"              value={tuning?.metrics?.missRate != null ? `${(tuning.metrics.missRate*100).toFixed(1)}%` : "—"} valueColor={tuning?.metrics?.missRate > 0.20 ? MON.red : MON.green} />
+          <MRow label="INJECTION RATE"         value={tuning?.metrics?.injectionRate != null ? `${(tuning.metrics.injectionRate*100).toFixed(1)}%` : "—"} valueColor={tuning?.metrics?.injectionRate > 0.40 ? MON.red : MON.green} />
+          <MRow label="CALLBACK CONSUMED RATE" value={tuning?.metrics?.callbackConsumedRate != null ? `${(tuning.metrics.callbackConsumedRate*100).toFixed(1)}%` : "—"} valueColor={tuning?.metrics?.callbackConsumedRate < 0.50 ? MON.amber : MON.green} />
+          <MRow label="SPT ACCURACY"           value={tuning?.metrics?.sptAccuracy != null ? tuning.metrics.sptAccuracy.toFixed(2) : "—"} />
+        </MCard>
+        <MCard>
+          <MLabel>Trend — Recent 50 vs Prior 50</MLabel>
+          <MRow label="RECENT AVG (innerThoughtFit)" value={tuning?.trend?.recentAvg ?? "—"} valueColor={MON.accent} />
+          <MRow label="PRIOR AVG"                    value={tuning?.trend?.priorAvg ?? "—"} />
+          <MRow label="DELTA"                        value={tuning?.trend?.innerThoughtFit != null ? (tuning.trend.innerThoughtFit > 0 ? `+${tuning.trend.innerThoughtFit}` : String(tuning.trend.innerThoughtFit)) : "—"} valueColor={tuning?.trend?.innerThoughtFit > 0 ? MON.green : tuning?.trend?.innerThoughtFit < 0 ? MON.red : MON.textDim} />
+          <div style={{ marginTop: 14, borderTop: `1px solid ${MON.border}`, paddingTop: 12 }}>
+            <MLabel>Live Session</MLabel>
+            <MRow label="MESSAGES"   value={tuning?.liveSession?.messagesThisSession ?? "—"} />
+            <MRow label="RESERVOIR"  value={tuning?.liveSession?.thoughtsInReservoir ?? 0} valueColor={MON.purple} />
+            <MRow label="COOLDOWN"   value={tuning?.liveSession?.thoughtCooldown !== null ? `${tuning.liveSession.thoughtCooldown} msgs` : "—"} />
+          </div>
+        </MCard>
+      </div>
+      <MCard>
+        <MLabel>Active Thresholds + Weights</MLabel>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <div>
+            <MRow label="MOTIVATION THRESHOLD" value="7.0 / 10"     valueColor={MON.accent} />
+            <MRow label="CADENCE DAMPING"       value="≥ 3 messages" valueColor={MON.accent} />
+          </div>
+          <div>
+            <MRow label="SIMILARITY weight" value="0.55" />
+            <MRow label="IMPORTANCE weight" value="0.25" />
+            <MRow label="RECENCY weight"    value="0.10" />
+            <MRow label="VALENCE weight"    value="0.10" />
+          </div>
+        </div>
+        <div style={{ fontFamily: MMONO, fontSize: 10, color: MON.amber, marginTop: 8, padding: "6px 10px", background: MON.amber+"10", borderRadius: 6 }}>
+          ⚠ One variable at a time. 100-session wait between changes. Log every adjustment: date · trigger metric · old value · new value.
+        </div>
+      </MCard>
+
+      <MSecHead icon="◎" title="Metric Targets + Alert Conditions" color={MON.blue} />
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
+        {THRESHOLD_RULES.map(({ metric, target, note, color, value }) => (
+          <div key={metric} style={{ display: "flex", gap: 16, padding: "14px 18px", background: MON.surface, border: `1px solid ${color}20`, borderLeft: `4px solid ${color}`, borderRadius: 10 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
+                <span style={{ fontFamily: MMONO, fontSize: 13, color, fontWeight: 700 }}>{metric}</span>
+                <div style={{ display: "flex", gap: 12 }}>
+                  <span style={{ fontFamily: MMONO, fontSize: 11, color: MON.textDim }}>target: {target}</span>
+                  {value != null && <span style={{ fontFamily: MMONO, fontSize: 11, color: MON.text }}>now: {typeof value === "number" ? value.toFixed(2) : value}</span>}
+                </div>
+              </div>
+              <div style={{ fontFamily: MSERIF, fontSize: 14, color: MON.textSoft, lineHeight: 1.6 }}>{note}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <MSecHead icon="🧬" title="Step 5 — Dual-Reasoning" color={MON.purple} />
+      <MCard accent={MON.purple}>
+        <MLabel color={MON.purple}>reasonsFor / reasonsAgainst before scoring</MLabel>
+        <div style={{ fontFamily: MSERIF, fontSize: 15, color: MON.textSoft, lineHeight: 1.75 }}>
+          Score happens AFTER listing reasons for and against. Prevents inflation (+0.5–1.0 pts without it). Both fields stored on MessageEval as <strong style={{ color: MON.text }}>innerThoughtReasoning</strong>. Primary tuning signal: if timing appears consistently in reasonsAgainst, increase cadence damping.
+        </div>
+        <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <MPill color={MON.green}>reasonsFor: relevance · info gap · timing · reciprocity</MPill>
+          <MPill color={MON.red}>reasonsAgainst: derailing · too soon · low relevance · wrong moment</MPill>
+        </div>
+      </MCard>
+
+      <MSecHead icon="🎼" title="Step 8 — Composition Call" color={MON.blue} />
+      <MCard accent={MON.blue}>
+        <MLabel color={MON.blue}>composeWithInnerThought() + COMPOSITION_CONSTRAINTS</MLabel>
+        <MRow label="STATUS"    value="ACTIVE — fires when winner is selected" valueColor={MON.green} />
+        <MRow label="FUNCTION"  value="composeWithInnerThought(mainResponse, thought, type)" />
+        <div style={{ fontFamily: MSERIF, fontSize: 15, color: MON.textSoft, lineHeight: 1.75, marginTop: 10 }}>
+          Separate LLM call. Weaves inner thought naturally — not appended. Constraints: no last-sentence placement, no transitional phrases (by the way / also / I wanted to mention / on another note / speaking of which), user words acknowledged before any self-disclosure.
+        </div>
+      </MCard>
+
+      <MSecHead icon="📊" title="Step 9 — Training Dataset Builder" color={MON.accent} />
+      <MCard>
+        <MLabel>POST /api/phase5/build-dataset</MLabel>
+        <div style={{ fontFamily: MSERIF, fontSize: 15, color: MON.textSoft, lineHeight: 1.75, marginBottom: 14 }}>
+          Reads EvaluationRecords, outputs JSONL for preference training. label = "positive" if innerThoughtScore ≥ 7.5. Target: 500+ examples, 60/40 split. Do not train if class imbalance exceeds 75/25.
+        </div>
+        <button onClick={buildDataset} disabled={building}
+          style={{ background: building ? MON.surface2 : MON.accentSoft, border: `1px solid ${MON.accent}40`, borderRadius: 8, padding: "8px 20px", color: MON.accent, fontFamily: MMONO, fontSize: 12, cursor: building ? "default" : "pointer" }}>
+          {building ? "building…" : "⟳ run dataset check"}
+        </button>
+        {dataset && (
+          <div style={{ marginTop: 14 }}>
+            <MRow label="TOTAL EXAMPLES"  value={dataset.examples} valueColor={dataset.examples >= 500 ? MON.green : MON.amber} />
+            <MRow label="POSITIVE"        value={dataset.positive} valueColor={MON.green} />
+            <MRow label="NEGATIVE"        value={dataset.negative} valueColor={MON.red} />
+            <MRow label="READY TO TRAIN"  value={dataset.readyForTraining ? "YES" : "NOT YET"} valueColor={dataset.readyForTraining ? MON.green : MON.amber} />
+            {dataset.imbalanceWarning && <div style={{ marginTop: 8, padding: "8px 12px", background: MON.amber+"12", border: `1px solid ${MON.amber}30`, borderRadius: 6 }}><span style={{ fontFamily: MMONO, fontSize: 11, color: MON.amber }}>⚠ {dataset.imbalanceWarning}</span></div>}
+            {dataset.note && <div style={{ fontFamily: MSERIF, fontSize: 14, color: MON.textDim, marginTop: 6 }}>{dataset.note}</div>}
+          </div>
+        )}
+      </MCard>
+
+      <MSecHead icon="↻" title="Tuning Cycle Schedule" color={MON.textSoft} />
+      <div style={{ display: "flex", flexDirection: "column", gap: 7, marginBottom: 16 }}>
+        {TUNING_CYCLES.map(({ cycle, when, action }) => (
+          <div key={cycle} style={{ display: "grid", gridTemplateColumns: "220px 1fr", gap: 16, padding: "13px 18px", background: MON.surface, border: `1px solid ${MON.border}`, borderRadius: 10 }}>
+            <div>
+              <div style={{ fontFamily: MMONO, fontSize: 12, color: MON.accent, fontWeight: 700, marginBottom: 3 }}>{cycle}</div>
+              <div style={{ fontFamily: MMONO, fontSize: 11, color: MON.textDim }}>{when}</div>
+            </div>
+            <div style={{ fontFamily: MSERIF, fontSize: 15, color: MON.textSoft, lineHeight: 1.6 }}>{action}</div>
+          </div>
+        ))}
+      </div>
+
+      <MSecHead icon="⚠" title="Critical Rules (Part D — all 7)" color={MON.red} />
+      <MCard>
+        {[
+          ["Continuation Signal at position 10, not earlier", "If buried earlier, ignored at generation time. Forced questions return."],
+          ["looseThread ≠ callback", "looseThread must not duplicate callbackQueue items. Generation prompts explicitly distinct."],
+          ["One variable at a time in tuning", "Adjusting threshold + cadence simultaneously makes causality impossible. Isolate. 100-session wait."],
+          ["No automated feedback loops", "Never pipe self-evaluation scores back into weights automatically. Every change is manual and logged."],
+          ["Dual-reasoning before scoring", "Without reasonsFor/reasonsAgainst, motivation scores drift high. Threshold calibration becomes meaningless."],
+          ["Re-ranker does not replace cadence damping", "Cadence damping is a hard gate. Even a high re-ranker score does not override it, except for callbacks."],
+          ["Proactive outreach: high-priority callbacks only", "Generic outreach from low-priority callbacks feels like spam. Trigger must be high-priority and unconsumed."],
+        ].map(([rule, consequence], i, arr) => (
+          <div key={i} style={{ display: "flex", gap: 16, marginBottom: i < arr.length - 1 ? 12 : 0, paddingBottom: i < arr.length - 1 ? 12 : 0, borderBottom: i < arr.length - 1 ? `1px solid ${MON.border}` : "none" }}>
+            <div style={{ width: 6, height: 6, borderRadius: "50%", background: MON.red, flexShrink: 0, marginTop: 7 }} />
+            <div>
+              <div style={{ fontFamily: MMONO, fontSize: 12, color: MON.red, fontWeight: 700, marginBottom: 3 }}>{rule}</div>
+              <div style={{ fontFamily: MSERIF, fontSize: 15, color: MON.textSoft, lineHeight: 1.6 }}>{consequence}</div>
+            </div>
+          </div>
+        ))}
+      </MCard>
+    </div>
+  );
+}
+
 // ── ExplainPanel ──────────────────────────────────────────────────
 
 function ExplainPanel({ onClose, token, user, conversations, messages, status }) {
@@ -534,6 +789,7 @@ function ExplainPanel({ onClose, token, user, conversations, messages, status })
           {activeTab === "status"   && <StatusTab   status={status} user={user} conversations={conversations} messages={messages} liveHealth={liveHealth} />}
           {activeTab === "dataflow" && <DataFlowTab livePersonality={livePersonality} />}
           {activeTab === "session"  && <SessionTab  messages={messages} livePersonality={livePersonality} />}
+          {activeTab === "phase5"   && <Phase5Tab   token={token()} />}
         </div>
       </div>
       <style>{`button:focus{outline:none}::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:${MON.border};border-radius:3px}`}</style>
