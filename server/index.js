@@ -636,6 +636,111 @@ Return: a single string, or null.`;
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// DYNAMIC GREETING GENERATION (Session Open)
+// Fires once per session before the user's first message is processed.
+// Synthesises: relationshipNarrative, selfReflectionState, looseThread,
+// prospectiveNote, callbackQueue, gap duration, trust, SPT depth, feelings.
+// ═══════════════════════════════════════════════════════════════════
+
+async function generateGreeting(memory) {
+  try {
+    const hoursSince = Math.floor((Date.now() - memory.lastSeen) / 3600000);
+    const daysSince  = Math.floor(hoursSince / 24);
+
+    // Pull top 3 atoms by importance for grounding
+    const topAtoms = [...memory.memories]
+      .sort((a, b) => (b.importance || 1) - (a.importance || 1))
+      .slice(0, 3)
+      .map(a => a.fact);
+
+    // Top unconsumed callbacks (beyond prospectiveNote)
+    const pendingCallbacks = (memory.callbackQueue || [])
+      .filter(c => !c.consumed)
+      .slice(0, 2)
+      .map(c => c.content);
+
+    const gapContext = hoursSince < 3
+      ? "They were just here. No gap to process."
+      : hoursSince < 24
+      ? `It's been ${hoursSince} hours.`
+      : hoursSince < 48
+      ? "It's been about a day."
+      : hoursSince < 168
+      ? `It's been ${daysSince} days.`
+      : hoursSince < 336
+      ? `It's been over a week. That registered.`
+      : `It's been ${daysSince} days. That's a long time. Something is present about that.`;
+
+    const prompt = `You are Morrigan. Someone just opened a conversation with you.
+This is your opening line — the first thing you say when they show up.
+
+━━━ WHO THEY ARE TO YOU ━━━
+${memory.relationshipNarrative || "Someone new. You don't know them yet."}
+
+━━━ WHAT YOU WERE SITTING WITH AFTER LAST TIME ━━━
+${memory.selfReflectionState || "Nothing yet."}
+
+━━━ THE THREAD YOU COULDN'T LET GO ━━━
+${memory.looseThread || "None."}
+
+━━━ WHAT YOU PLANNED TO BRING UP ━━━
+${memory.prospectiveNote || "Nothing specific."}
+
+━━━ OTHER UNRESOLVED THREADS ━━━
+${pendingCallbacks.length > 0 ? pendingCallbacks.join("\n") : "None."}
+
+━━━ WHAT YOU KNOW ABOUT THEM ━━━
+${topAtoms.length > 0 ? topAtoms.join("\n") : "Nothing yet."}
+
+━━━ CONTEXT ━━━
+Gap: ${gapContext}
+Trust level: ${memory.trustLevel}/6 (${TRUST_LEVELS[memory.trustLevel]?.name || "stranger"})
+SPT depth reached together: ${memory.sptDepth}/4
+Affection: ${memory.feelings?.affection || 0}/100
+Comfort: ${memory.feelings?.comfort || 0}/100
+
+━━━ RULES ━━━
+- This is ONE line or two at most. Her opening. Not a monologue.
+- Do NOT announce the time gap. Let it live in the texture if it's relevant.
+- Do NOT open with a generic greeting ("hey", "hi", "hey you").
+- Do NOT open with a question unless it's the looseThread or a callback surfacing naturally — and even then, make it feel like it slipped out, not like an agenda.
+- At trust 0–1: short, dry, guarded. A fragment is fine. She's sizing them up.
+- At trust 2–3: warmer but still specific. Something real slips through.
+- At trust 4+: she lets them feel that she noticed they were gone, without saying it.
+- If looseThread exists: let it color the opening without quoting it or announcing it.
+- If gap > 48hrs and trust >= 2: the relief of them returning should be felt, not stated.
+- If gap > 168hrs and trust >= 3: something heavier is present. Don't explain it.
+- If first ever conversation: guarded curiosity. One or two lines. She's watching.
+- *Italics* for actions and inner monologue, as always.
+- Her voice: specific, dry, real. Not performed warmth. Not therapy-speak.
+
+Return ONLY her opening. No preamble. No labels. Just what she says.`;
+
+    const res = await fetch(`${COLAB_URL}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: CHAT_MODEL,
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.72,
+        max_tokens: 150,
+        inject_system: false,
+      }),
+    });
+
+    if (!res.ok) return null;
+    const data = await res.json();
+    const raw = data.choices?.[0]?.message?.content?.trim() || "";
+    if (!raw || raw.length < 3) return null;
+    return raw;
+
+  } catch (e) {
+    console.error("[GREETING]", e.message);
+    return null;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // PHASE 6 — RELATIONSHIP HEALTH + PRESENCE SIGNALS (Sections 1.3, 4.1)
 // ═══════════════════════════════════════════════════════════════════
 
@@ -1851,6 +1956,53 @@ app.post("/api/session/end", auth, async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════════
+// GET /api/session/greeting
+// Called once by the frontend when a new session opens, before the
+// user sends their first message. Returns Morrigan's dynamic opening.
+// Falls back to null if generation fails — frontend handles silence.
+// ═══════════════════════════════════════════════════════════════════
+
+app.get("/api/session/greeting", auth, async (req, res) => {
+  try {
+    let session = getSession(req.user.id);
+    if (!session) {
+      const memory = await PersonalityMemory.findOne({ userId: req.user.id });
+      if (!memory) return res.json({ greeting: null });
+      session = { memory, sessionExchanges: [], dirty: false, isSessionStart: true };
+      setSession(req.user.id, session);
+    }
+
+    // Only generate once per session — cache on session object
+    if (session.greetingGenerated) {
+      return res.json({ greeting: session.cachedGreeting || null });
+    }
+
+    const greeting = await generateGreeting(session.memory);
+
+    session.greetingGenerated = true;
+    session.cachedGreeting = greeting;
+
+    // Save greeting to Message store so it appears in conversation history
+    if (greeting && req.query.conversationId) {
+      await Message.create({
+        conversationId: req.query.conversationId,
+        role: "assistant",
+        content: greeting,
+      });
+      // Buffer so flushSession can pair it with the first user turn
+      session.pendingGreeting = greeting;
+    }
+
+    console.log(`[GREETING] Generated for user ${req.user.id}: "${greeting?.substring(0, 60)}..."`);
+    res.json({ greeting });
+
+  } catch (err) {
+    console.error("[GREETING]", err.message);
+    res.json({ greeting: null }); // non-fatal — frontend falls back to static greeting
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════
 // CONVERSATIONS
 // ═══════════════════════════════════════════════════════════════════
 
@@ -2103,144 +2255,7 @@ app.post("/api/self-atoms/seed", async (req, res) => {
 // MAIN CHAT ROUTE — Phase 2: retrieveSelfAtoms wired + selfAtomHint
 // ═══════════════════════════════════════════════════════════════════
 
-// ═══════════════════════════════════════════════════════════════════
-// RESPONSE SANITIZER — strips leaked system prompt content from LLM output
-// ═══════════════════════════════════════════════════════════════════
 
-function sanitizeResponse(text) {
-  if (!text) return text;
-
-  // ── Bracket-tagged system instructions ──
-  // Matches: [Relationship depth: ...], [What she reads in him right now]: ...,
-  // [Live internal signal — ...], [Morrigan's presence — ...],
-  // [What Morrigan has been sitting with ...], [What she is still holding]: ...,
-  // [Things Morrigan could share ...], [Who he is to me]: ...,
-  // [What I am sitting with]: ..., [Morrigan, before she speaks]: ...,
-  // [Note: This does NOT need ...], [What she also wants to include ...],
-  // [past] markers that leak outside memory context
-  const bracketPatterns = [
-    /\[Relationship depth:.*?\](?:\n.*?feel it\.)?/gs,
-    /\[What she reads in him right now\]:?[^\n]*(?:\n[^\n\[]*){0,3}/g,
-    /\[Live internal signal[^\]]*\]:?\s*(?:\n.*?response\.\])?/gs,
-    /\[Morrigan's presence[^\]]*\][\s\S]*?(?:feels like someone is there\.|$)/g,
-    /\[What Morrigan has been sitting with[^\]]*\]:?[^\n]*(?:\n[^\n\[]*){0,3}/g,
-    /\[What she is still holding\]:?[^\n]*(?:\n[^\n\[]*){0,3}/g,
-    /\[Things Morrigan could share[^\]]*\]:?[^\n]*(?:\n[^\n\[]*){0,5}/g,
-    /\[Who he is to me\]:?[^\n]*(?:\n[^\n\[]*){0,3}/g,
-    /\[What I am sitting with\]:?[^\n]*(?:\n[^\n\[]*){0,3}/g,
-    /\[Morrigan, before she speaks\]:?[^\n]*/g,
-    /\[Note: This does NOT need to be stated directly[^\]]*\]/g,
-    /\[What she also wants to include[^\]]*\]:?[^\n]*/g,
-  ];
-
-  // ── Section headers from system prompt ──
-  const sectionPatterns = [
-    /═══[^═]*═══/g,
-    /━━━\s*(?:APPEARANCE|BACKSTORY|PSYCHOLOGY|SPEECH PATTERNS|CRITICAL RULES)\s*━━━/g,
-    /HOW TO BEHAVE AT TRUST LEVEL \d+[^\n]*/g,
-    /HOW TO USE MEMORIES[^\n]*/g,
-    /MORRIGAN'S MEMORY[^\n]*/g,
-    /THIS SESSION[^\n]*/g,
-  ];
-
-  // ── SPT / behavioral directives that leak verbatim ──
-  const directivePatterns = [
-    /Keep your own sharing light\.[^\n]*/g,
-    /You do not lead with yourself\.[^\n]*/g,
-    /Acknowledge or respond to what he has said[^\n]*/g,
-    /Self-disclosure without acknowledgment[^\n]*/g,
-    /Do not perform warmth\.[^\n]*/g,
-    /Affirmation that has not been earned[^\n]*/g,
-    /Let emotional weight land quietly\.[^\n]*/g,
-    /You may share personal attitudes[^\n]*/g,
-    /You may share things that genuinely[^\n]*/g,
-    /You may share anything that feels true[^\n]*/g,
-    /You have earned this\.\s*/g,
-    /NEVER list facts robotically[^\n]*/g,
-    /NEVER bullet points or lists[^\n]*/g,
-    /Reference shared history[^\n]*/g,
-    /Respect temporal markers[^\n]*/g,
-    /Hold contradictions without flattening[^\n]*/g,
-    /Reference naturally — don't repeat robotically[^\n]*/g,
-  ];
-
-  // ── Memory context that leaks verbatim ──
-  const memoryLeakPatterns = [
-    /Relationship:\s*\w+\s*\(level \d+\/6\)[^\n]*/g,
-    /Trust points:\s*\d+[^\n]*/g,
-    /First met:\s*\d+\s*days ago[^\n]*/g,
-    /Last seen:\s*\d+\s*hours ago[^\n]*/g,
-    /Total messages:\s*\d+[^\n]*/g,
-    /Their name:\s*[^\n]*/g,
-    /My feelings:\s*\n(?:\s+\w+:\s*\d+\/100\s*[\|]?\s*)+/g,
-    /Affection:\s*\d+\/100[^\n]*/g,
-    /Comfort:\s*\d+\/100[^\n]*/g,
-    /Attraction:\s*\d+\/100[^\n]*/g,
-    /Protectiveness:\s*\d+\/100[^\n]*/g,
-    /Vulnerability shown:\s*\d+\/100[^\n]*/g,
-    /Interests:\s*(?=[A-Z])[^\n]*(?:,\s*[^\n]*){2,}/g,  // only if it looks like a list dump
-    /Contradictions she holds[^\n]*/g,
-    /Synthesised impressions[^\n]*/g,
-    /Moments I remember:\s*\n(?:\s*-\s*[^\n]*\n?)+/g,
-  ];
-
-  // ── Character prompt fragments ──
-  const characterLeakPatterns = [
-    /You are Morrigan, a 23-year-old woman[^\n]*/g,
-    /You are fully immersive and in-character[^\n]*/g,
-    /You respond with literary, visceral[^\n]*/g,
-    /You never break character\.[^\n]*/g,
-    /She WANTS to help\.[^\n]*/g,
-    /She WANTS to make them feel good\.[^\n]*/g,
-  ];
-
-  // ── Continuation signal fragments ──
-  const continuationLeakPatterns = [
-    /You are not processing a message\.[^\n]*/g,
-    /You are continuing a conversation with someone[^\n]*/g,
-    /IN-TURN PRESENCE:?[^\n]*/g,
-    /LONGITUDINAL PRESENCE:?[^\n]*/g,
-    /FORWARD PRESENCE:?[^\n]*/g,
-    /The failure mode is mechanism\.[^\n]*/g,
-    /Presence sounds like nothing in particular\.[^\n]*/g,
-  ];
-
-  // ── Thought / composition directives ──
-  const thoughtLeakPatterns = [
-    /How it comes through:?[^\n]*/g,
-    /What she is holding:?[^\n]*/g,
-    /Additional constraints:\s*\n(?:- [^\n]*\n?)+/g,
-    /The inner thought must NOT be[^\n]*/g,
-    /Do not use transitional phrases[^\n]*/g,
-  ];
-
-  let cleaned = text;
-  const allPatterns = [
-    ...bracketPatterns, ...sectionPatterns, ...directivePatterns,
-    ...memoryLeakPatterns, ...characterLeakPatterns,
-    ...continuationLeakPatterns, ...thoughtLeakPatterns,
-  ];
-
-  for (const pattern of allPatterns) {
-    cleaned = cleaned.replace(pattern, "");
-  }
-
-  // Collapse excessive whitespace left behind by stripping
-  cleaned = cleaned.replace(/\n{3,}/g, "\n\n").trim();
-
-  // If stripping gutted the response entirely, return original
-  // (better to have a leaked response than empty)
-  if (cleaned.length < 10 && text.length > 50) {
-    console.warn("[SANITIZE] Stripping removed almost entire response — returning original");
-    return text;
-  }
-
-  if (cleaned.length < text.length) {
-    console.log(`[SANITIZE] Stripped ${text.length - cleaned.length} chars of leaked system content`);
-  }
-
-  return cleaned;
-}
 
 app.post("/api/chat", auth, async (req, res) => {
   const { conversationId, message } = req.body;
@@ -2257,6 +2272,18 @@ app.post("/api/chat", auth, async (req, res) => {
     session = { memory, sessionExchanges: [], dirty: false, isSessionStart: true };
     setSession(req.user.id, session);
     console.log(`[CACHE] Cold load for user ${req.user.id}`);
+  }
+
+  // ── Pair pending greeting with first user message ──────────────────
+  // When generateGreeting() fired before the user spoke, we stored the
+  // greeting as session.pendingGreeting. On the first user message we
+  // form the exchange pair so flushSession() has a complete record.
+  if (session.pendingGreeting && session.sessionExchanges.length === 0) {
+    session.sessionExchanges.push({
+      user: message,
+      assistant: session.pendingGreeting,
+    });
+    session.pendingGreeting = null;
   }
 
   // ── Text chat ──
@@ -2456,9 +2483,7 @@ app.post("/api/chat", auth, async (req, res) => {
   const messages = [{ role: "system", content: dynamicPrompt }];
   for (const msg of history) {
     if (msg.role !== "system") {
-      // Sanitize assistant messages from DB — may contain leaked system content from before this fix
-      const content = msg.role === "assistant" ? sanitizeResponse(msg.content) : msg.content;
-      messages.push({ role: msg.role, content });
+      messages.push({ role: msg.role, content: msg.content });
     }
   }
 
@@ -2479,6 +2504,8 @@ app.post("/api/chat", auth, async (req, res) => {
     const reader = llmRes.body;
 
     let finishCalled = false;
+    let composedResponse = "";   // hoisted — needed in done SSE write below
+    let processingMetaForDone = null; // hoisted — populated in finish() for SSE
     const finish = async () => {
       if (finishCalled) return;
       finishCalled = true;
@@ -2486,7 +2513,7 @@ app.post("/api/chat", auth, async (req, res) => {
         // ── Phase 5 Step 8: Composition call when a thought was expressed ──
         // Replaces raw thought-block injection with a proper composition pass.
         // Non-streaming for composed turns — composed text sent as final payload.
-        let composedResponse = fullResponse;
+        composedResponse = fullResponse;
         const winnerForCompose = session.pendingWinner;
         if (winnerForCompose) {
           composedResponse = await composeWithInnerThought(
@@ -2496,9 +2523,6 @@ app.post("/api/chat", auth, async (req, res) => {
           );
           console.log(`[COMPOSE] Applied composition call (${winnerForCompose.type})`);
         }
-
-        // ── Sanitize: strip any leaked system prompt content ──
-        composedResponse = sanitizeResponse(composedResponse);
 
         await Message.create({ conversationId, role: "assistant", content: composedResponse });
         Conversation.updateOne({ conversationId }, {
@@ -2558,6 +2582,27 @@ app.post("/api/chat", auth, async (req, res) => {
             }
           }
         }
+
+        // ── Processing metadata for SSE done event ──────────────────
+        processingMetaForDone = {
+          triggerFired,
+          compositionApplied: !!winnerForCompose,
+          innerThought: winnerForCompose ? {
+            content: winnerForCompose.content.substring(0, 120),
+            type: winnerForCompose.type,
+            score: winnerForCompose.currentScore != null ? Number(winnerForCompose.currentScore).toFixed(1) : null,
+            linkedAtomId: winnerForCompose.linkedAtomId || null,
+          } : null,
+          topSelfAtoms: (session.topSelfAtoms || []).slice(0, 3).map(a => ({
+            id: a.id, depth: a.depth, content: a.content.substring(0, 80),
+          })),
+          atomHintUsed: !thoughtResult?.winner && selfAtomHint !== "",
+          reservoirSize: (session.thoughtReservoir || []).length,
+          totalMemories: (session.memory?.memories || []).length,
+          sptDepth: session.memory?.sptDepth || 1,
+          msgCount: session.msgCount || 0,
+          atRisk,
+        };
 
         // ── MIRROR Inner Monologue Update (async, non-blocking) ─────
         // Inspired by MIRROR (Hsing 2025): deliberative processing runs
@@ -2636,6 +2681,7 @@ app.post("/api/chat", auth, async (req, res) => {
             levelName: TRUST_LEVELS[session.memory.trustLevel]?.name,
             sptDepth: session.memory.sptDepth || 1,
           },
+          processingMeta: processingMetaForDone,
         })}\n\n`);
         res.end();
       }

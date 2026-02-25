@@ -915,9 +915,57 @@ function CharacterPanel({ mood, speaking }) {
 // SMALL COMPONENTS
 // ═══════════════════════════════════════════════════════════════════
 
-function FormatMessage({ text }) {
+function FormatMessage({ text, bold }) {
   if (!text) return null;
-  return <span>{text.split(/(\*[^*]+\*)/g).map((part, i) => part.startsWith("*") && part.endsWith("*") ? <em key={i} style={{ color: T.textSoft, fontStyle: "italic", opacity: 0.85 }}>{part.slice(1,-1)}</em> : <span key={i}>{part}</span>)}</span>;
+  const wrapStyle = bold ? { fontWeight: 600 } : {};
+  return (
+    <span style={wrapStyle}>
+      {text.split(/(\*[^*]+\*)/g).map((part, i) =>
+        part.startsWith("*") && part.endsWith("*")
+          ? <em key={i} style={{ color: T.textSoft, fontStyle: "italic", opacity: 0.85, fontWeight: bold ? 500 : "normal" }}>{part.slice(1,-1)}</em>
+          : <span key={i}>{part}</span>
+      )}
+    </span>
+  );
+}
+
+function ProcessingMeta({ meta }) {
+  if (!meta) return null;
+  const s = {
+    color: T.textDim, fontSize: 10.5, fontFamily: FONT_MONO, lineHeight: 1.65,
+    marginBottom: 10, borderLeft: `2px solid ${T.border}`, paddingLeft: 8,
+    opacity: 0.75,
+  };
+  const row = (label, val) => val != null ? (
+    <div key={label}><span style={{ color: T.textSoft }}>{label}:</span> {String(val)}</div>
+  ) : null;
+  return (
+    <div style={s}>
+      {row("msg", `#${meta.msgCount}`)}
+      {row("spt depth", `${meta.sptDepth}/4`)}
+      {row("memories", meta.totalMemories)}
+      {row("reservoir", `${meta.reservoirSize} thoughts`)}
+      {meta.atRisk && <div style={{ color: "#f59e0b" }}>⚠ relationship at-risk</div>}
+      {row("trigger fired", meta.triggerFired ? "yes" : "no")}
+      {meta.innerThought && (
+        <>
+          {row("inner thought type", meta.innerThought.type)}
+          {row("inner thought score", meta.innerThought.score)}
+          {row("inner thought", `"${meta.innerThought.content}"`)}
+          {row("composition", meta.compositionApplied ? "applied" : "none")}
+        </>
+      )}
+      {!meta.innerThought && meta.atomHintUsed && row("phase 2 hint", "active")}
+      {meta.topSelfAtoms?.length > 0 && (
+        <div>
+          <span style={{ color: T.textSoft }}>atoms retrieved:</span>
+          {meta.topSelfAtoms.map((a, i) => (
+            <div key={i} style={{ paddingLeft: 8 }}>[depth {a.depth}] {a.content}</div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function AuthScreen({ onAuth }) {
@@ -970,7 +1018,8 @@ function MessageBubble({ msg }) {
         ? { background: `linear-gradient(135deg, ${T.userBubble}, ${T.purple})`, color: "#fff", borderRadius: "22px 22px 4px 22px", padding: "13px 20px", maxWidth: "65%", wordBreak: "break-word", boxShadow: `0 2px 12px ${T.accentGlow}` }
         : { background: T.aiBubble, color: T.text, border: `1px solid ${T.border}`, borderRadius: "22px 22px 22px 4px", padding: "13px 20px", maxWidth: "75%", wordBreak: "break-word", boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
         {!isUser && <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}><span style={{ color: "#9B2D5E", fontSize: 12, fontWeight: 600, fontFamily: FONT_DISPLAY }}>Morrigan</span></div>}
-        <div style={{ fontSize: 15, lineHeight: 1.85, whiteSpace: "pre-wrap", fontFamily: FONT }}><FormatMessage text={msg.content} /></div>
+        {!isUser && <ProcessingMeta meta={msg.meta} />}
+        <div style={{ fontSize: 15, lineHeight: 1.85, whiteSpace: "pre-wrap", fontFamily: FONT }}><FormatMessage text={msg.content} bold={!isUser} /></div>
       </div>
     </div>
   );
@@ -1119,7 +1168,7 @@ export default function App() {
             if (json.done) {
               const finalText = json.finalResponse || full;
               if (finalText.trim()) {
-                setMessages(p => [...p, { role: "assistant", content: finalText, timestamp: new Date() }]);
+                setMessages(p => [...p, { role: "assistant", content: finalText, timestamp: new Date(), meta: json.processingMeta || null }]);
                 setConversations(p => p.map(c => c.conversationId === cid ? { ...c, title: `🖤 ${finalText.substring(0, 40)}${finalText.length > 40 ? "..." : ""}`, updatedAt: new Date() } : c));
               }
               setStreamText("");
@@ -1200,7 +1249,7 @@ export default function App() {
                   <div style={{ background: T.aiBubble, border: `1px solid ${T.border}`, borderRadius: "22px 22px 22px 4px", padding: "13px 20px", maxWidth: "75%", wordBreak: "break-word", boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}><span style={{ color: "#9B2D5E", fontSize: 12, fontWeight: 600, fontFamily: FONT_DISPLAY }}>Morrigan</span></div>
                     <div style={{ fontSize: 15, lineHeight: 1.85, whiteSpace: "pre-wrap", fontFamily: FONT }}>
-                      <FormatMessage text={streamText} />
+                      <FormatMessage text={streamText} bold={true} />
                       <span style={{ color: T.accent, animation: "blink 1s infinite", marginLeft: 2 }}>▎</span>
                     </div>
                   </div>
