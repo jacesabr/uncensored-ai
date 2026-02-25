@@ -740,7 +740,7 @@ function ExplainPanel({ onClose, token, user, conversations, messages, status })
     setLoading(true);
     try {
       const [healthRes, summaryRes, fullRes] = await Promise.allSettled([
-        fetch(`${API}/api/health`),
+        fetch(`${API}/api/status`),
         fetch(`${API}/api/personality`,      { headers: hdrs() }),
         fetch(`${API}/api/personality/full`, { headers: hdrs() }),
       ]);
@@ -931,39 +931,77 @@ function FormatMessage({ text, bold }) {
 
 function ProcessingMeta({ meta }) {
   if (!meta) return null;
-  const s = {
-    color: T.textDim, fontSize: 10.5, fontFamily: FONT_MONO, lineHeight: 1.65,
-    marginBottom: 10, borderLeft: `2px solid ${T.border}`, paddingLeft: 8,
-    opacity: 0.75,
-  };
-  const row = (label, val) => val != null ? (
-    <div key={label}><span style={{ color: T.textSoft }}>{label}:</span> {String(val)}</div>
+  const m = meta.memorySummary;
+  const wrap = { color: T.textDim, fontSize: 10.5, fontFamily: FONT_MONO, lineHeight: 1.65, marginBottom: 12, borderLeft: `2px solid ${T.border}`, paddingLeft: 8, opacity: 0.8 };
+  const sec  = { color: T.textSoft, fontSize: 9.5, letterSpacing: "0.8px", textTransform: "uppercase", marginTop: 7, marginBottom: 2 };
+  const lbl  = { color: T.textSoft };
+  const row  = (l, v) => (v != null && v !== "") ? <div><span style={lbl}>{l}:</span> {String(v)}</div> : null;
+  const list = (l, arr) => arr?.length > 0 ? (
+    <div><span style={lbl}>{l}:</span> {arr.map((x, i) => <span key={i}>{x.isPast ? "[past] " : ""}{x.fact}{i < arr.length - 1 ? " · " : ""}</span>)}</div>
   ) : null;
   return (
-    <div style={s}>
+    <div style={wrap}>
+      <div style={sec}>processing</div>
       {row("msg", `#${meta.msgCount}`)}
       {row("spt depth", `${meta.sptDepth}/4`)}
-      {row("memories", meta.totalMemories)}
-      {row("reservoir", `${meta.reservoirSize} thoughts`)}
-      {meta.atRisk && <div style={{ color: "#f59e0b" }}>⚠ relationship at-risk</div>}
-      {row("trigger fired", meta.triggerFired ? "yes" : "no")}
-      {meta.innerThought && (
-        <>
-          {row("inner thought type", meta.innerThought.type)}
-          {row("inner thought score", meta.innerThought.score)}
-          {row("inner thought", `"${meta.innerThought.content}"`)}
-          {row("composition", meta.compositionApplied ? "applied" : "none")}
-        </>
-      )}
-      {!meta.innerThought && meta.atomHintUsed && row("phase 2 hint", "active")}
+      {row("reservoir", `${meta.reservoirSize} held thoughts`)}
+      {row("trigger", meta.triggerFired ? "fired" : "no")}
+      {meta.innerThought && <>
+        {row("thought type", meta.innerThought.type)}
+        {row("thought score", meta.innerThought.score)}
+        {row("thought content", `"${meta.innerThought.content}"`)}
+        {row("composition", meta.compositionApplied ? "applied" : "—")}
+      </>}
+      {!meta.innerThought && meta.atomHintUsed && row("phase 2 hint", "active (no thought selected)")}
       {meta.topSelfAtoms?.length > 0 && (
         <div>
-          <span style={{ color: T.textSoft }}>atoms retrieved:</span>
-          {meta.topSelfAtoms.map((a, i) => (
-            <div key={i} style={{ paddingLeft: 8 }}>[depth {a.depth}] {a.content}</div>
-          ))}
+          <span style={lbl}>self-atoms retrieved:</span>
+          {meta.topSelfAtoms.map((a, i) => <div key={i} style={{ paddingLeft: 8 }}>[d{a.depth}] {a.content}</div>)}
         </div>
       )}
+      {meta.atRisk && <div style={{ color: "#f59e0b", marginTop: 2 }}>⚠ relationship at-risk</div>}
+      {m && <>
+        <div style={sec}>what she knows about you</div>
+        {row("name", m.userName)}
+        {row("trust", `${m.trustLevelName} (${m.trustLevel}/6) · ${m.trustPoints}pts`)}
+        {row("history", `first met ${m.daysSinceFirstMet}d ago · last seen ${m.hoursSinceLastSeen}h ago`)}
+        {list("interests",     m.memories?.interests)}
+        {list("preferences",   m.memories?.preferences)}
+        {list("personal",      m.memories?.personal)}
+        {list("relationships", m.memories?.relationships)}
+        {list("events",        m.memories?.events)}
+        {list("emotional",     m.memories?.emotional)}
+        {m.feelings && (
+          <div><span style={lbl}>feelings:</span> aff {m.feelings.affection} · comfort {m.feelings.comfort} · attr {m.feelings.attraction} · prot {m.feelings.protectiveness} · vuln {m.feelings.vulnerability}</div>
+        )}
+        {m.molecules?.length > 0 && (
+          <div>
+            <span style={lbl}>synthesized impressions:</span>
+            {m.molecules.map((mol, i) => <div key={i} style={{ paddingLeft: 8 }}>{mol.period ? `[${mol.period}] ` : ""}{mol.summary}</div>)}
+          </div>
+        )}
+        {m.milestones?.length > 0 && (
+          <div>
+            <span style={lbl}>milestones:</span>
+            {m.milestones.map((ms, i) => <div key={i} style={{ paddingLeft: 8 }}>- {ms}</div>)}
+          </div>
+        )}
+        {row("narrative", m.relationshipNarrative)}
+        {row("sitting with", m.prospectiveNote)}
+        {row("loose thread", m.looseThread)}
+        {m.sessionContextUsed?.length > 0 && (
+          <div>
+            <div style={sec}>session history used</div>
+            {m.sessionContextUsed.map((ex, i) => (
+              <div key={i} style={{ marginBottom: 4 }}>
+                <div><span style={lbl}>you:</span> {ex.user}</div>
+                <div><span style={lbl}>her:</span> {ex.assistant}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </>}
+      <div style={{ borderTop: `1px solid ${T.border}`, marginTop: 8, paddingTop: 3, fontSize: 9.5, opacity: 0.45 }}>↓ response</div>
     </div>
   );
 }
@@ -1050,8 +1088,18 @@ function safeDecodeToken(token) {
 // ═══════════════════════════════════════════════════════════════════
 
 export default function App() {
-  const [authed,        setAuthed]        = useState(false);
-  const [user,          setUser]          = useState(null);
+  const [authed, setAuthed] = useState(() => {
+    const t = localStorage.getItem("token");
+    if (!t) return false;
+    const p = safeDecodeToken(t);
+    return !!(p?.id);
+  });
+  const [user, setUser] = useState(() => {
+    const t = localStorage.getItem("token");
+    if (!t) return null;
+    const p = safeDecodeToken(t);
+    return p?.id ? { id: p.id, phrase: p.phrase } : null;
+  });
   const [conversations, setConversations] = useState([]);
   const [activeConvo,   setActiveConvo]   = useState(null);
   const [messages,      setMessages]      = useState([]);
@@ -1069,15 +1117,15 @@ export default function App() {
   const hdrs  = () => ({ "Content-Type": "application/json", Authorization: `Bearer ${token()}` });
 
   useEffect(() => {
-    const t = localStorage.getItem("token"); if (!t) return;
+    const t = localStorage.getItem("token");
+    if (!t) { setAuthed(false); setUser(null); return; }
     const payload = safeDecodeToken(t);
-    if (payload?.id) { setUser({ id: payload.id, phrase: payload.phrase }); setAuthed(true); }
-    else localStorage.removeItem("token");
+    if (!payload?.id) { localStorage.removeItem("token"); setAuthed(false); setUser(null); }
   }, []);
 
   useEffect(() => {
     if (!authed) return;
-    const ck = () => fetch(`${API}/api/health`).then(r => r.json()).then(setStatus).catch(() => {});
+    const ck = () => fetch(`${API}/api/status`).then(r => r.json()).then(setStatus).catch(() => {});
     ck(); const iv = setInterval(ck, 30000); return () => clearInterval(iv);
   }, [authed]);
 

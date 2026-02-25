@@ -2584,25 +2584,60 @@ app.post("/api/chat", auth, async (req, res) => {
         }
 
         // ── Processing metadata for SSE done event ──────────────────
-        processingMetaForDone = {
-          triggerFired,
-          compositionApplied: !!winnerForCompose,
-          innerThought: winnerForCompose ? {
-            content: winnerForCompose.content.substring(0, 120),
-            type: winnerForCompose.type,
-            score: winnerForCompose.currentScore != null ? Number(winnerForCompose.currentScore).toFixed(1) : null,
-            linkedAtomId: winnerForCompose.linkedAtomId || null,
-          } : null,
-          topSelfAtoms: (session.topSelfAtoms || []).slice(0, 3).map(a => ({
-            id: a.id, depth: a.depth, content: a.content.substring(0, 80),
-          })),
-          atomHintUsed: !thoughtResult?.winner && selfAtomHint !== "",
-          reservoirSize: (session.thoughtReservoir || []).length,
-          totalMemories: (session.memory?.memories || []).length,
-          sptDepth: session.memory?.sptDepth || 1,
-          msgCount: session.msgCount || 0,
-          atRisk,
-        };
+        {
+          const mem = session.memory;
+          const sorted = [...(mem.memories || [])].sort((a, b) => (b.importance || 1) - (a.importance || 1));
+          const byCat = (cat) => sorted.filter(m => m.category === cat).map(m => ({
+            fact: m.fact,
+            importance: m.importance || 3,
+            isPast: m.temporal?.isOngoing === "no" || m.temporal?.isOngoing === "ended recently",
+          }));
+          processingMetaForDone = {
+            triggerFired,
+            compositionApplied: !!winnerForCompose,
+            innerThought: winnerForCompose ? {
+              content: winnerForCompose.content.substring(0, 120),
+              type: winnerForCompose.type,
+              score: winnerForCompose.currentScore != null ? Number(winnerForCompose.currentScore).toFixed(1) : null,
+            } : null,
+            topSelfAtoms: (session.topSelfAtoms || []).slice(0, 3).map(a => ({
+              id: a.id, depth: a.depth, content: a.content.substring(0, 80),
+            })),
+            atomHintUsed: !thoughtResult?.winner && selfAtomHint !== "",
+            reservoirSize: (session.thoughtReservoir || []).length,
+            sptDepth: mem.sptDepth || 1,
+            msgCount: session.msgCount || 0,
+            atRisk,
+            memorySummary: {
+              userName: mem.memories?.find(m => m.category === "name")?.fact || null,
+              trustLevel: mem.trustLevel,
+              trustLevelName: TRUST_LEVELS[mem.trustLevel]?.name,
+              trustPoints: mem.trustPoints,
+              daysSinceFirstMet: Math.floor((Date.now() - (mem.firstMet || Date.now())) / (1000 * 60 * 60 * 24)),
+              hoursSinceLastSeen: Math.floor((Date.now() - (mem.lastSeen || Date.now())) / (1000 * 60 * 60)),
+              feelings: mem.feelings,
+              relationshipNarrative: mem.relationshipNarrative || null,
+              prospectiveNote: mem.prospectiveNote || null,
+              looseThread: mem.looseThread || null,
+              memories: {
+                interests:     byCat("interest"),
+                personal:      byCat("personal"),
+                emotional:     byCat("emotional"),
+                preferences:   byCat("preference"),
+                events:        byCat("event"),
+                relationships: byCat("relationship"),
+              },
+              molecules: (mem.molecules || []).slice(-3).map(m => ({
+                summary: m.summary, period: m.period || null,
+              })),
+              milestones: (mem.milestones || []).slice(-5).map(ms => ms.event || String(ms)),
+              sessionContextUsed: (session.sessionExchanges || []).slice(-3).map(ex => ({
+                user: ex.user.substring(0, 150),
+                assistant: ex.assistant.substring(0, 150),
+              })),
+            },
+          };
+        }
 
         // ── MIRROR Inner Monologue Update (async, non-blocking) ─────
         // Inspired by MIRROR (Hsing 2025): deliberative processing runs
