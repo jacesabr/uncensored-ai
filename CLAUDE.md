@@ -252,6 +252,11 @@ User types → Frontend analyzeMood() → POST /api/chat (JWT)
 | Date | Change | Files Affected |
 |------|--------|----------------|
 | 2026-02-25 | Initial CLAUDE.md created from full codebase exploration | CLAUDE.md |
+| 2026-02-25 | Added `processingMeta` to SSE done event — inner thought, atoms, memory summary, session history, reservoir, molecules, milestones | server/index.js |
+| 2026-02-25 | ProcessingMeta component — full-width card outside bubble showing all processing context; Morrigan response bolded below | client/src/App.jsx |
+| 2026-02-25 | Fixed `/api/health` 404 — client now calls `/api/status` (the endpoint that exists) | client/src/App.jsx |
+| 2026-02-25 | Fixed status endpoint — pings now run in parallel with 8s AbortController timeout (was sequential ~30s) | server/index.js |
+| 2026-02-25 | Fixed auth flash on reload — `authed`/`user` initialized synchronously from localStorage | client/src/App.jsx |
 
 ---
 

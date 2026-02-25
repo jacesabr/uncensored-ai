@@ -932,76 +932,180 @@ function FormatMessage({ text, bold }) {
 function ProcessingMeta({ meta }) {
   if (!meta) return null;
   const m = meta.memorySummary;
-  const wrap = { color: T.textDim, fontSize: 10.5, fontFamily: FONT_MONO, lineHeight: 1.65, marginBottom: 12, borderLeft: `2px solid ${T.border}`, paddingLeft: 8, opacity: 0.8 };
-  const sec  = { color: T.textSoft, fontSize: 9.5, letterSpacing: "0.8px", textTransform: "uppercase", marginTop: 7, marginBottom: 2 };
-  const lbl  = { color: T.textSoft };
-  const row  = (l, v) => (v != null && v !== "") ? <div><span style={lbl}>{l}:</span> {String(v)}</div> : null;
-  const list = (l, arr) => arr?.length > 0 ? (
-    <div><span style={lbl}>{l}:</span> {arr.map((x, i) => <span key={i}>{x.isPast ? "[past] " : ""}{x.fact}{i < arr.length - 1 ? " · " : ""}</span>)}</div>
+
+  const card    = { background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 14, padding: "18px 22px", marginBottom: 8, fontFamily: FONT_MONO, fontSize: 13, color: T.textSoft, lineHeight: 1.75 };
+  const secHead = { display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 10.5, fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", color: T.accent, marginTop: 16, marginBottom: 8, paddingBottom: 5, borderBottom: `1px solid ${T.border}` };
+  const grid2   = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 28px" };
+  const dimKey  = { color: T.textDim, minWidth: 120, flexShrink: 0, fontSize: 12 };
+  const val     = { color: T.text };
+
+  const kv = (k, v, full) => (v != null && v !== "") ? (
+    <div style={{ display: "flex", gap: 8, marginBottom: 1 }}>
+      <span style={dimKey}>{k}</span>
+      <span style={{ ...val, flex: full ? 1 : undefined }}>{String(v)}</span>
+    </div>
   ) : null;
+
+  const memList = (label, arr) => arr?.length > 0 ? (
+    <div style={{ display: "flex", gap: 8, marginBottom: 2 }}>
+      <span style={dimKey}>{label}</span>
+      <span style={{ color: T.textSoft, flex: 1 }}>
+        {arr.map((x, i) => (
+          <span key={i}>{x.isPast ? <span style={{ color: T.textDim, fontSize: 11 }}>[past] </span> : ""}{x.fact}{i < arr.length - 1 ? <span style={{ color: T.textDim }}> · </span> : ""}</span>
+        ))}
+      </span>
+    </div>
+  ) : null;
+
+  const hasKnowledge = m && (m.userName || m.memories?.interests?.length || m.memories?.emotional?.length || m.memories?.personal?.length || m.memories?.relationships?.length || m.memories?.events?.length || m.memories?.preferences?.length);
+  const hasState = m && (m.relationshipNarrative || m.prospectiveNote || m.looseThread);
+
   return (
-    <div style={wrap}>
-      <div style={sec}>processing</div>
-      {row("msg", `#${meta.msgCount}`)}
-      {row("spt depth", `${meta.sptDepth}/4`)}
-      {row("reservoir", `${meta.reservoirSize} held thoughts`)}
-      {row("trigger", meta.triggerFired ? "fired" : "no")}
-      {meta.innerThought && <>
-        {row("thought type", meta.innerThought.type)}
-        {row("thought score", meta.innerThought.score)}
-        {row("thought content", `"${meta.innerThought.content}"`)}
-        {row("composition", meta.compositionApplied ? "applied" : "—")}
-      </>}
-      {!meta.innerThought && meta.atomHintUsed && row("phase 2 hint", "active (no thought selected)")}
-      {meta.topSelfAtoms?.length > 0 && (
-        <div>
-          <span style={lbl}>self-atoms retrieved:</span>
-          {meta.topSelfAtoms.map((a, i) => <div key={i} style={{ paddingLeft: 8 }}>[d{a.depth}] {a.content}</div>)}
-        </div>
+    <div style={card}>
+
+      {/* ── Header ── */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+        <span style={{ color: T.accent, fontWeight: 700, fontSize: 12, letterSpacing: "0.8px" }}>PROCESSING TRACE</span>
+        <span style={{ color: T.textDim, fontSize: 12 }}>msg #{meta.msgCount}</span>
+      </div>
+
+      {/* ── Core stats grid ── */}
+      <div style={grid2}>
+        {kv("spt depth", `${meta.sptDepth} / 4`)}
+        {kv("trigger", meta.triggerFired ? "fired ✓" : "not fired")}
+        {kv("reservoir", `${meta.reservoirSize} held thoughts`)}
+        {kv("composition", meta.compositionApplied ? "applied ✓" : "—")}
+        {meta.atRisk && kv("relationship", "⚠ at-risk")}
+        {!meta.innerThought && meta.atomHintUsed && kv("phase 2 hint", "active")}
+      </div>
+
+      {/* ── Thought reservoir ── */}
+      {meta.reservoirContents?.length > 0 && (
+        <>
+          <div style={secHead}><span>Thought Reservoir</span><span style={{ color: T.textDim, fontWeight: 400, fontSize: 11 }}>{meta.reservoirContents.length} waiting</span></div>
+          {meta.reservoirContents.map((t, i) => (
+            <div key={i} style={{ display: "flex", gap: 12, marginBottom: 4 }}>
+              <span style={{ color: T.textDim, minWidth: 60, fontSize: 12 }}>{t.type} {t.score}</span>
+              <span style={{ color: T.textSoft }}>{t.content}</span>
+            </div>
+          ))}
+        </>
       )}
-      {meta.atRisk && <div style={{ color: "#f59e0b", marginTop: 2 }}>⚠ relationship at-risk</div>}
-      {m && <>
-        <div style={sec}>what she knows about you</div>
-        {row("name", m.userName)}
-        {row("trust", `${m.trustLevelName} (${m.trustLevel}/6) · ${m.trustPoints}pts`)}
-        {row("history", `first met ${m.daysSinceFirstMet}d ago · last seen ${m.hoursSinceLastSeen}h ago`)}
-        {list("interests",     m.memories?.interests)}
-        {list("preferences",   m.memories?.preferences)}
-        {list("personal",      m.memories?.personal)}
-        {list("relationships", m.memories?.relationships)}
-        {list("events",        m.memories?.events)}
-        {list("emotional",     m.memories?.emotional)}
-        {m.feelings && (
-          <div><span style={lbl}>feelings:</span> aff {m.feelings.affection} · comfort {m.feelings.comfort} · attr {m.feelings.attraction} · prot {m.feelings.protectiveness} · vuln {m.feelings.vulnerability}</div>
-        )}
-        {m.molecules?.length > 0 && (
-          <div>
-            <span style={lbl}>synthesized impressions:</span>
-            {m.molecules.map((mol, i) => <div key={i} style={{ paddingLeft: 8 }}>{mol.period ? `[${mol.period}] ` : ""}{mol.summary}</div>)}
+
+      {/* ── Inner thought ── */}
+      {meta.innerThought && (
+        <>
+          <div style={secHead}>
+            <span>Inner Thought Selected</span>
+            <span style={{ color: T.textDim, fontWeight: 400, fontSize: 11 }}>{meta.innerThought.type} · score {meta.innerThought.score}</span>
           </div>
-        )}
-        {m.milestones?.length > 0 && (
-          <div>
-            <span style={lbl}>milestones:</span>
-            {m.milestones.map((ms, i) => <div key={i} style={{ paddingLeft: 8 }}>- {ms}</div>)}
+          <div style={{ color: T.text, fontStyle: "italic", paddingLeft: 6, borderLeft: `2px solid ${T.accent}`, lineHeight: 1.7 }}>
+            "{meta.innerThought.content}"
           </div>
-        )}
-        {row("narrative", m.relationshipNarrative)}
-        {row("sitting with", m.prospectiveNote)}
-        {row("loose thread", m.looseThread)}
-        {m.sessionContextUsed?.length > 0 && (
-          <div>
-            <div style={sec}>session history used</div>
-            {m.sessionContextUsed.map((ex, i) => (
-              <div key={i} style={{ marginBottom: 4 }}>
-                <div><span style={lbl}>you:</span> {ex.user}</div>
-                <div><span style={lbl}>her:</span> {ex.assistant}</div>
+        </>
+      )}
+
+      {/* ── Self-atoms ── */}
+      {meta.topSelfAtoms?.length > 0 && (
+        <>
+          <div style={secHead}>
+            <span>Self-Atoms Retrieved</span>
+            <span style={{ color: T.textDim, fontWeight: 400, fontSize: 11 }}>{meta.topSelfAtoms.length} atoms</span>
+          </div>
+          {meta.topSelfAtoms.map((a, i) => (
+            <div key={i} style={{ display: "flex", gap: 12, marginBottom: 4 }}>
+              <span style={{ color: T.accent, fontWeight: 600, minWidth: 28 }}>d{a.depth}</span>
+              <span style={{ color: T.textSoft }}>{a.content}</span>
+            </div>
+          ))}
+        </>
+      )}
+
+      {/* ── What she knows ── */}
+      {hasKnowledge && (
+        <>
+          <div style={secHead}><span>What She Knows About You</span></div>
+          <div style={grid2}>
+            {m.userName && kv("name", m.userName)}
+            {kv("trust", `${m.trustLevelName} (${m.trustLevel}/6) · ${m.trustPoints}pts`)}
+            {kv("first met", `${m.daysSinceFirstMet}d ago`)}
+            {kv("last seen", `${m.hoursSinceLastSeen}h ago`)}
+          </div>
+          {m.feelings && (
+            <div style={{ display: "flex", gap: 8, marginTop: 6, marginBottom: 2 }}>
+              <span style={dimKey}>feelings</span>
+              <span style={{ color: T.textSoft }}>
+                aff <b style={{ color: T.text }}>{m.feelings.affection}</b> · comfort <b style={{ color: T.text }}>{m.feelings.comfort}</b> · attr <b style={{ color: T.text }}>{m.feelings.attraction}</b> · prot <b style={{ color: T.text }}>{m.feelings.protectiveness}</b> · vuln <b style={{ color: T.text }}>{m.feelings.vulnerability}</b>
+              </span>
+            </div>
+          )}
+          <div style={{ marginTop: 8 }}>
+            {memList("interests",     m.memories?.interests)}
+            {memList("preferences",   m.memories?.preferences)}
+            {memList("personal",      m.memories?.personal)}
+            {memList("relationships", m.memories?.relationships)}
+            {memList("events",        m.memories?.events)}
+            {memList("emotional",     m.memories?.emotional)}
+          </div>
+        </>
+      )}
+
+      {/* ── Molecules ── */}
+      {m?.molecules?.length > 0 && (
+        <>
+          <div style={secHead}><span>Synthesized Impressions</span><span style={{ color: T.textDim, fontWeight: 400, fontSize: 11 }}>{m.molecules.length} clusters</span></div>
+          {m.molecules.map((mol, i) => (
+            <div key={i} style={{ display: "flex", gap: 10, marginBottom: 5, paddingLeft: 4, borderLeft: `2px solid ${T.border}` }}>
+              {mol.period && <span style={{ color: T.accent, fontSize: 11, minWidth: 70, flexShrink: 0 }}>[{mol.period}]</span>}
+              <span style={{ color: T.textSoft }}>{mol.summary}</span>
+            </div>
+          ))}
+        </>
+      )}
+
+      {/* ── Milestones ── */}
+      {m?.milestones?.length > 0 && (
+        <>
+          <div style={secHead}><span>Milestones</span></div>
+          {m.milestones.map((ms, i) => (
+            <div key={i} style={{ color: T.textSoft, paddingLeft: 8, marginBottom: 3 }}>— {ms}</div>
+          ))}
+        </>
+      )}
+
+      {/* ── Relationship state ── */}
+      {hasState && (
+        <>
+          <div style={secHead}><span>Relationship State</span></div>
+          {kv("narrative",    m.relationshipNarrative, true)}
+          {kv("sitting with", m.prospectiveNote,       true)}
+          {kv("loose thread", m.looseThread,           true)}
+        </>
+      )}
+
+      {/* ── Session history ── */}
+      {m?.sessionContextUsed?.length > 0 && (
+        <>
+          <div style={secHead}><span>Session History Used</span><span style={{ color: T.textDim, fontWeight: 400, fontSize: 11 }}>{m.sessionContextUsed.length} exchanges</span></div>
+          {m.sessionContextUsed.map((ex, i) => (
+            <div key={i} style={{ marginBottom: 10, paddingLeft: 6, borderLeft: `2px solid ${T.border}` }}>
+              <div style={{ display: "flex", gap: 8, marginBottom: 2 }}>
+                <span style={{ color: T.textDim, minWidth: 28, fontSize: 12 }}>you</span>
+                <span style={{ color: T.textSoft }}>{ex.user}</span>
               </div>
-            ))}
-          </div>
-        )}
-      </>}
-      <div style={{ borderTop: `1px solid ${T.border}`, marginTop: 8, paddingTop: 3, fontSize: 9.5, opacity: 0.45 }}>↓ response</div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <span style={{ color: T.accent, minWidth: 28, fontSize: 12 }}>her</span>
+                <span style={{ color: T.textSoft }}>{ex.assistant}</span>
+              </div>
+            </div>
+          ))}
+        </>
+      )}
+
+      {/* ── Divider ── */}
+      <div style={{ marginTop: 14, paddingTop: 8, borderTop: `1px solid ${T.border}`, fontSize: 11, color: T.textDim, letterSpacing: "0.5px" }}>
+        ↓ &nbsp;response
+      </div>
     </div>
   );
 }
@@ -1050,13 +1154,27 @@ function AuthScreen({ onAuth }) {
 
 function MessageBubble({ msg }) {
   const isUser = msg.role === "user";
+  if (!isUser && msg.meta) {
+    return (
+      <div style={{ marginBottom: 28, animation: "fadeSlideIn 0.3s ease forwards" }}>
+        <ProcessingMeta meta={msg.meta} />
+        <div style={{ display: "flex", justifyContent: "flex-start" }}>
+          <div style={{ background: T.aiBubble, color: T.text, border: `1px solid ${T.border}`, borderRadius: "4px 22px 22px 22px", padding: "14px 22px", maxWidth: "82%", wordBreak: "break-word", boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+              <span style={{ color: "#9B2D5E", fontSize: 12, fontWeight: 700, fontFamily: FONT_DISPLAY, letterSpacing: "0.3px" }}>Morrigan</span>
+            </div>
+            <div style={{ fontSize: 16, lineHeight: 1.9, whiteSpace: "pre-wrap", fontFamily: FONT }}><FormatMessage text={msg.content} bold={true} /></div>
+          </div>
+        </div>
+      </div>
+    );
+  }
   return (
     <div style={{ display: "flex", marginBottom: 22, alignItems: "flex-start", justifyContent: isUser ? "flex-end" : "flex-start", animation: "fadeSlideIn 0.3s ease forwards" }}>
       <div style={isUser
         ? { background: `linear-gradient(135deg, ${T.userBubble}, ${T.purple})`, color: "#fff", borderRadius: "22px 22px 4px 22px", padding: "13px 20px", maxWidth: "65%", wordBreak: "break-word", boxShadow: `0 2px 12px ${T.accentGlow}` }
         : { background: T.aiBubble, color: T.text, border: `1px solid ${T.border}`, borderRadius: "22px 22px 22px 4px", padding: "13px 20px", maxWidth: "75%", wordBreak: "break-word", boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
         {!isUser && <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}><span style={{ color: "#9B2D5E", fontSize: 12, fontWeight: 600, fontFamily: FONT_DISPLAY }}>Morrigan</span></div>}
-        {!isUser && <ProcessingMeta meta={msg.meta} />}
         <div style={{ fontSize: 15, lineHeight: 1.85, whiteSpace: "pre-wrap", fontFamily: FONT }}><FormatMessage text={msg.content} bold={!isUser} /></div>
       </div>
     </div>

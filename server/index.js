@@ -2600,11 +2600,14 @@ app.post("/api/chat", auth, async (req, res) => {
               type: winnerForCompose.type,
               score: winnerForCompose.currentScore != null ? Number(winnerForCompose.currentScore).toFixed(1) : null,
             } : null,
-            topSelfAtoms: (session.topSelfAtoms || []).slice(0, 3).map(a => ({
-              id: a.id, depth: a.depth, content: a.content.substring(0, 80),
+            topSelfAtoms: (session.topSelfAtoms || []).map(a => ({
+              id: a.id, depth: a.depth, content: a.content,
             })),
             atomHintUsed: !thoughtResult?.winner && selfAtomHint !== "",
             reservoirSize: (session.thoughtReservoir || []).length,
+            reservoirContents: (session.thoughtReservoir || []).map(t => ({
+              type: t.type, score: Number(t.currentScore || 0).toFixed(1), content: t.content,
+            })),
             sptDepth: mem.sptDepth || 1,
             msgCount: session.msgCount || 0,
             atRisk,
@@ -2627,13 +2630,13 @@ app.post("/api/chat", auth, async (req, res) => {
                 events:        byCat("event"),
                 relationships: byCat("relationship"),
               },
-              molecules: (mem.molecules || []).slice(-3).map(m => ({
+              molecules: (mem.molecules || []).map(m => ({
                 summary: m.summary, period: m.period || null,
               })),
-              milestones: (mem.milestones || []).slice(-5).map(ms => ms.event || String(ms)),
-              sessionContextUsed: (session.sessionExchanges || []).slice(-3).map(ex => ({
-                user: ex.user.substring(0, 150),
-                assistant: ex.assistant.substring(0, 150),
+              milestones: (mem.milestones || []).map(ms => ms.event || String(ms)),
+              sessionContextUsed: (session.sessionExchanges || []).slice(-5).map(ex => ({
+                user: ex.user.substring(0, 200),
+                assistant: ex.assistant.substring(0, 200),
               })),
             },
           };
