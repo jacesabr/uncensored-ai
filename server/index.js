@@ -24,6 +24,12 @@ const JWT_SECRET = process.env.JWT_SECRET;
 
 const app = express();
 
+// Trust Railway's reverse proxy so req.ip returns the real client IP
+// from x-forwarded-for[0] rather than the proxy's internal address.
+// '1' = trust one hop of proxy (Railway). Do NOT use 'true' — that
+// trusts all proxies and allows IP spoofing via forged headers.
+app.set("trust proxy", 1);
+
 // ── CORS — only allow configured origin; never wildcard in production ──
 const _allowedOrigin = process.env.CLIENT_URL;
 if (!_allowedOrigin) {
@@ -73,10 +79,41 @@ function makeRateLimiter(windowMs, maxRequests) {
   };
 }
 
-// /api/chat: max 3 requests per 10 seconds per user
+// /api/chat: max 3 requests per 10 seconds per user (burst guard)
 const checkChatRate = makeRateLimiter(10_000, 3);
 // /api/auth/phrase: max 5 attempts per 60 seconds per IP (brute-force guard)
 const checkAuthRate = makeRateLimiter(60_000, 5);
+
+// ── Daily IP usage limit ────────────────────────────────────────────
+// Counts chat messages per IP per UTC day. Configurable via DAILY_MSG_LIMIT.
+// With trust proxy: 1 above, req.ip is the real client IP on Railway.
+const DAILY_MSG_LIMIT = parseInt(process.env.DAILY_MSG_LIMIT) || 100;
+const dailyIpUsage = new Map(); // ip → { count, resetAt }
+
+function getNextMidnightUTC() {
+  const d = new Date();
+  d.setUTCHours(24, 0, 0, 0);
+  return d.getTime();
+}
+
+function getIpUsage(ip) {
+  const now = Date.now();
+  const entry = dailyIpUsage.get(ip);
+  if (!entry || now >= entry.resetAt) {
+    const fresh = { count: 0, resetAt: getNextMidnightUTC() };
+    dailyIpUsage.set(ip, fresh);
+    return fresh;
+  }
+  return entry;
+}
+
+// Periodic cleanup — remove expired entries once per hour
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, entry] of dailyIpUsage) {
+    if (now >= entry.resetAt) dailyIpUsage.delete(ip);
+  }
+}, 60 * 60_000);
 
 const MAX_MESSAGE_LENGTH = 4000; // characters
 
@@ -204,7 +241,7 @@ function setSession(userId, data) {
     for (const [k, v] of sessionCache) {
       if ((v._lastActive || 0) < oldestTime) { oldest = k; oldestTime = v._lastActive || 0; }
     }
-    if (oldest) { flushSession(oldest).catch(() => {}); sessionCache.delete(oldest); }
+    if (oldest) { finalizeSession(oldest).catch(() => {}); sessionCache.delete(oldest); }
   }
   sessionCache.set(String(userId), { ...data, _lastActive: Date.now() });
 }
@@ -213,40 +250,49 @@ setInterval(() => {
   const now = Date.now();
   for (const [k, v] of sessionCache) {
     if (now - (v._lastActive || 0) > SESSION_TTL_MS) {
-      flushSession(k).catch(() => {});
+      finalizeSession(k).catch(() => {});
       sessionCache.delete(k);
     }
   }
 }, 30 * 60 * 1000);
 
 // ═══════════════════════════════════════════════════════════════════
-// SESSION FLUSH — COMPLETE ASYNC PIPELINE
+// REAL-TIME BRAIN UPDATE — runs after each exchange, not at session end
+// Associates new atoms with existing memory immediately, just like a
+// real brain — you don't wait until tomorrow to link what you just heard.
 // ═══════════════════════════════════════════════════════════════════
 
-async function flushSession(userId) {
+async function updateBrainAfterExchange(userId, userMessage, assistantResponse) {
   const session = getSession(userId);
-  if (!session || !session.dirty) return;
-  // Prevent concurrent flushes for the same user corrupting memory state
-  if (session._flushing) return;
-  session._flushing = true;
-  const { memory, sessionExchanges } = session;
-  if (sessionExchanges.length === 0) { session._flushing = false; return; }
+  if (!session) return;
 
-  const exchangeText = sessionExchanges
+  // Queue if already updating — process exchanges in order
+  if (session._updating) {
+    (session._updateQueue = session._updateQueue || []).push({ userMessage, assistantResponse });
+    return;
+  }
+  session._updating = true;
+
+  const memory = session.memory;
+  const singleExchange = `User: ${userMessage}\nMorrigan: ${assistantResponse}`;
+  // Recent session context for narrative/reflection (already includes current exchange)
+  const recentContext = (session.sessionExchanges || [])
+    .slice(-6)
     .map(e => `User: ${e.user}\nMorrigan: ${e.assistant}`)
     .join("\n\n");
 
-  // ── Step 1: Extract atoms with valence + temporal ─────────────────
-  console.log(`[FLUSH] Starting pipeline for user ${userId}`);
+  console.log(`[BRAIN] Real-time update for user ${userId}`);
+
+  // ── Step 1: Extract atoms from THIS exchange ──────────────────────
   let newAtoms = [];
   try {
     const existingFacts = memory.memories.map(m => m.fact).join("; ") || "none yet";
-    const extractionPrompt = `You are a memory extraction assistant. Extract personal facts about the USER from this conversation with their AI companion Morrigan.
+    const extractionPrompt = `You are a memory extraction assistant. Extract personal facts about the USER from this single exchange with their AI companion Morrigan.
 
 EXISTING MEMORIES (do not duplicate): ${existingFacts}
 
-CONVERSATION:
-${exchangeText}
+EXCHANGE:
+${singleExchange}
 
 Return ONLY a JSON array. Each object:
 {
@@ -272,7 +318,7 @@ If nothing worth storing, return []. Return ONLY the JSON array.`;
       body: JSON.stringify({
         model: CHAT_MODEL,
         messages: [{ role: "user", content: extractionPrompt }],
-        temperature: 0.1, max_tokens: 1000,
+        temperature: 0.1, max_tokens: 600,
       }),
     });
 
@@ -282,18 +328,21 @@ If nothing worth storing, return []. Return ONLY the JSON array.`;
       const cleaned = raw.replace(/```json|```/g, "").trim();
       newAtoms = JSON.parse(cleaned);
       if (!Array.isArray(newAtoms)) newAtoms = [];
-      console.log(`[FLUSH] Extracted ${newAtoms.length} atoms`);
+      console.log(`[BRAIN] Extracted ${newAtoms.length} atoms`);
     }
   } catch (e) {
-    console.error("[FLUSH-EXTRACT]", e.message);
+    console.error("[BRAIN-EXTRACT]", e.message);
   }
 
-  // ── Step 2: Embed each new atom ───────────────────────────────────
-  const embeddedAtoms = [];
+  // ── Step 2: Embed + link + deduplicate each new atom immediately ──
+  // This is the core of real-time association: as soon as a fact is
+  // extracted, it gets embedded and linked to related existing atoms
+  // right now — not deferred to session end.
+  const allAtoms = memory.memories;
   for (const atom of newAtoms) {
     if (!atom.fact || !atom.category) continue;
     const embedding = await embedText(atom.fact);
-    embeddedAtoms.push({
+    const newAtom = {
       fact: atom.fact,
       category: atom.category,
       importance: atom.importance || 3,
@@ -304,12 +353,9 @@ If nothing worth storing, return []. Return ONLY the JSON array.`;
       contradicts: [],
       context: "",
       learnedAt: new Date(),
-    });
-  }
+    };
 
-  // ── Step 3: Link + contradict detection ──────────────────────────
-  const allAtoms = memory.memories;
-  for (const newAtom of embeddedAtoms) {
+    // Text-only dedup for atoms without embeddings
     if (!newAtom.embedding.length) {
       const isDup = allAtoms.some(m =>
         m.fact.toLowerCase().includes(newAtom.fact.toLowerCase()) ||
@@ -319,62 +365,57 @@ If nothing worth storing, return []. Return ONLY the JSON array.`;
       continue;
     }
 
+    // Embedding dedup — skip if near-identical atom already exists
+    const isDuplicate = allAtoms.some(existing =>
+      existing.embedding?.length &&
+      cosineSimilarity(existing.embedding, newAtom.embedding) > 0.92
+    );
+    if (isDuplicate) continue;
+
+    // Immediate association — link to all related existing atoms now
     const linkedIds = [];
     const contradictIds = [];
-
     for (const existing of allAtoms) {
-      if (!existing.embedding || !existing.embedding.length) continue;
+      if (!existing.embedding?.length) continue;
       const sim = cosineSimilarity(existing.embedding, newAtom.embedding);
-
-      if (sim > 0.72) {
-        linkedIds.push(existing._id);
-      }
-
+      if (sim > 0.72) linkedIds.push(existing._id);
       if (sim > 0.78) {
         const chargeDiff = Math.abs((existing.valence?.charge || 0) - (newAtom.valence?.charge || 0));
         if (chargeDiff > 0.5) {
           try {
-            const contradictRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
+            const cRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
               method: "POST",
               headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
               body: JSON.stringify({
                 model: CHAT_MODEL,
-                messages: [{
-                  role: "user",
-                  content: `Do these two facts directly contradict each other? Answer only "yes" or "no".\nFact A: "${existing.fact}"\nFact B: "${newAtom.fact}"`,
-                }],
+                messages: [{ role: "user", content: `Do these two facts directly contradict each other? Answer only "yes" or "no".\nFact A: "${existing.fact}"\nFact B: "${newAtom.fact}"` }],
                 temperature: 0.0, max_tokens: 10,
               }),
             });
-            if (contradictRes.ok) {
-              const cData = await contradictRes.json();
-              const answer = cData.choices?.[0]?.message?.content?.toLowerCase() || "";
-              if (answer.includes("yes")) {
+            if (cRes.ok) {
+              const cData = await cRes.json();
+              if ((cData.choices?.[0]?.message?.content || "").toLowerCase().includes("yes")) {
                 contradictIds.push(existing._id);
                 existing.contradicts = existing.contradicts || [];
                 existing.contradicts.push(newAtom._id);
               }
             }
-          } catch (e) {
-            console.error("[FLUSH-CONTRADICT]", e.message);
-          }
+          } catch (e) { console.error("[BRAIN-CONTRADICT]", e.message); }
         }
       }
     }
-
     newAtom.linkedTo = linkedIds;
     newAtom.contradicts = contradictIds;
-
-    const isDuplicate = allAtoms.some(existing =>
-      existing.embedding?.length &&
-      cosineSimilarity(existing.embedding, newAtom.embedding) > 0.92
-    );
-    if (!isDuplicate) allAtoms.push(newAtom);
+    allAtoms.push(newAtom);
+    console.log(`[BRAIN] Linked "${newAtom.fact.substring(0, 50)}" → ${linkedIds.length} existing atoms`);
   }
 
-  // ── Step 4: Molecule synthesis ────────────────────────────────────
+  // ── Step 3: Molecule synthesis — form clusters from new links ─────
   const atomMap = new Map(allAtoms.map(a => [String(a._id), a]));
-  const clustered = new Set();
+  // Track which atoms are already covered by an existing molecule
+  const clustered = new Set(
+    (memory.molecules || []).flatMap(mol => (mol.atomIds || []).map(String))
+  );
 
   for (const atom of allAtoms) {
     if (clustered.has(String(atom._id))) continue;
@@ -386,11 +427,8 @@ If nothing worth storing, return []. Return ONLY the JSON array.`;
       .filter(Boolean);
 
     if (clusterAtoms.length < 3) continue;
-
-    const existingMolecule = memory.molecules?.some(mol =>
-      mol.atomIds?.some(id => clusterIds.some(cid => String(cid) === String(id)))
-    );
-    if (existingMolecule) continue;
+    // Skip if any atom in this cluster is already in a molecule
+    if (clusterIds.some(id => clustered.has(String(id)))) continue;
 
     try {
       const clusterFacts = clusterAtoms.map(a => a.fact).join("\n- ");
@@ -431,67 +469,53 @@ If nothing worth storing, return []. Return ONLY the JSON array.`;
           });
 
           clusterIds.forEach(id => clustered.add(String(id)));
-          console.log(`[FLUSH] Synthesised molecule: "${summary.substring(0, 60)}..."`);
+          console.log(`[BRAIN] Synthesised molecule: "${summary.substring(0, 60)}..."`);
         }
       }
     } catch (e) {
-      console.error("[FLUSH-MOLECULE]", e.message);
+      console.error("[BRAIN-MOLECULE]", e.message);
     }
   }
 
-  // ── Step 5: SPT Depth Update ──────────────────────────────────────
+  // ── Step 4: SPT Depth ─────────────────────────────────────────────
   try {
     const sptRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
       body: JSON.stringify({
         model: CHAT_MODEL,
-        messages: [{
-          role: "user",
-          content: SPT_DEPTH_ASSESSMENT_PROMPT(exchangeText, memory.sptDepth || 1),
-        }],
+        messages: [{ role: "user", content: SPT_DEPTH_ASSESSMENT_PROMPT(singleExchange, memory.sptDepth || 1) }],
         temperature: 0.1, max_tokens: 80,
       }),
     });
-
     if (sptRes.ok) {
       const sptData = await sptRes.json();
       const raw = (sptData.choices?.[0]?.message?.content || "").trim();
-      // Match the leading digit only — response format is "3 — reason..." or "depth: 3"
-      // Anchoring prevents grabbing stray digits mid-sentence (e.g. "between 2 and 3")
       const depthMatch = raw.match(/^([1-4])\b/) || raw.match(/\bdepth[:\s]+([1-4])\b/i);
       if (depthMatch) {
-        const sessionDepth = parseInt(depthMatch[1]);
-        if (sessionDepth >= 1 && sessionDepth <= 4 && sessionDepth > (memory.sptDepth || 1)) {
-          memory.sptDepth = sessionDepth;
-          console.log(`[FLUSH] SPT depth updated to ${sessionDepth}`);
+        const d = parseInt(depthMatch[1]);
+        if (d >= 1 && d <= 4 && d > (memory.sptDepth || 1)) {
+          memory.sptDepth = d;
+          console.log(`[BRAIN] SPT depth updated to ${d}`);
         }
       }
     }
-  } catch (e) {
-    console.error("[FLUSH-SPT]", e.message);
-  }
+  } catch (e) { console.error("[BRAIN-SPT]", e.message); }
 
-  // ── Step 6: Update SPT breadth per topic ─────────────────────────
+  // ── Step 5: SPT breadth per topic ────────────────────────────────
   try {
     const topicRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
       body: JSON.stringify({
         model: CHAT_MODEL,
-        messages: [{
-          role: "user",
-          content: SPT_BREADTH_EXTRACTION_PROMPT(exchangeText),
-        }],
+        messages: [{ role: "user", content: SPT_BREADTH_EXTRACTION_PROMPT(singleExchange) }],
         temperature: 0.1, max_tokens: 200,
       }),
     });
-
     if (topicRes.ok) {
       const topicData = await topicRes.json();
-      const raw = topicData.choices?.[0]?.message?.content || "[]";
-      const cleaned = raw.replace(/```json|```/g, "").trim();
-      const topics = JSON.parse(cleaned);
+      const topics = JSON.parse((topicData.choices?.[0]?.message?.content || "[]").replace(/```json|```/g, "").trim());
       if (Array.isArray(topics)) {
         for (const { topic, depth } of topics) {
           const current = memory.sptBreadth.get(topic) || 0;
@@ -499,78 +523,57 @@ If nothing worth storing, return []. Return ONLY the JSON array.`;
         }
       }
     }
-  } catch (e) {
-    console.error("[FLUSH-BREADTH]", e.message);
-  }
+  } catch (e) { console.error("[BRAIN-BREADTH]", e.message); }
 
-  // ── Step 7: Relationship Narrative Update ─────────────────────────
+  // ── Step 6: Relationship narrative ───────────────────────────────
   try {
     const topAtoms = retrieveTopK(memory.memories, null, 8).map(a => a.fact).join("; ");
-    const topMols = (memory.molecules || []).slice(-3).map(m => m.summary).join("\n");
+    const topMols  = (memory.molecules || []).slice(-3).map(m => m.summary).join("\n");
     const narrativeRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
       body: JSON.stringify({
         model: CHAT_MODEL,
-        messages: [{
-          role: "user",
-          content: `Write a private journal entry (2-4 sentences) that Morrigan would write about the person she's been talking to. Capture who they are to her emotionally, any arc or change she's noticed, what she holds about them. First person. Literary, visceral, specific. No bullet points.
+        messages: [{ role: "user", content: `Write a private journal entry (2-4 sentences) that Morrigan would write about the person she's been talking to. Capture who they are to her emotionally, any arc or change she's noticed, what she holds about them. First person. Literary, visceral, specific. No bullet points.
 
 ${memory.relationshipNarrative ? `Previous entry:\n${memory.relationshipNarrative}\n\n` : ""}Key facts about them: ${topAtoms}
 ${topMols ? `Synthesised impressions:\n${topMols}\n` : ""}SPT depth reached: ${memory.sptDepth || 1}/4
-Recent session summary: ${exchangeText.slice(-600)}`,
-        }],
+Recent exchange: ${singleExchange.slice(-600)}` }],
         temperature: 0.75, max_tokens: 200,
       }),
     });
-
     if (narrativeRes.ok) {
       const narData = await narrativeRes.json();
       const narrative = narData.choices?.[0]?.message?.content?.trim() || "";
-      if (narrative) {
-        memory.relationshipNarrative = narrative;
-        console.log(`[FLUSH] Relationship narrative updated`);
-      }
+      if (narrative) { memory.relationshipNarrative = narrative; console.log(`[BRAIN] Relationship narrative updated`); }
     }
-  } catch (e) {
-    console.error("[FLUSH-NARRATIVE]", e.message);
-  }
+  } catch (e) { console.error("[BRAIN-NARRATIVE]", e.message); }
 
-  // ── Step 8: Self-Reflection State Update (Phase 2) ────────────────
+  // ── Step 7: Self-reflection ───────────────────────────────────────
   try {
     const reflectionRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
       body: JSON.stringify({
         model: CHAT_MODEL,
-        messages: [{
-          role: "user",
-          content: SELF_REFLECTION_PROMPT({
-            transcript: exchangeText,
-            previousReflection: memory.selfReflectionState,
-            relationshipNarrative: memory.relationshipNarrative,
-            trustLevel: memory.trustLevel,
-            feelings: memory.feelings,
-          }),
-        }],
+        messages: [{ role: "user", content: SELF_REFLECTION_PROMPT({
+          transcript: recentContext || singleExchange,
+          previousReflection: memory.selfReflectionState,
+          relationshipNarrative: memory.relationshipNarrative,
+          trustLevel: memory.trustLevel,
+          feelings: memory.feelings,
+        }) }],
         temperature: 0.72, max_tokens: 200,
       }),
     });
-
     if (reflectionRes.ok) {
       const reflData = await reflectionRes.json();
-      const rawReflection = reflData.choices?.[0]?.message?.content?.trim() || "";
-      const cleanReflection = rawReflection.replace(/```[a-z]*|```/g, "").trim();
-      if (cleanReflection.length > 20) {
-        memory.selfReflectionState = cleanReflection;
-        console.log(`[FLUSH] Self-reflection state updated`);
-      }
+      const clean = (reflData.choices?.[0]?.message?.content || "").trim().replace(/```[a-z]*|```/g, "").trim();
+      if (clean.length > 20) { memory.selfReflectionState = clean; console.log(`[BRAIN] Self-reflection updated`); }
     }
-  } catch (e) {
-    console.error("[FLUSH-REFLECTION]", e.message);
-  }
+  } catch (e) { console.error("[BRAIN-REFLECTION]", e.message); }
 
-  // ── Step 9: Callback Queue Generation ────────────────────────────
+  // ── Step 8: Callback queue ────────────────────────────────────────
   try {
     const existingCallbacks = (memory.callbackQueue || [])
       .filter(c => !c.consumed)
@@ -582,95 +585,94 @@ Recent session summary: ${exchangeText.slice(-600)}`,
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
       body: JSON.stringify({
         model: CHAT_MODEL,
-        messages: [{
-          role: "user",
-          content: `You are reviewing a conversation Morrigan just had. Identify 1-3 things she would genuinely want to come back to — threads left unfinished, things she noticed but didn't address, things she's curious about.
+        messages: [{ role: "user", content: `You are reviewing one exchange from a conversation Morrigan just had. Identify things she would genuinely want to come back to — threads left unfinished, things she noticed but didn't address, things she's curious about.
 
 Write each in Morrigan's voice — specific, warm, curious. Not generic.
 NOT: "User mentioned work." YES: "You started to say something about your job and then changed the subject. I noticed. I want to ask about that."
 
-${existingCallbacks ? `Already in queue (don't duplicate):\n${existingCallbacks}\n\n` : ""}CONVERSATION:
-${exchangeText}
+${existingCallbacks ? `Already in queue (don't duplicate):\n${existingCallbacks}\n\n` : ""}EXCHANGE:
+${singleExchange}
 
 Return ONLY a JSON array: [{"content": "...", "priority": "high|medium|low"}]
-Max 3 items. If nothing was genuinely unresolved, return [].`,
-        }],
+Max 2 items. If nothing was genuinely unresolved, return [].` }],
         temperature: 0.7, max_tokens: 400,
       }),
     });
 
     if (callbackRes.ok) {
       const cbData = await callbackRes.json();
-      const raw = cbData.choices?.[0]?.message?.content || "[]";
-      const cleaned = raw.replace(/```json|```/g, "").trim();
-      const newCallbacks = JSON.parse(cleaned);
-
+      const newCallbacks = JSON.parse((cbData.choices?.[0]?.message?.content || "[]").replace(/```json|```/g, "").trim());
       if (Array.isArray(newCallbacks)) {
         const priorityRank = { high: 3, medium: 2, low: 1 };
         const existing = (memory.callbackQueue || []).filter(c => !c.consumed);
-
-        // Deduplicate new callbacks against existing ones — skip if content is
-        // too similar (substring overlap > 60%) to prevent queue recycling
-        const isDuplicateContent = (newContent, existingItems) => {
-          const n = newContent.toLowerCase();
-          return existingItems.some(e => {
+        // Deduplicate — skip if content is too similar (substring overlap > 60%)
+        const isDuplicateContent = (nc, exArr) => {
+          const n = nc.toLowerCase();
+          return exArr.some(e => {
             const e2 = (e.content || "").toLowerCase();
             return e2.includes(n) || n.includes(e2) ||
               (n.length > 20 && e2.length > 20 &&
                n.split(" ").filter(w => e2.includes(w)).length / n.split(" ").length > 0.6);
           });
         };
-
         const deduped = newCallbacks
           .filter(cb => cb.content && !isDuplicateContent(cb.content, existing))
-          .map(cb => ({
-            id: uuidv4(),
-            content: cb.content,
-            priority: cb.priority || "medium",
-            sourceSessionId: String(userId),
-            consumed: false,
-            createdAt: new Date(),
-          }));
-
-        const combined = [...existing, ...deduped]
+          .map(cb => ({ id: uuidv4(), content: cb.content, priority: cb.priority || "medium", sourceSessionId: String(userId), consumed: false, createdAt: new Date() }));
+        memory.callbackQueue = [...existing, ...deduped]
           .sort((a, b) => priorityRank[b.priority] - priorityRank[a.priority])
           .slice(0, 5);
-
-        memory.callbackQueue = combined;
-        console.log(`[FLUSH] Callback queue: ${combined.length} items (${deduped.length} new, ${existing.length} carried)`);
+        if (deduped.length > 0) console.log(`[BRAIN] ${deduped.length} new callback(s) queued`);
       }
     }
-  } catch (e) {
-    console.error("[FLUSH-CALLBACKS]", e.message);
-  }
+  } catch (e) { console.error("[BRAIN-CALLBACKS]", e.message); }
 
-  // ── Step 10: Prospective Note ──────────────────────────────────────
-  const topCallback = (memory.callbackQueue || []).find(c => !c.consumed);
-  memory.prospectiveNote = topCallback?.content || null;
-
-  // ── Step 10b: Phase 5 — Loose Thread ─────────────────────────────
-  // Distinct from callbacks and prospectiveNote.
-  // This is what Morrigan is STILL holding internally — a felt presence thread.
-  // Generated last so it cannot duplicate the callback queue.
+  // ── Step 9: Prospective note + loose thread ───────────────────────
+  memory.prospectiveNote = (memory.callbackQueue || []).find(c => !c.consumed)?.content || null;
   try {
-    const thread = await generateLooseThread(exchangeText, memory);
+    const thread = await generateLooseThread(singleExchange, memory);
     if (thread) {
       memory.looseThread = thread;
       memory.looseThreadCreatedAt = new Date();
-      console.log(`[FLUSH] Loose thread: "${thread.substring(0, 70)}..."`);
+      console.log(`[BRAIN] Loose thread: "${thread.substring(0, 70)}"`);
     }
-  } catch (e) {
-    console.error("[FLUSH-THREAD]", e.message);
-  }
+  } catch (e) { console.error("[BRAIN-THREAD]", e.message); }
 
-  // ── Finalize ──────────────────────────────────────────────────────
+  // ── Persist to DB ─────────────────────────────────────────────────
   memory.lastSeen = new Date();
   memory.updatedAt = new Date();
   await memory.save();
+  console.log(`[BRAIN] Real-time update complete for user ${userId}`);
 
-  // ── Phase 5: Persist EvaluationRecord ────────────────────────────
-  // Writes the in-memory messageEvals buffer to MongoDB so the tuning
-  // report and dataset builder have real data to work with.
+  session._updating = false;
+  // Drain queue — process any exchanges that arrived while we were updating
+  if (session._updateQueue?.length > 0) {
+    const next = session._updateQueue.shift();
+    // Run next update without setImmediate so it's awaitable by the next /api/chat call
+    session._brainUpdatePromise = updateBrainAfterExchange(userId, next.userMessage, next.assistantResponse);
+  } else {
+    session._brainUpdatePromise = null;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FINALIZE SESSION — runs on logout/eviction only
+// All heavy brain-building now happens in updateBrainAfterExchange.
+// This only saves the session-aggregate data that needs a full picture:
+// EvaluationRecord, PresenceSignals, RelationshipHealth.
+// ═══════════════════════════════════════════════════════════════════
+
+async function finalizeSession(userId) {
+  const session = getSession(userId);
+  if (!session || !session.dirty) return;
+  if (session._finalizing) return;
+  session._finalizing = true;
+
+  // Wait for any in-progress brain update to finish before finalizing
+  if (session._brainUpdatePromise) {
+    try { await session._brainUpdatePromise; } catch { /* non-fatal */ }
+  }
+
+  // ── EvaluationRecord ─────────────────────────────────────────────
   try {
     const evals = session.messageEvals || [];
     if (evals.length > 0) {
@@ -679,9 +681,8 @@ Max 3 items. If nothing was genuinely unresolved, return [].`,
         ? thoughtEvals.reduce((s, e) => s + e.innerThoughtFit, 0) / thoughtEvals.length
         : null;
       const injected = evals.filter(e => e.innerThoughtSelected != null).length;
-
       await EvaluationRecord.create({
-        userId: userId,
+        userId,
         sessionDate: new Date(),
         messageEvals: evals,
         avgInnerThoughtFit,
@@ -689,37 +690,29 @@ Max 3 items. If nothing was genuinely unresolved, return [].`,
         injectionRate: evals.length > 0 ? injected / evals.length : 0,
         scoringWeightsUsed: { similarity: 0.55, importance: 0.25, recency: 0.10, valence: 0.10 },
       });
-      console.log(`[FLUSH] EvaluationRecord saved — ${evals.length} message evals, avgInnerThoughtFit: ${avgInnerThoughtFit?.toFixed(2) ?? "n/a"}`);
+      console.log(`[FINALIZE] EvaluationRecord saved — ${evals.length} evals, avgFit: ${avgInnerThoughtFit?.toFixed(2) ?? "n/a"}`);
     }
-  } catch (e) {
-    console.error("[FLUSH-EVALRECORD]", e.message);
-  }
+  } catch (e) { console.error("[FINALIZE-EVALRECORD]", e.message); }
 
-  // ── Phase 6: Record PresenceSignals + compute RelationshipHealth ──
-  // Non-blocking — runs after all other flush steps complete.
+  // ── PresenceSignals + RelationshipHealth (Phase 6) ────────────────
   const sessionIdForSignals = session.currentSessionId || `sess_${Date.now()}`;
-  const exchangesSnapshot = [...sessionExchanges];
+  const exchangesSnapshot = [...(session.sessionExchanges || [])];
   setImmediate(async () => {
     try {
       await recordPresenceSignals(userId, sessionIdForSignals, exchangesSnapshot);
-      // Compute health monthly — only if not computed in the last 28 days
       const health = await RelationshipHealth.findOne({ userId });
       const daysSinceCompute = health?.lastComputed
         ? (Date.now() - health.lastComputed.getTime()) / 86400000
         : 999;
-      if (daysSinceCompute >= 28) {
-        await computeRelationshipHealth(userId);
-      }
-    } catch (e) {
-      console.error("[PHASE6-FLUSH]", e.message);
-    }
+      if (daysSinceCompute >= 28) await computeRelationshipHealth(userId);
+    } catch (e) { console.error("[FINALIZE-PHASE6]", e.message); }
   });
 
   session.dirty = false;
-  session._flushing = false;
+  session._finalizing = false;
   session.sessionExchanges = [];
   session.messageEvals = [];
-  console.log(`[FLUSH] Pipeline complete for user ${userId}`);
+  console.log(`[FINALIZE] Session finalized for user ${userId}`);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -876,7 +869,7 @@ Return ONLY her opening. No preamble. No labels. Just what she says.`;
 // ═══════════════════════════════════════════════════════════════════
 
 // Compute PresenceSignals for the session just ended.
-// Called from flushSession after the EvaluationRecord is saved.
+// Called from finalizeSession after the EvaluationRecord is saved.
 // returnWithin48h is populated on the NEXT login (see auth route).
 async function recordPresenceSignals(userId, sessionId, sessionExchanges) {
   try {
@@ -2107,7 +2100,7 @@ app.post("/api/auth/phrase", async (req, res) => {
 
 app.post("/api/session/end", auth, async (req, res) => {
   try {
-    await flushSession(req.user.id);
+    await finalizeSession(req.user.id);
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -2146,7 +2139,7 @@ app.get("/api/session/greeting", auth, async (req, res) => {
         role: "assistant",
         content: greeting,
       });
-      // Buffer so flushSession can pair it with the first user turn
+      // Buffer so the brain update can pair it with the first user turn
       session.pendingGreeting = greeting;
     }
 
@@ -2432,10 +2425,23 @@ app.post("/api/chat", auth, async (req, res) => {
     return res.status(400).json({ error: "Invalid conversationId format." });
   }
 
-  // ── Per-user rate limiting ────────────────────────────────────────
+  // ── Per-user burst guard (10s window) ────────────────────────────
   if (!checkChatRate(req.user.id)) {
     return res.status(429).json({ error: "Too many requests. Please slow down." });
   }
+
+  // ── Daily IP limit ────────────────────────────────────────────────
+  const clientIpForLimit = req.ip || "unknown";
+  const ipEntry = getIpUsage(clientIpForLimit);
+  if (ipEntry.count >= DAILY_MSG_LIMIT) {
+    const resetAt = new Date(ipEntry.resetAt).toISOString();
+    return res.status(429).json({
+      error: `Daily message limit reached (${DAILY_MSG_LIMIT}/day). Resets at midnight UTC.`,
+      used: ipEntry.count, limit: DAILY_MSG_LIMIT, remaining: 0, resetAt,
+    });
+  }
+  // Increment now — before LLM call so concurrent requests can't race past the limit
+  ipEntry.count++;
 
   // ── Verify conversation belongs to this user (prevents cross-user message injection)
   const convoOwner = await Conversation.findOne({ conversationId, userId: req.user.id });
@@ -2453,9 +2459,20 @@ app.post("/api/chat", auth, async (req, res) => {
   if (!session) {
     let memory = await PersonalityMemory.findOne({ userId: req.user.id });
     if (!memory) memory = await PersonalityMemory.create({ userId: req.user.id });
-    session = { memory, sessionExchanges: [], dirty: false, isSessionStart: true };
+    session = { memory, sessionExchanges: [], dirty: false, isSessionStart: true, _updating: false, _updateQueue: [], _brainUpdatePromise: null };
     setSession(req.user.id, session);
     console.log(`[CACHE] Cold load for user ${req.user.id}`);
+  }
+
+  // Wait for the brain update from the previous exchange to finish before
+  // building this response — Morrigan reads her updated memory first.
+  if (session._brainUpdatePromise) {
+    try {
+      await session._brainUpdatePromise;
+    } catch (e) {
+      console.error("[BRAIN-AWAIT]", e.message); // non-fatal — continue with current memory
+    }
+    session._brainUpdatePromise = null;
   }
 
   // ── Record pending greeting as a standalone assistant turn ───────────
@@ -2909,6 +2926,7 @@ app.post("/api/chat", auth, async (req, res) => {
         });
       }
       if (!res.writableEnded) {
+        const usageForDone = getIpUsage(clientIpForLimit);
         res.write(`data: ${JSON.stringify({
           done: true,
           finalResponse: composedResponse,
@@ -2920,8 +2938,21 @@ app.post("/api/chat", auth, async (req, res) => {
             sptDepth: session.memory.sptDepth || 1,
           },
           processingMeta: processingMetaForDone,
+          usage: {
+            used: usageForDone.count,
+            limit: DAILY_MSG_LIMIT,
+            remaining: Math.max(0, DAILY_MSG_LIMIT - usageForDone.count),
+            resetAt: new Date(usageForDone.resetAt).toISOString(),
+          },
         })}\n\n`);
         res.end();
+        // Kick off real-time brain update AFTER the response is delivered.
+        // Store the promise on the session so the NEXT /api/chat call can
+        // await it — Morrigan's brain is fully updated before she reads
+        // the next message, just like a human processing what was just said.
+        if (composedResponse) {
+          session._brainUpdatePromise = updateBrainAfterExchange(req.user.id, message, composedResponse);
+        }
       }
     };
 
@@ -3281,6 +3312,18 @@ app.get("/api/phase6/presence", auth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ── Daily usage for requesting IP ────────────────────────────────
+app.get("/api/usage", (req, res) => {
+  const ip = req.ip || "unknown";
+  const entry = getIpUsage(ip);
+  res.json({
+    used: entry.count,
+    limit: DAILY_MSG_LIMIT,
+    remaining: Math.max(0, DAILY_MSG_LIMIT - entry.count),
+    resetAt: new Date(entry.resetAt).toISOString(),
+  });
+});
+
 // ═══════════════════════════════════════════════════════════════════
 // STATUS — LLM + EMBEDDING HEALTH CHECK
 // ═══════════════════════════════════════════════════════════════════
@@ -3294,8 +3337,10 @@ app.get("/api/status", async (req, res) => {
         method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
         body: JSON.stringify(body), signal: ctrl.signal,
       });
-      return r.ok;
-    } catch { return false; } finally { clearTimeout(timer); }
+      return { ok: r.ok, status: r.status };
+    } catch (e) {
+      return { ok: false, status: e.name === "AbortError" ? "timeout" : "unreachable" };
+    } finally { clearTimeout(timer); }
   };
 
   const [llm, embed] = await Promise.all([
@@ -3303,7 +3348,16 @@ app.get("/api/status", async (req, res) => {
     ping(`${COLAB_URL}/v1/embeddings`,        { model: EMBED_MODEL, input: "test" }),
   ]);
 
-  res.json({ ollama: llm, embeddings: embed, model: CHAT_MODEL, backend: "kaggle", mongo: true });
+  res.json({
+    ollama: llm.ok,
+    embeddings: embed.ok,
+    model: CHAT_MODEL,
+    embedModel: EMBED_MODEL,
+    backend: COLAB_URL,
+    mongo: true,
+    // diagnostic: exact HTTP status codes so you can see WHY they're failing
+    _diag: { chat: llm.status, embed: embed.status },
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════

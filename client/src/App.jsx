@@ -97,10 +97,9 @@ const MSERIF   = "'Crimson Pro', Georgia, serif";
 const MDISPLAY = "'Playfair Display', 'Crimson Pro', serif";
 
 const MONITOR_TABS = [
-  { id: "status",   label: "System Status",   icon: "◉" },
-  { id: "dataflow", label: "Data Flow",        icon: "⇄" },
-  { id: "session",  label: "Session & Memory", icon: "◈" },
-  { id: "phase5",   label: "Phase 5",          icon: "∞" },
+  { id: "status",  label: "System",       icon: "◉" },
+  { id: "session", label: "Session",      icon: "◈" },
+  { id: "phase5",  label: "Intelligence", icon: "∞" },
 ];
 
 function MLabel({ children, color = MON.accent }) {
@@ -172,18 +171,18 @@ function StatusTab({ status, user, conversations, messages, liveHealth }) {
       detail: endpoint.replace("https://", "").replace("http://", ""),
     },
     {
-      key: "ollama", label: "LLM — llama-cpp via Kaggle",
+      key: "ollama", label: "Chat — OpenRouter",
       live: status.ollama,
-      description: "Streaming chat completions. Running uncensored_llama.gguf on T4×2 GPU. inject_system: false keeps Express in control of the full prompt.",
-      route: "POST /v1/chat/completions → Kaggle",
-      detail: liveHealth?.vram_gb != null ? `${liveHealth.vram_gb} GB VRAM in use` : "uncensored_llama.gguf",
+      description: "Streaming chat completions via OpenRouter. inject_system: false keeps Express in control of the full prompt.",
+      route: "POST /v1/chat/completions → OpenRouter",
+      detail: status.model || "chat model",
     },
     {
-      key: "embeddings", label: "Embeddings — llama_cpp embedding mode",
+      key: "embeddings", label: "Embeddings — OpenRouter",
       live: status.embeddings,
-      description: "Second Llama instance with embedding=True and n_ctx=512. Converts memory atoms to vectors for cosine similarity retrieval.",
-      route: "POST /v1/embeddings → Kaggle",
-      detail: "same GGUF, separate instance · T4×2 VRAM",
+      description: "Converts memory atoms to vectors for cosine similarity retrieval.",
+      route: "POST /v1/embeddings → OpenRouter",
+      detail: status.embedModel || "embed model",
     },
     {
       key: "mongo", label: "MongoDB Atlas",
@@ -225,88 +224,16 @@ function StatusTab({ status, user, conversations, messages, liveHealth }) {
         </MCard>
         <MCard><MLabel>Environment</MLabel>
           <MRow label="API BASE"    value={endpoint.replace("https://", "").replace("http://", "")} valueColor={MON.blue} />
-          <MRow label="LLM BACKEND" value="Kaggle T4×2 GPU" />
-          <MRow label="TUNNEL"      value="ngrok" />
+          <MRow label="LLM BACKEND" value="OpenRouter" valueColor={MON.green} />
+          <MRow label="CHAT MODEL"  value={status.model || "—"} />
+          <MRow label="EMBED MODEL" value={status.embedModel || "—"} />
         </MCard>
       </div>
     </div>
   );
 }
 
-// ── Tab 2: Data Flow ──────────────────────────────────────────────
-
-function DataFlowTab({ livePersonality }) {
-  const p   = livePersonality?.summary;
-  const raw = livePersonality?.full;
-  const hoursSince    = p?.lastSeen ? Math.floor((Date.now() - new Date(p.lastSeen)) / 3600000) : 0;
-  const memoriesCount = raw?.memories?.length ?? p?.memoriesCount ?? 0;
-  const trustLevel    = p?.trustLevel ?? 0;
-
-  const lifecycle = [
-    { step: "1", label: "User sends message",           color: MON.accent,    detail: "Client → POST /api/chat with JWT. Message appended to local state immediately." },
-    { step: "2", label: "Express: auth + session load", color: MON.blue,      detail: "JWT verified. sessionCache checked — warm hit = zero DB reads. Cold miss = fetch PersonalityMemory from MongoDB." },
-    { step: "3", label: "buildSystemPrompt()",          color: MON.purple,    detail: "10-layer prompt assembled: relationship narrative + self-reflection → character → trust guide → SPT note → prospective note → time context → memory → usage guide → session → continuation signal." },
-    { step: "4", label: "Self-atom hint injected",      color: MON.pink,      detail: "Top-2 depth-eligible SelfAtoms appended at position 4.5 — things Morrigan could share if the moment is right." },
-    { step: "5", label: "Proxy to Kaggle LLM",          color: MON.green,     detail: "POST to Kaggle ngrok → /v1/chat/completions · stream: true · inject_system: false. Full history sent — LLMs are stateless." },
-    { step: "6", label: "Stream response to client",    color: MON.green,     detail: "SSE chunks forwarded as they arrive. Client appends each token to streamText, producing the typing effect." },
-    { step: "7", label: "Save + trust update",          color: MON.textSoft,  detail: "Both messages written to MongoDB. Keyword scan updates trustPoints and feelings in session RAM." },
-    { step: "8", label: "Flush on session end",         color: MON.pink,      detail: "flushSession(): extract atoms → embed → link → contradict → molecules → SPT depth → SPT breadth → relationship narrative → self-reflection → callbacks → prospective note." },
-  ];
-
-  const layers = [
-    { id: "narrative", color: MON.pink,     label: "① Relationship Narrative + Self-Reflection", tokens: "~200 tokens · rewritten each session",  source: "PersonalityMemory.relationshipNarrative + selfReflectionState", description: "[Who he is to me] + [What I am sitting with]. Both blocks set the emotional frame before anything else. Self-reflection is about Morrigan — her patterns, hesitations, what she's carrying.", active: !!(raw?.relationshipNarrative || raw?.selfReflectionState), conditional: true },
-    { id: "char",      color: MON.accent,   label: "② Character Spec",                           tokens: "~3,200 tokens",                          source: "CHARACTER_DEFAULT_PROMPT", description: "Full Morrigan: appearance, trauma history, psychology, speech patterns, CPTSD, Dr. Yun, Percy the cat. Always injected.", active: true },
-    { id: "trust",     color: MON.green,    label: "③ Trust Behavior Guide",                     tokens: "~150 tokens",                            source: "TRUST_LEVELS[level]", description: `Level ${trustLevel} (${TRUST_LEVELS[trustLevel]?.name ?? "?"}) — controls guard level, sarcasm, warmth, response length.`, active: true },
-    { id: "spt",       color: MON.purple,   label: "④ SPT Note",                                 tokens: "~50 tokens",                             source: "buildSPTNote(memory.sptDepth)", description: `Depth ${raw?.sptDepth ?? 1}/4. Hard-gates how vulnerable Morrigan can be. Includes validation-before-disclosure constraint — she responds to him before sharing anything about herself.`, active: true },
-    { id: "atoms",     color: MON.pink,     label: "④.5 Self-Atom Hint",                         tokens: "~80 tokens",                             source: "SelfAtom collection · depth-gated", description: "Top-2 eligible self-atoms Morrigan could share if the moment is right. Depth-gated — depth-4 atoms never appear until sptDepth=4.", active: true },
-    { id: "prospective", color: MON.pink,   label: "⑥ Prospective Note",                        tokens: "~50 tokens · session start only",         source: "memory.prospectiveNote", description: "What Morrigan has been sitting with since last session. Injected at session start only.", active: hoursSince > 2, conditional: true },
-    { id: "time",      color: MON.amber,    label: "⑦ Time Absence Context",                     tokens: "~50 tokens",                             source: "Date.now() − memory.lastSeen", description: hoursSince > 48 ? `${hoursSince}h — strong context: she missed you.` : hoursSince > 24 ? `${hoursSince}h — mild: she noticed.` : `${hoursSince}h — recent, not injected.`, active: hoursSince > 24, conditional: true },
-    { id: "memory",    color: MON.blue,     label: "⑧ Memory + Molecules + Tensions",            tokens: `${memoriesCount} atoms`,                 source: "PersonalityMemory.memories + molecules", description: "All known facts sorted by importance, molecule paragraphs, contradiction pairs with temporal markers.", active: true },
-    { id: "reference", color: MON.blue,     label: "⑨ Memory Usage Guide",                       tokens: "~80 tokens",                             source: "static", description: "Weave naturally, respect temporal markers, hold contradictions, never list facts robotically.", active: true },
-    { id: "continuation", color: MON.accent,label: "⑩ Continuation Signal",                     tokens: "~80 tokens",                             source: "static", description: "She is not a chatbot waiting to be addressed. She has things she wants to say. Prevents mechanical question-ending.", active: true },
-  ];
-
-  return (
-    <div>
-      <MSecHead icon="⇄" title="Request Lifecycle" color={MON.accent} />
-      <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 10 }}>
-        {lifecycle.map(({ step, label, detail, color }) => (
-          <div key={step} style={{ display: "flex", gap: 16, alignItems: "flex-start", padding: "14px 18px", background: MON.surface, border: `1px solid ${color}20`, borderLeft: `4px solid ${color}`, borderRadius: 10 }}>
-            <div style={{ width: 26, height: 26, borderRadius: "50%", flexShrink: 0, marginTop: 2, background: color + "15", border: `1.5px solid ${color}50`, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: MMONO, fontSize: 11, color, fontWeight: 700 }}>{step}</div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontFamily: MMONO, fontSize: 13, color, fontWeight: 600, marginBottom: 4 }}>{label}</div>
-              <div style={{ fontFamily: MSERIF, fontSize: 15, color: MON.textSoft, lineHeight: 1.65 }}>{detail}</div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <MSecHead icon="📋" title="System Prompt Layers" color={MON.purple} />
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {layers.map(({ id, color, label, tokens, source, description, active, conditional }) => (
-          <div key={id} style={{ display: "flex", background: MON.surface, border: `1px solid ${color}${active ? "25" : "10"}`, borderRadius: 12, overflow: "hidden", opacity: active ? 1 : 0.45 }}>
-            <div style={{ width: 5, background: color, flexShrink: 0 }} />
-            <div style={{ padding: "14px 20px", flex: 1 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6, flexWrap: "wrap" }}>
-                <span style={{ fontFamily: MMONO, fontSize: 13, color, fontWeight: 700 }}>{label}</span>
-                <span style={{ fontFamily: MMONO, fontSize: 11, color: MON.textDim, background: MON.surface2, borderRadius: 4, padding: "2px 8px" }}>{tokens}</span>
-                {conditional && (
-                  <span style={{ fontFamily: MMONO, fontSize: 10, color: active ? MON.green : MON.amber, background: (active ? MON.green : MON.amber) + "12", borderRadius: 4, padding: "2px 8px", border: `1px solid ${(active ? MON.green : MON.amber)}25` }}>
-                    {active ? "ACTIVE" : "INACTIVE"}
-                  </span>
-                )}
-              </div>
-              <div style={{ fontFamily: MSERIF, fontSize: 15, color: MON.textSoft, lineHeight: 1.65, marginBottom: 6 }}>{description}</div>
-              <span style={{ fontFamily: MMONO, fontSize: 10, color: MON.textDim }}>source: {source}</span>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ── Tab 3: Session & Memory ───────────────────────────────────────
+// ── Tab 2: Session & Memory ───────────────────────────────────────
 
 function SessionTab({ messages, livePersonality }) {
   const p   = livePersonality?.summary;
@@ -786,10 +713,9 @@ function ExplainPanel({ onClose, token, user, conversations, messages, status })
           </div>
         </div>
         <div style={{ flex: 1, overflowY: "auto", padding: "8px 36px 60px" }}>
-          {activeTab === "status"   && <StatusTab   status={status} user={user} conversations={conversations} messages={messages} liveHealth={liveHealth} />}
-          {activeTab === "dataflow" && <DataFlowTab livePersonality={livePersonality} />}
-          {activeTab === "session"  && <SessionTab  messages={messages} livePersonality={livePersonality} />}
-          {activeTab === "phase5"   && <Phase5Tab   token={token} />}
+          {activeTab === "status"  && <StatusTab  status={status} user={user} conversations={conversations} messages={messages} liveHealth={liveHealth} />}
+          {activeTab === "session" && <SessionTab messages={messages} livePersonality={livePersonality} />}
+          {activeTab === "phase5"  && <Phase5Tab  token={token} />}
         </div>
       </div>
       <style>{`button:focus{outline:none}::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:${MON.border};border-radius:3px}`}</style>
@@ -1342,6 +1268,7 @@ export default function App() {
   const [streaming,     setStreaming]     = useState(false);
   const [streamText,    setStreamText]    = useState("");
   const [status,        setStatus]        = useState({ ollama: false, embeddings: false });
+  const [usage,         setUsage]         = useState({ used: 0, limit: 100, remaining: 100, resetAt: null });
   const [currentMood,   setCurrentMood]   = useState("neutral");
   const [showExplain,   setShowExplain]   = useState(false);
   const messagesEndRef = useRef(null);
@@ -1367,6 +1294,11 @@ export default function App() {
     if (!authed) return;
     const ck = () => fetch(`${API}/api/status`).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }).then(setStatus).catch(() => {});
     ck(); const iv = setInterval(ck, 30000); return () => clearInterval(iv);
+  }, [authed]);
+
+  useEffect(() => {
+    if (!authed) return;
+    fetch(`${API}/api/usage`).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }).then(setUsage).catch(() => {});
   }, [authed]);
 
   useEffect(() => {
@@ -1475,6 +1407,7 @@ export default function App() {
                 setMessages(p => [...p, { role: "assistant", content: finalText, timestamp: new Date(), meta: json.processingMeta || null }]);
                 setConversations(p => p.map(c => c.conversationId === cid ? { ...c, title: `🖤 ${finalText.substring(0, 40)}${finalText.length > 40 ? "..." : ""}`, updatedAt: new Date() } : c));
               }
+              if (json.usage) setUsage(json.usage);
               setStreamText("");
               setStreaming(false);
               break outer; // exit immediately — prevents dots flash and stray reads
@@ -1535,12 +1468,6 @@ export default function App() {
               onMouseLeave={e => { e.currentTarget.style.background = T.accentSoft; e.currentTarget.style.color = T.accent; }}>
               ⚙ monitor
             </button>
-            {[["chat", "ollama"], ["embed", "embeddings"]].map(([label, key]) => (
-              <div key={key} style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                <span style={{ width: 6, height: 6, borderRadius: "50%", display: "inline-block", background: status[key] ? T.green : T.red, boxShadow: status[key] ? `0 0 6px ${T.green}` : "none" }} />
-                <span style={{ color: T.textDim, fontSize: 10, fontFamily: FONT_MONO }}>{label}</span>
-              </div>
-            ))}
             <button onClick={handleLogout}
               style={{ background: "transparent", border: `1px solid ${T.border}`, borderRadius: 8, padding: "4px 12px", color: T.textDim, fontSize: 11, cursor: "pointer", fontFamily: FONT_MONO }}
               onMouseEnter={e => { e.currentTarget.style.borderColor = T.red; e.currentTarget.style.color = T.red; }}
@@ -1549,6 +1476,25 @@ export default function App() {
             </button>
           </div>
         </div>
+
+        {/* Daily usage bar */}
+        {(() => {
+          const pct = usage.limit > 0 ? (usage.used / usage.limit) * 100 : 0;
+          const barColor = pct >= 90 ? T.red : pct >= 60 ? "#f59e0b" : T.green;
+          const resetTime = usage.resetAt ? new Date(usage.resetAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : null;
+          return (
+            <div style={{ height: 28, borderBottom: `1px solid ${T.border}`, background: T.surface, display: "flex", alignItems: "center", gap: 10, padding: "0 24px", flexShrink: 0 }}>
+              <span style={{ fontFamily: FONT_MONO, fontSize: 9, color: T.textDim, letterSpacing: "0.8px", flexShrink: 0 }}>DAILY</span>
+              <div style={{ flex: 1, height: 4, background: T.surface3, borderRadius: 2, overflow: "hidden" }}>
+                <div style={{ height: "100%", width: `${pct}%`, background: barColor, borderRadius: 2, transition: "width 0.5s ease" }} />
+              </div>
+              <span style={{ fontFamily: FONT_MONO, fontSize: 9, color: pct >= 90 ? T.red : T.textDim, flexShrink: 0 }}>
+                {usage.used} / {usage.limit}
+                {pct >= 90 && resetTime ? ` — resets ${resetTime}` : ""}
+              </span>
+            </div>
+          );
+        })()}
 
         {/* Messages */}
         <div style={{ flex: 1, overflowY: "auto", padding: "28px 32px" }}>
