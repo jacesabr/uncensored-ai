@@ -187,7 +187,7 @@ function StatusTab({ status, user, conversations, messages, liveHealth }) {
     },
     {
       key: "mongo", label: "MongoDB Atlas",
-      live: liveHealth?.mongo ?? true,
+      live: liveHealth?.mongo ?? (liveHealth ? true : null),
       description: "Permanent storage for PersonalityMemory (trust, feelings, memories, self-reflection), Conversations, and Messages.",
       route: "mongoose ODM · auto-reconnect",
       detail: "PersonalityMemory · Conversations · Messages · SelfAtoms",

@@ -3080,25 +3080,24 @@ app.get("/api/phase6/presence", auth, async (req, res) => {
 // ═══════════════════════════════════════════════════════════════════
 
 app.get("/api/status", async (req, res) => {
-  let llm = false, embed = false;
+  const ping = async (url, body) => {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8000);
+    try {
+      const r = await fetch(url, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body), signal: ctrl.signal,
+      });
+      return r.ok;
+    } catch { return false; } finally { clearTimeout(timer); }
+  };
 
-  try {
-    const r = await fetch(`${COLAB_URL}/v1/chat/completions`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model: CHAT_MODEL, messages: [{ role: "user", content: "ping" }], max_tokens: 1, inject_system: false }),
-    });
-    llm = r.ok;
-  } catch {}
+  const [llm, embed] = await Promise.all([
+    ping(`${COLAB_URL}/v1/chat/completions`, { model: CHAT_MODEL, messages: [{ role: "user", content: "ping" }], max_tokens: 1, inject_system: false }),
+    ping(`${COLAB_URL}/v1/embeddings`,        { model: CHAT_MODEL, input: "test" }),
+  ]);
 
-  try {
-    const r = await fetch(`${COLAB_URL}/v1/embeddings`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model: CHAT_MODEL, input: "test" }),
-    });
-    embed = r.ok;
-  } catch {}
-
-  res.json({ ollama: llm, embeddings: embed, model: CHAT_MODEL, backend: "kaggle" });
+  res.json({ ollama: llm, embeddings: embed, model: CHAT_MODEL, backend: "kaggle", mongo: true });
 });
 
 // ═══════════════════════════════════════════════════════════════════
