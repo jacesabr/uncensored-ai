@@ -257,6 +257,7 @@ User types → Frontend analyzeMood() → POST /api/chat (JWT)
 | 2026-02-25 | Fixed `/api/health` 404 — client now calls `/api/status` (the endpoint that exists) | client/src/App.jsx |
 | 2026-02-25 | Fixed status endpoint — pings now run in parallel with 8s AbortController timeout (was sequential ~30s) | server/index.js |
 | 2026-02-25 | Fixed auth flash on reload — `authed`/`user` initialized synchronously from localStorage | client/src/App.jsx |
+| 2026-02-25 | Migrated LLM backend from Kaggle/Colab+ngrok → OpenRouter API. Added `OPENROUTER_API_KEY`, `EMBED_MODEL`. Updated all 21 fetch headers + 2 embedding model refs. New defaults: `CHAT_MODEL=meta-llama/llama-3.1-8b-instruct`, `COLAB_URL=https://openrouter.ai/api/v1`, `EMBED_MODEL=openai/text-embedding-3-small` | server/index.js |
 
 ---
 

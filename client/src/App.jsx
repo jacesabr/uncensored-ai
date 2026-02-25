@@ -493,14 +493,14 @@ function Phase5Tab({ token }) {
   const [loading,  setLoading]  = useState(true);
   const [building, setBuilding] = useState(false);
   const endpoint = import.meta.env.VITE_API_URL || "http://localhost:5000";
-  const hdrs = () => ({ "Content-Type": "application/json", Authorization: `Bearer ${token}` });
+  const hdrs = () => ({ "Content-Type": "application/json", Authorization: `Bearer ${typeof token === "function" ? token() : token}` });
 
   useEffect(() => {
     (async () => {
       setLoading(true);
       try {
         const [s, t] = await Promise.allSettled([
-          fetch(`${endpoint}/api/phase5/health`, { headers: hdrs() }).then(r => r.json()),
+          fetch(`${endpoint}/api/phase5/status`, { headers: hdrs() }).then(r => r.json()),
           fetch(`${endpoint}/api/phase5/tuning`,  { headers: hdrs() }).then(r => r.json()),
         ]);
         if (s.status === "fulfilled") setStatus(s.value);
@@ -789,7 +789,7 @@ function ExplainPanel({ onClose, token, user, conversations, messages, status })
           {activeTab === "status"   && <StatusTab   status={status} user={user} conversations={conversations} messages={messages} liveHealth={liveHealth} />}
           {activeTab === "dataflow" && <DataFlowTab livePersonality={livePersonality} />}
           {activeTab === "session"  && <SessionTab  messages={messages} livePersonality={livePersonality} />}
-          {activeTab === "phase5"   && <Phase5Tab   token={token()} />}
+          {activeTab === "phase5"   && <Phase5Tab   token={token} />}
         </div>
       </div>
       <style>{`button:focus{outline:none}::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:${MON.border};border-radius:3px}`}</style>
@@ -930,182 +930,296 @@ function FormatMessage({ text, bold }) {
 }
 
 function ProcessingMeta({ meta }) {
+  const [open, setOpen] = useState(false);
+  const [sec, setSec] = useState({ reservoir: false, atoms: true, knowledge: true, molecules: true, state: true, history: false });
   if (!meta) return null;
-  const m = meta.memorySummary;
+  const m = meta.memorySummary || {};
+  const tog = k => setSec(s => ({ ...s, [k]: !s[k] }));
 
-  const card    = { background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 14, padding: "18px 22px", marginBottom: 8, fontFamily: FONT_MONO, fontSize: 13, color: T.textSoft, lineHeight: 1.75 };
-  const secHead = { display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 10.5, fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", color: T.accent, marginTop: 16, marginBottom: 8, paddingBottom: 5, borderBottom: `1px solid ${T.border}` };
-  const grid2   = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 28px" };
-  const dimKey  = { color: T.textDim, minWidth: 120, flexShrink: 0, fontSize: 12 };
-  const val     = { color: T.text };
+  const DEPTH_CLR = { 1: "#10b981", 2: "#0ea5e9", 3: "#9f67ff", 4: "#dc2626" };
+  const DEPTH_LBL = { 1: "surface", 2: "exploratory", 3: "affective", 4: "core" };
+  const GOAL_CLR  = { comfort: "#f59e0b", venting: "#dc2626", connection: "#10b981", distraction: "#0ea5e9", neutral: T.textDim };
 
-  const kv = (k, v, full) => (v != null && v !== "") ? (
-    <div style={{ display: "flex", gap: 8, marginBottom: 1 }}>
-      <span style={dimKey}>{k}</span>
-      <span style={{ ...val, flex: full ? 1 : undefined }}>{String(v)}</span>
+  const hasKnowledge = m.userName || m.memories?.interests?.length || m.memories?.emotional?.length
+    || m.memories?.personal?.length || m.memories?.relationships?.length
+    || m.memories?.events?.length   || m.memories?.preferences?.length;
+  const hasState = m.relationshipNarrative || m.prospectiveNote || m.looseThread;
+
+  const Pill = ({ label, value, on }) => (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: on ? T.accentSoft : T.surface2, border: `1px solid ${on ? T.accent + "40" : T.border}`, borderRadius: 6, padding: "2px 8px", fontSize: 11, marginRight: 5, marginBottom: 4 }}>
+      <span style={{ color: T.textDim }}>{label}</span>
+      <span style={{ color: on ? T.accent : T.text, fontWeight: on ? 600 : 400 }}>{value}</span>
+    </span>
+  );
+
+  const SecBtn = ({ label, count, sk, alwaysShow }) => (
+    <div onClick={() => tog(sk)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 10, fontWeight: 700, letterSpacing: "1.2px", textTransform: "uppercase", color: T.accent, marginTop: 14, marginBottom: 6, paddingBottom: 5, borderBottom: `1px solid ${T.border}`, cursor: "pointer", userSelect: "none" }}>
+      <span>{label}{count != null ? <span style={{ color: T.textDim, fontWeight: 400, fontSize: 10, marginLeft: 5 }}>({count})</span> : ""}</span>
+      <span style={{ color: T.textDim, fontSize: 11 }}>{sec[sk] ? "▲" : "▼"}</span>
+    </div>
+  );
+
+  const KV = ({ label, value, italic, accent }) => value != null && String(value).trim() ? (
+    <div style={{ display: "flex", gap: 8, marginBottom: 4, alignItems: "flex-start" }}>
+      <span style={{ color: T.textDim, fontSize: 11, minWidth: 110, flexShrink: 0 }}>{label}</span>
+      <span style={{ color: accent ? T.accent : T.textSoft, fontSize: 12, flex: 1, fontStyle: italic ? "italic" : "normal", lineHeight: 1.55 }}>{String(value)}</span>
     </div>
   ) : null;
 
-  const memList = (label, arr) => arr?.length > 0 ? (
-    <div style={{ display: "flex", gap: 8, marginBottom: 2 }}>
-      <span style={dimKey}>{label}</span>
-      <span style={{ color: T.textSoft, flex: 1 }}>
-        {arr.map((x, i) => (
-          <span key={i}>{x.isPast ? <span style={{ color: T.textDim, fontSize: 11 }}>[past] </span> : ""}{x.fact}{i < arr.length - 1 ? <span style={{ color: T.textDim }}> · </span> : ""}</span>
-        ))}
+  const MemRow = ({ label, arr }) => arr?.length ? (
+    <div style={{ display: "flex", gap: 8, marginBottom: 4, alignItems: "flex-start" }}>
+      <span style={{ color: T.textDim, fontSize: 11, minWidth: 110, flexShrink: 0 }}>{label}</span>
+      <span style={{ color: T.textSoft, fontSize: 12, flex: 1, lineHeight: 1.55 }}>
+        {arr.map((x, i) => <React.Fragment key={i}>
+          {x.isPast && <span style={{ color: T.textDim, fontSize: 10 }}>[past] </span>}
+          {x.fact}{i < arr.length - 1 && <span style={{ color: T.textDim }}> · </span>}
+        </React.Fragment>)}
       </span>
     </div>
   ) : null;
 
-  const hasKnowledge = m && (m.userName || m.memories?.interests?.length || m.memories?.emotional?.length || m.memories?.personal?.length || m.memories?.relationships?.length || m.memories?.events?.length || m.memories?.preferences?.length);
-  const hasState = m && (m.relationshipNarrative || m.prospectiveNote || m.looseThread);
+  const Bar = ({ label, value, color }) => (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+      <span style={{ color: T.textDim, fontSize: 11, minWidth: 108, flexShrink: 0 }}>{label}</span>
+      <div style={{ flex: 1, height: 5, borderRadius: 3, background: T.surface3, overflow: "hidden" }}>
+        <div style={{ height: "100%", width: `${value || 0}%`, background: color, borderRadius: 3, transition: "width 0.4s ease" }} />
+      </div>
+      <span style={{ color: T.text, fontSize: 11, minWidth: 22, textAlign: "right", fontFamily: FONT_MONO }}>{value ?? 0}</span>
+    </div>
+  );
+
+  // Compact summary line always shown in header
+  const summaryParts = [
+    `spt ${meta.sptDepth}/4`,
+    meta.goalState && meta.goalState !== "neutral" ? `${meta.goalState}` : null,
+    meta.triggerFired ? "triggered" : null,
+    meta.compositionApplied ? "composed" : null,
+    meta.atRisk ? "⚠ at-risk" : null,
+  ].filter(Boolean).join("  ·  ");
 
   return (
-    <div style={card}>
+    <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, marginBottom: 10, fontFamily: FONT_MONO, fontSize: 12, overflow: "hidden", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
 
-      {/* ── Header ── */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-        <span style={{ color: T.accent, fontWeight: 700, fontSize: 12, letterSpacing: "0.8px" }}>PROCESSING TRACE</span>
-        <span style={{ color: T.textDim, fontSize: 12 }}>msg #{meta.msgCount}</span>
-      </div>
-
-      {/* ── Core stats grid ── */}
-      <div style={grid2}>
-        {kv("spt depth", `${meta.sptDepth} / 4`)}
-        {kv("trigger", meta.triggerFired ? "fired ✓" : "not fired")}
-        {kv("reservoir", `${meta.reservoirSize} held thoughts`)}
-        {kv("composition", meta.compositionApplied ? "applied ✓" : "—")}
-        {meta.atRisk && kv("relationship", "⚠ at-risk")}
-        {!meta.innerThought && meta.atomHintUsed && kv("phase 2 hint", "active")}
-      </div>
-
-      {/* ── Thought reservoir ── */}
-      {meta.reservoirContents?.length > 0 && (
-        <>
-          <div style={secHead}><span>Thought Reservoir</span><span style={{ color: T.textDim, fontWeight: 400, fontSize: 11 }}>{meta.reservoirContents.length} waiting</span></div>
-          {meta.reservoirContents.map((t, i) => (
-            <div key={i} style={{ display: "flex", gap: 12, marginBottom: 4 }}>
-              <span style={{ color: T.textDim, minWidth: 60, fontSize: 12 }}>{t.type} {t.score}</span>
-              <span style={{ color: T.textSoft }}>{t.content}</span>
-            </div>
-          ))}
-        </>
-      )}
-
-      {/* ── Inner thought ── */}
-      {meta.innerThought && (
-        <>
-          <div style={secHead}>
-            <span>Inner Thought Selected</span>
-            <span style={{ color: T.textDim, fontWeight: 400, fontSize: 11 }}>{meta.innerThought.type} · score {meta.innerThought.score}</span>
+      {/* ── Clickable header ── */}
+      <div onClick={() => setOpen(o => !o)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 16px", background: T.surface2, borderBottom: open ? `1px solid ${T.border}` : "none", cursor: "pointer", userSelect: "none", gap: 12 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span style={{ color: T.accent, fontWeight: 700, fontSize: 10.5, letterSpacing: "1px" }}>PROCESSING</span>
+            <span style={{ color: T.textDim, fontSize: 10.5 }}>msg #{meta.msgCount}</span>
+            {summaryParts && <span style={{ color: T.textSoft, fontSize: 10.5 }}>· {summaryParts}</span>}
           </div>
-          <div style={{ color: T.text, fontStyle: "italic", paddingLeft: 6, borderLeft: `2px solid ${T.accent}`, lineHeight: 1.7 }}>
-            "{meta.innerThought.content}"
-          </div>
-        </>
-      )}
-
-      {/* ── Self-atoms ── */}
-      {meta.topSelfAtoms?.length > 0 && (
-        <>
-          <div style={secHead}>
-            <span>Self-Atoms Retrieved</span>
-            <span style={{ color: T.textDim, fontWeight: 400, fontSize: 11 }}>{meta.topSelfAtoms.length} atoms</span>
-          </div>
-          {meta.topSelfAtoms.map((a, i) => (
-            <div key={i} style={{ display: "flex", gap: 12, marginBottom: 4 }}>
-              <span style={{ color: T.accent, fontWeight: 600, minWidth: 28 }}>d{a.depth}</span>
-              <span style={{ color: T.textSoft }}>{a.content}</span>
-            </div>
-          ))}
-        </>
-      )}
-
-      {/* ── What she knows ── */}
-      {hasKnowledge && (
-        <>
-          <div style={secHead}><span>What She Knows About You</span></div>
-          <div style={grid2}>
-            {m.userName && kv("name", m.userName)}
-            {kv("trust", `${m.trustLevelName} (${m.trustLevel}/6) · ${m.trustPoints}pts`)}
-            {kv("first met", `${m.daysSinceFirstMet}d ago`)}
-            {kv("last seen", `${m.hoursSinceLastSeen}h ago`)}
-          </div>
-          {m.feelings && (
-            <div style={{ display: "flex", gap: 8, marginTop: 6, marginBottom: 2 }}>
-              <span style={dimKey}>feelings</span>
-              <span style={{ color: T.textSoft }}>
-                aff <b style={{ color: T.text }}>{m.feelings.affection}</b> · comfort <b style={{ color: T.text }}>{m.feelings.comfort}</b> · attr <b style={{ color: T.text }}>{m.feelings.attraction}</b> · prot <b style={{ color: T.text }}>{m.feelings.protectiveness}</b> · vuln <b style={{ color: T.text }}>{m.feelings.vulnerability}</b>
-              </span>
+          {meta.innerThought && !open && (
+            <div style={{ marginTop: 3, color: T.textSoft, fontSize: 11.5, fontStyle: "italic", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              "{meta.innerThought.content}"
             </div>
           )}
-          <div style={{ marginTop: 8 }}>
-            {memList("interests",     m.memories?.interests)}
-            {memList("preferences",   m.memories?.preferences)}
-            {memList("personal",      m.memories?.personal)}
-            {memList("relationships", m.memories?.relationships)}
-            {memList("events",        m.memories?.events)}
-            {memList("emotional",     m.memories?.emotional)}
-          </div>
-        </>
-      )}
-
-      {/* ── Molecules ── */}
-      {m?.molecules?.length > 0 && (
-        <>
-          <div style={secHead}><span>Synthesized Impressions</span><span style={{ color: T.textDim, fontWeight: 400, fontSize: 11 }}>{m.molecules.length} clusters</span></div>
-          {m.molecules.map((mol, i) => (
-            <div key={i} style={{ display: "flex", gap: 10, marginBottom: 5, paddingLeft: 4, borderLeft: `2px solid ${T.border}` }}>
-              {mol.period && <span style={{ color: T.accent, fontSize: 11, minWidth: 70, flexShrink: 0 }}>[{mol.period}]</span>}
-              <span style={{ color: T.textSoft }}>{mol.summary}</span>
-            </div>
-          ))}
-        </>
-      )}
-
-      {/* ── Milestones ── */}
-      {m?.milestones?.length > 0 && (
-        <>
-          <div style={secHead}><span>Milestones</span></div>
-          {m.milestones.map((ms, i) => (
-            <div key={i} style={{ color: T.textSoft, paddingLeft: 8, marginBottom: 3 }}>— {ms}</div>
-          ))}
-        </>
-      )}
-
-      {/* ── Relationship state ── */}
-      {hasState && (
-        <>
-          <div style={secHead}><span>Relationship State</span></div>
-          {kv("narrative",    m.relationshipNarrative, true)}
-          {kv("sitting with", m.prospectiveNote,       true)}
-          {kv("loose thread", m.looseThread,           true)}
-        </>
-      )}
-
-      {/* ── Session history ── */}
-      {m?.sessionContextUsed?.length > 0 && (
-        <>
-          <div style={secHead}><span>Session History Used</span><span style={{ color: T.textDim, fontWeight: 400, fontSize: 11 }}>{m.sessionContextUsed.length} exchanges</span></div>
-          {m.sessionContextUsed.map((ex, i) => (
-            <div key={i} style={{ marginBottom: 10, paddingLeft: 6, borderLeft: `2px solid ${T.border}` }}>
-              <div style={{ display: "flex", gap: 8, marginBottom: 2 }}>
-                <span style={{ color: T.textDim, minWidth: 28, fontSize: 12 }}>you</span>
-                <span style={{ color: T.textSoft }}>{ex.user}</span>
-              </div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <span style={{ color: T.accent, minWidth: 28, fontSize: 12 }}>her</span>
-                <span style={{ color: T.textSoft }}>{ex.assistant}</span>
-              </div>
-            </div>
-          ))}
-        </>
-      )}
-
-      {/* ── Divider ── */}
-      <div style={{ marginTop: 14, paddingTop: 8, borderTop: `1px solid ${T.border}`, fontSize: 11, color: T.textDim, letterSpacing: "0.5px" }}>
-        ↓ &nbsp;response
+        </div>
+        <span style={{ color: T.textDim, fontSize: 11, flexShrink: 0 }}>{open ? "▲" : "▼"}</span>
       </div>
+
+      {/* ── Expanded body ── */}
+      {open && (
+        <div style={{ padding: "14px 16px" }}>
+
+          {/* ── Stat pills row ── */}
+          <div style={{ display: "flex", flexWrap: "wrap", marginBottom: 10 }}>
+            <Pill label="spt depth" value={`${meta.sptDepth} / 4`} />
+            <Pill label="msg" value={`#${meta.msgCount}`} />
+            {meta.goalState && <Pill label="goal" value={meta.goalState} on={meta.goalState !== "neutral"} />}
+            <Pill label="reservoir" value={`${meta.reservoirSize} thoughts`} />
+            <Pill label="trigger" value={meta.triggerFired ? "fired" : "—"} on={meta.triggerFired} />
+            <Pill label="composition" value={meta.compositionApplied ? "applied" : "—"} on={meta.compositionApplied} />
+            {meta.atRisk && <Pill label="status" value="⚠ at-risk" on />}
+            {!meta.innerThought && meta.atomHintUsed && <Pill label="phase 2" value="hint active" />}
+          </div>
+
+          {/* ── Inner thought expressed (highlighted) ── */}
+          {meta.innerThought && (
+            <div style={{ background: T.accentSoft, border: `1px solid ${T.accent}30`, borderRadius: 8, padding: "10px 14px", marginBottom: 12 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <span style={{ color: T.accent, fontSize: 10, fontWeight: 700, letterSpacing: "1px" }}>INNER THOUGHT EXPRESSED</span>
+                <span style={{ color: T.textDim, fontSize: 10 }}>{meta.innerThought.type} · score {meta.innerThought.score}</span>
+              </div>
+              <div style={{ color: T.text, fontStyle: "italic", lineHeight: 1.65, fontSize: 13 }}>
+                "{meta.innerThought.content}"
+              </div>
+            </div>
+          )}
+
+          {/* ── Thought reservoir ── */}
+          {meta.reservoirContents?.length > 0 && (
+            <>
+              <SecBtn label="Thought Reservoir" count={meta.reservoirContents.length} sk="reservoir" />
+              {sec.reservoir && (
+                <div style={{ marginBottom: 4 }}>
+                  {meta.reservoirContents.map((t, i) => (
+                    <div key={i} style={{ display: "flex", gap: 10, marginBottom: 6, alignItems: "flex-start" }}>
+                      <span style={{ color: T.textDim, fontSize: 10.5, minWidth: 80, flexShrink: 0, paddingTop: 1 }}>{t.type}</span>
+                      <span style={{ color: T.accent, fontSize: 10.5, minWidth: 28, flexShrink: 0, fontFamily: FONT_MONO, paddingTop: 1 }}>{t.score}</span>
+                      <span style={{ color: T.textSoft, lineHeight: 1.5, fontSize: 12 }}>{t.content}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
+          {/* ── Self-atoms (Morrigan's own disclosures, depth-gated) ── */}
+          {meta.topSelfAtoms?.length > 0 && (
+            <>
+              <SecBtn label="Self-Atoms Retrieved" count={meta.topSelfAtoms.length} sk="atoms" />
+              {sec.atoms && (
+                <div style={{ marginBottom: 4 }}>
+                  {meta.topSelfAtoms.map((a, i) => (
+                    <div key={i} style={{ display: "flex", gap: 10, marginBottom: 6, alignItems: "flex-start" }}>
+                      <span style={{ color: DEPTH_CLR[a.depth] || T.textDim, fontSize: 10.5, fontWeight: 700, minWidth: 58, flexShrink: 0, paddingTop: 1 }}>
+                        d{a.depth} <span style={{ fontWeight: 400, fontSize: 9.5 }}>{DEPTH_LBL[a.depth]}</span>
+                      </span>
+                      <span style={{ color: T.textSoft, lineHeight: 1.5, fontSize: 12 }}>{a.content}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
+          {/* ── What she knows about you ── */}
+          {hasKnowledge && (
+            <>
+              <SecBtn label="What She Knows About You" sk="knowledge" />
+              {sec.knowledge && (
+                <div style={{ marginBottom: 4 }}>
+                  {/* Identity */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 20px", marginBottom: 8 }}>
+                    {m.userName && <KV label="name" value={m.userName} accent />}
+                    <KV label="trust level" value={`${m.trustLevelName || ""} (${m.trustLevel}/6)`} />
+                    <KV label="trust pts" value={m.trustPoints} />
+                    <KV label="first met" value={`${m.daysSinceFirstMet}d ago`} />
+                    <KV label="last seen" value={`${m.hoursSinceLastSeen}h ago`} />
+                  </div>
+                  {/* Trust track */}
+                  <div style={{ marginBottom: 10 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 0, marginBottom: 2 }}>
+                      {["stranger","noticed","known","close","intimate","bonded","core"].map((lv, i) => (
+                        <div key={i} style={{ flex: 1, height: 4, background: i <= m.trustLevel ? T.accent : T.border, borderRadius: i === 0 ? "3px 0 0 3px" : i === 6 ? "0 3px 3px 0" : 0, marginRight: 1, transition: "background 0.3s" }} />
+                      ))}
+                    </div>
+                    <div style={{ color: T.textDim, fontSize: 9.5, marginTop: 2 }}>
+                      {["stranger","noticed","known","close","intimate","bonded","core"].map((lv, i) => (
+                        <span key={i} style={{ display: "inline-block", width: "14.2%", textAlign: "center", color: i === m.trustLevel ? T.accent : T.textDim, fontWeight: i === m.trustLevel ? 700 : 400 }}>{lv}</span>
+                      ))}
+                    </div>
+                  </div>
+                  {/* Feeling bars */}
+                  {m.feelings && (
+                    <div style={{ marginBottom: 10 }}>
+                      <div style={{ color: T.textDim, fontSize: 9.5, fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", marginBottom: 6 }}>Her Feelings</div>
+                      <Bar label="affection"      value={m.feelings.affection}      color="#9B2D5E" />
+                      <Bar label="comfort"        value={m.feelings.comfort}        color="#10b981" />
+                      <Bar label="attraction"     value={m.feelings.attraction}     color="#9f67ff" />
+                      <Bar label="protectiveness" value={m.feelings.protectiveness} color="#0ea5e9" />
+                      <Bar label="vulnerability"  value={m.feelings.vulnerability}  color="#f59e0b" />
+                    </div>
+                  )}
+                  {/* Memory categories */}
+                  <MemRow label="interests"     arr={m.memories?.interests} />
+                  <MemRow label="preferences"   arr={m.memories?.preferences} />
+                  <MemRow label="personal"      arr={m.memories?.personal} />
+                  <MemRow label="relationships" arr={m.memories?.relationships} />
+                  <MemRow label="events"        arr={m.memories?.events} />
+                  <MemRow label="emotional"     arr={m.memories?.emotional} />
+                </div>
+              )}
+            </>
+          )}
+
+          {/* ── Synthesised impressions (molecules) ── */}
+          {m?.molecules?.length > 0 && (
+            <>
+              <SecBtn label="Synthesised Impressions" count={m.molecules.length} sk="molecules" />
+              {sec.molecules && (
+                <div style={{ marginBottom: 4 }}>
+                  {m.molecules.map((mol, i) => (
+                    <div key={i} style={{ display: "flex", gap: 10, marginBottom: 7, paddingLeft: 8, borderLeft: `2px solid ${T.accent}50`, alignItems: "flex-start" }}>
+                      {mol.period && <span style={{ color: T.accent, fontSize: 10, minWidth: 64, flexShrink: 0, paddingTop: 2 }}>[{mol.period}]</span>}
+                      <span style={{ color: T.textSoft, lineHeight: 1.55, fontSize: 12 }}>{mol.summary}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
+          {/* ── Milestones ── */}
+          {m?.milestones?.length > 0 && (
+            <>
+              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "1.2px", textTransform: "uppercase", color: T.accent, marginTop: 14, marginBottom: 6, paddingBottom: 5, borderBottom: `1px solid ${T.border}` }}>
+                Milestones <span style={{ color: T.textDim, fontWeight: 400 }}>({m.milestones.length})</span>
+              </div>
+              {m.milestones.map((ms, i) => (
+                <div key={i} style={{ color: T.textSoft, fontSize: 12, paddingLeft: 8, marginBottom: 4, borderLeft: `2px solid ${T.border}`, lineHeight: 1.5 }}>— {ms}</div>
+              ))}
+            </>
+          )}
+
+          {/* ── Her inner state ── */}
+          {hasState && (
+            <>
+              <SecBtn label="Her Inner State" sk="state" />
+              {sec.state && (
+                <div style={{ marginBottom: 4 }}>
+                  {m.relationshipNarrative && (
+                    <div style={{ marginBottom: 10 }}>
+                      <div style={{ color: T.textDim, fontSize: 9.5, fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", marginBottom: 5 }}>How She Sees You</div>
+                      <div style={{ color: T.textSoft, fontStyle: "italic", lineHeight: 1.65, fontSize: 12, paddingLeft: 8, borderLeft: `2px solid ${T.border}` }}>{m.relationshipNarrative}</div>
+                    </div>
+                  )}
+                  {m.prospectiveNote && (
+                    <div style={{ marginBottom: 10 }}>
+                      <div style={{ color: T.textDim, fontSize: 9.5, fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", marginBottom: 5 }}>Sitting With</div>
+                      <div style={{ color: T.textSoft, lineHeight: 1.65, fontSize: 12, paddingLeft: 8, borderLeft: `2px solid #f59e0b80` }}>{m.prospectiveNote}</div>
+                    </div>
+                  )}
+                  {m.looseThread && (
+                    <div style={{ marginBottom: 6 }}>
+                      <div style={{ color: T.textDim, fontSize: 9.5, fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", marginBottom: 5 }}>Loose Thread</div>
+                      <div style={{ color: T.textSoft, lineHeight: 1.65, fontSize: 12, paddingLeft: 8, borderLeft: `2px solid #0ea5e980` }}>{m.looseThread}</div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+
+          {/* ── Session history ── */}
+          {m?.sessionContextUsed?.length > 0 && (
+            <>
+              <SecBtn label="Session History Used" count={m.sessionContextUsed.length} sk="history" />
+              {sec.history && (
+                <div style={{ marginBottom: 4 }}>
+                  {m.sessionContextUsed.map((ex, i) => (
+                    <div key={i} style={{ marginBottom: 10, paddingLeft: 8, borderLeft: `2px solid ${T.border}` }}>
+                      <div style={{ display: "flex", gap: 8, marginBottom: 3, alignItems: "flex-start" }}>
+                        <span style={{ color: T.textDim, fontSize: 10.5, minWidth: 24, flexShrink: 0, paddingTop: 1 }}>you</span>
+                        <span style={{ color: T.textSoft, fontSize: 12, lineHeight: 1.5 }}>{ex.user}</span>
+                      </div>
+                      <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+                        <span style={{ color: T.accent, fontSize: 10.5, minWidth: 24, flexShrink: 0, paddingTop: 1 }}>her</span>
+                        <span style={{ color: T.textSoft, fontSize: 12, lineHeight: 1.5 }}>{ex.assistant}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
+          {/* ── Divider ── */}
+          <div style={{ marginTop: 14, paddingTop: 8, borderTop: `1px solid ${T.border}`, fontSize: 10.5, color: T.textDim, letterSpacing: "0.5px", textAlign: "center" }}>
+            ↓ &nbsp;response
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1159,11 +1273,11 @@ function MessageBubble({ msg }) {
       <div style={{ marginBottom: 28, animation: "fadeSlideIn 0.3s ease forwards" }}>
         <ProcessingMeta meta={msg.meta} />
         <div style={{ display: "flex", justifyContent: "flex-start" }}>
-          <div style={{ background: T.aiBubble, color: T.text, border: `1px solid ${T.border}`, borderRadius: "4px 22px 22px 22px", padding: "14px 22px", maxWidth: "82%", wordBreak: "break-word", boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+          <div style={{ background: T.aiBubble, color: T.text, border: `1px solid ${T.border}`, borderRadius: "4px 22px 22px 22px", padding: "13px 20px", maxWidth: "82%", wordBreak: "break-word", boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
               <span style={{ color: "#9B2D5E", fontSize: 12, fontWeight: 700, fontFamily: FONT_DISPLAY, letterSpacing: "0.3px" }}>Morrigan</span>
             </div>
-            <div style={{ fontSize: 16, lineHeight: 1.9, whiteSpace: "pre-wrap", fontFamily: FONT }}><FormatMessage text={msg.content} bold={true} /></div>
+            <div style={{ fontSize: 15, lineHeight: 1.9, whiteSpace: "pre-wrap", fontFamily: FONT }}><FormatMessage text={msg.content} bold={true} /></div>
           </div>
         </div>
       </div>
@@ -1197,7 +1311,10 @@ function safeDecodeToken(token) {
     if (!token) return null;
     const p = token.split(".");
     if (p.length !== 3) return null;
-    return JSON.parse(atob(p[1]));
+    const payload = JSON.parse(atob(p[1]));
+    // Reject expired tokens immediately on the client side
+    if (payload?.exp && Date.now() / 1000 > payload.exp) return null;
+    return payload;
   } catch { return null; }
 }
 
@@ -1238,12 +1355,17 @@ export default function App() {
     const t = localStorage.getItem("token");
     if (!t) { setAuthed(false); setUser(null); return; }
     const payload = safeDecodeToken(t);
-    if (!payload?.id) { localStorage.removeItem("token"); setAuthed(false); setUser(null); }
+    // safeDecodeToken returns null if token is expired or malformed
+    if (!payload?.id) {
+      localStorage.removeItem("token");
+      setAuthed(false);
+      setUser(null);
+    }
   }, []);
 
   useEffect(() => {
     if (!authed) return;
-    const ck = () => fetch(`${API}/api/status`).then(r => r.json()).then(setStatus).catch(() => {});
+    const ck = () => fetch(`${API}/api/status`).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }).then(setStatus).catch(() => {});
     ck(); const iv = setInterval(ck, 30000); return () => clearInterval(iv);
   }, [authed]);
 
@@ -1256,14 +1378,15 @@ export default function App() {
 
   useEffect(() => {
     if (!authed) return;
-    fetch(`${API}/api/conversations`, { headers: hdrs() }).then(r => r.json()).then(setConversations).catch(() => {});
+    fetch(`${API}/api/conversations`, { headers: hdrs() }).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }).then(setConversations).catch(() => {});
   }, [authed]);
 
   useEffect(() => {
     if (!activeConvo) { setMessages([]); return; }
     if (justCreated.current) { justCreated.current = false; return; }
+    setMessages([]); // clear immediately so stale messages don't show while fetching
     fetch(`${API}/api/conversations/${activeConvo}/messages`, { headers: hdrs() })
-      .then(r => r.json())
+      .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
       .then(async d => {
         if (d.length === 0) {
           // Empty conversation opened from sidebar — fetch dynamic greeting
@@ -1288,11 +1411,13 @@ export default function App() {
   }, [messages]);
 
   useEffect(() => { if (streamText) setCurrentMood(analyzeMood(streamText)); }, [streamText]);
-  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, streamText]);
+  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, streamText, streaming]);
 
   const createConvo = async () => {
-    const res  = await fetch(`${API}/api/conversations`, { method: "POST", headers: hdrs(), body: JSON.stringify({ title: "🖤 New chat" }) });
+    const res = await fetch(`${API}/api/conversations`, { method: "POST", headers: hdrs(), body: JSON.stringify({ title: "🖤 New chat" }) });
+    if (!res.ok) throw new Error(`Failed to create conversation (${res.status})`);
     const convo = await res.json();
+    if (!convo?.conversationId) throw new Error("Server did not return a valid conversation.");
     setConversations(p => [convo, ...p]);
     justCreated.current = true;
 
@@ -1313,17 +1438,29 @@ export default function App() {
 
   const sendMessage = async () => {
     if (!input.trim() || streaming) return;
-    let cid = activeConvo; if (!cid) cid = await createConvo();
+    let cid = activeConvo;
+    if (!cid) {
+      try { cid = await createConvo(); } catch (e) {
+        setMessages(p => [...p, { role: "assistant", content: `⚠ Could not start conversation. Please try again.` }]);
+        return;
+      }
+    }
     setMessages(p => [...p, { role: "user", content: input.trim(), timestamp: new Date() }]);
     setInput(""); setStreaming(true); setStreamText("");
 
     try {
-      const res    = await fetch(`${API}/api/chat`, { method: "POST", headers: hdrs(), body: JSON.stringify({ conversationId: cid, message: input.trim() }) });
+      const res = await fetch(`${API}/api/chat`, { method: "POST", headers: hdrs(), body: JSON.stringify({ conversationId: cid, message: input.trim() }) });
+      if (!res.ok) {
+        let errMsg = `Server error (${res.status})`;
+        try { const j = await res.json(); errMsg = j.error || errMsg; } catch { }
+        setMessages(p => [...p, { role: "assistant", content: `⚠ ${errMsg}` }]);
+        setStreaming(false); inputRef.current?.focus(); return;
+      }
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
-      let full = "", buffer = "";
+      let full = "", buffer = "", doneSeen = false;
 
-      while (true) {
+      outer: while (true) {
         const { done, value } = await reader.read(); if (done) break;
         buffer += decoder.decode(value, { stream: true });
         const parts = buffer.split("\n"); buffer = parts.pop() || "";
@@ -1332,16 +1469,24 @@ export default function App() {
             const json = JSON.parse(line.slice(6));
             if (json.token) { full += json.token; setStreamText(full); }
             if (json.done) {
+              doneSeen = true;
               const finalText = json.finalResponse || full;
               if (finalText.trim()) {
                 setMessages(p => [...p, { role: "assistant", content: finalText, timestamp: new Date(), meta: json.processingMeta || null }]);
                 setConversations(p => p.map(c => c.conversationId === cid ? { ...c, title: `🖤 ${finalText.substring(0, 40)}${finalText.length > 40 ? "..." : ""}`, updatedAt: new Date() } : c));
               }
               setStreamText("");
+              setStreaming(false);
+              break outer; // exit immediately — prevents dots flash and stray reads
             }
             if (json.error) { setMessages(p => [...p, { role: "assistant", content: `⚠ ${json.error}` }]); setStreamText(""); }
           } catch { }
         }
+      }
+      // Stream closed without a done event — rescue partial content so it isn't lost
+      if (!doneSeen && full.trim()) {
+        setMessages(p => [...p, { role: "assistant", content: full, timestamp: new Date() }]);
+        setStreamText("");
       }
     } catch (err) { setMessages(p => [...p, { role: "assistant", content: `⚠ ${err.message}` }]); setStreamText(""); }
     setStreaming(false); inputRef.current?.focus();
@@ -1410,14 +1555,25 @@ export default function App() {
           {showWelcome ? <WelcomeScreen onStart={createConvo} /> : (
             <>
               {messages.map((msg, i) => <MessageBubble key={i} msg={msg} />)}
-              {streamText && (
+              {streaming && (
                 <div style={{ display: "flex", marginBottom: 22, alignItems: "flex-start", animation: "fadeSlideIn 0.3s ease forwards" }}>
                   <div style={{ background: T.aiBubble, border: `1px solid ${T.border}`, borderRadius: "22px 22px 22px 4px", padding: "13px 20px", maxWidth: "75%", wordBreak: "break-word", boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}><span style={{ color: "#9B2D5E", fontSize: 12, fontWeight: 600, fontFamily: FONT_DISPLAY }}>Morrigan</span></div>
-                    <div style={{ fontSize: 15, lineHeight: 1.85, whiteSpace: "pre-wrap", fontFamily: FONT }}>
-                      <FormatMessage text={streamText} bold={true} />
-                      <span style={{ color: T.accent, animation: "blink 1s infinite", marginLeft: 2 }}>▎</span>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: streamText ? 8 : 5 }}>
+                      <span style={{ color: "#9B2D5E", fontSize: 12, fontWeight: 600, fontFamily: FONT_DISPLAY }}>Morrigan</span>
+                      {!streamText && <span style={{ color: T.textDim, fontSize: 10, fontFamily: FONT_MONO, letterSpacing: "0.5px" }}>processing</span>}
                     </div>
+                    {streamText ? (
+                      <div style={{ fontSize: 15, lineHeight: 1.85, whiteSpace: "pre-wrap", fontFamily: FONT }}>
+                        <FormatMessage text={streamText} bold={true} />
+                        <span style={{ color: T.accent, animation: "blink 1s infinite", marginLeft: 2 }}>▎</span>
+                      </div>
+                    ) : (
+                      <div style={{ display: "flex", gap: 5, alignItems: "center", padding: "4px 0" }}>
+                        {[0, 1, 2].map(i => (
+                          <div key={i} style={{ width: 6, height: 6, borderRadius: "50%", background: T.accent, opacity: 0.6, animation: "speakBounce 1.2s ease-in-out infinite", animationDelay: `${i * 0.22}s` }} />
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

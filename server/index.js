@@ -7,17 +7,88 @@ const fetch = require("node-fetch");
 const { v4: uuidv4 } = require("uuid");
 require("dotenv").config();
 
+// ── Fail-fast on missing critical env vars ─────────────────────────
+const _missingVars = [];
+if (!process.env.MONGO_URI)          _missingVars.push("MONGO_URI");
+if (!process.env.JWT_SECRET)         _missingVars.push("JWT_SECRET");
+if (!process.env.OPENROUTER_API_KEY) _missingVars.push("OPENROUTER_API_KEY");
+if (_missingVars.length) {
+  console.error(`[FATAL] Missing required environment variables: ${_missingVars.join(", ")}`);
+  console.error("[FATAL] Create a .env file with these variables before starting the server.");
+  process.exit(1);
+}
+
+const PORT      = process.env.PORT || 5000;
+const MONGO_URI = process.env.MONGO_URI;
+const JWT_SECRET = process.env.JWT_SECRET;
+
 const app = express();
-app.use(cors({ origin: process.env.CLIENT_URL || "*", credentials: true }));
-app.use(express.json({ limit: "50mb" }));
 
-const PORT = process.env.PORT || 5000;
-const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://jacesabr_db_user:kLUZxvD2GVvYgGVy@cluster0.kj3vcve.mongodb.net/uncensored-ai?retryWrites=true&w=majority&appName=Cluster0";
-const JWT_SECRET = process.env.JWT_SECRET || "unleashed-secret-2024";
-const CHAT_MODEL = process.env.CHAT_MODEL || "dolphin-llama3";
-const COLAB_URL = process.env.COLAB_URL || "https://YOUR-NGROK-URL.ngrok-free.dev";
+// ── CORS — only allow configured origin; never wildcard in production ──
+const _allowedOrigin = process.env.CLIENT_URL;
+if (!_allowedOrigin) {
+  console.warn("[WARN] CLIENT_URL not set — CORS will block all cross-origin requests. Set CLIENT_URL in .env");
+}
+app.use(cors({
+  origin: (origin, cb) => {
+    // Allow same-origin requests (origin === undefined) and the configured origin
+    if (!origin || origin === _allowedOrigin) return cb(null, true);
+    cb(new Error("CORS: origin not allowed"));
+  },
+  credentials: true,
+}));
+app.use(express.json({ limit: "1mb" }));
+const CHAT_MODEL = process.env.CHAT_MODEL || "meta-llama/llama-3.1-8b-instruct";
+// All fetch calls append /v1/... — so this base must NOT include /v1
+const COLAB_URL = process.env.COLAB_URL || "https://openrouter.ai/api";
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || "";
+const EMBED_MODEL = process.env.EMBED_MODEL || "openai/text-embedding-3-small";
 
-mongoose.connect(MONGO_URI);
+mongoose.connect(MONGO_URI).catch(err => {
+  console.error("[FATAL] MongoDB connection failed:", err.message);
+  process.exit(1);
+});
+
+// ── Rate limiting ──────────────────────────────────────────────────
+// Generic sliding-window rate limiter keyed by any string (IP or userId)
+function makeRateLimiter(windowMs, maxRequests) {
+  const map = new Map();
+  // Auto-clean stale entries every 5 min
+  setInterval(() => {
+    const now = Date.now();
+    for (const [k, e] of map.entries()) {
+      if (now - e.windowStart > windowMs * 2) map.delete(k);
+    }
+  }, 5 * 60_000);
+  return (key) => {
+    const now = Date.now();
+    const entry = map.get(key);
+    if (!entry || now - entry.windowStart > windowMs) {
+      map.set(key, { count: 1, windowStart: now });
+      return true;
+    }
+    if (entry.count >= maxRequests) return false;
+    entry.count++;
+    return true;
+  };
+}
+
+// /api/chat: max 3 requests per 10 seconds per user
+const checkChatRate = makeRateLimiter(10_000, 3);
+// /api/auth/phrase: max 5 attempts per 60 seconds per IP (brute-force guard)
+const checkAuthRate = makeRateLimiter(60_000, 5);
+
+const MAX_MESSAGE_LENGTH = 4000; // characters
+
+// ── Fetch with timeout — used for all outbound LLM/embed calls ─────
+// Non-streaming calls: 60s. Streaming call gets 120s for first byte.
+const LLM_TIMEOUT_MS = 60_000;
+function fetchWithTimeout(url, options, timeoutMs = LLM_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { ...options, signal: controller.signal })
+    .finally(() => clearTimeout(id));
+}
 
 // ═══════════════════════════════════════════════════════════════════
 // EMBEDDING + SIMILARITY UTILITIES
@@ -25,10 +96,10 @@ mongoose.connect(MONGO_URI);
 
 async function embedText(text) {
   try {
-    const res = await fetch(`${COLAB_URL}/v1/embeddings`, {
+    const res = await fetchWithTimeout(`${COLAB_URL}/v1/embeddings`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model: CHAT_MODEL, input: text }),
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
+      body: JSON.stringify({ model: EMBED_MODEL, input: text }),
     });
     if (!res.ok) throw new Error(`Embed HTTP ${res.status}`);
     const data = await res.json();
@@ -56,7 +127,7 @@ function scoreMemory(item, queryEmbedding, goalState) {
   const importance = (item.importance || 3) / 5;
   const ageMs = Date.now() - (item.learnedAt || item.createdAt || Date.now());
   const recency = Math.exp(-ageMs / (90 * 86400000));
-  const valenceBoost = goalAlignsWithEmotion(goalState, item.valence?.emotion) ? 0.20 : 0;
+  const valenceBoost = goalAlignsWithEmotion(goalState, item.valence?.emotion) ? 1.0 : 0;
   return similarity * 0.55 + importance * 0.25 + recency * 0.10 + valenceBoost * 0.10;
 }
 
@@ -73,12 +144,27 @@ function goalAlignsWithEmotion(goalState, emotion) {
 }
 
 function retrieveTopK(items, queryEmbedding, k, goalState = "neutral") {
-  if (!queryEmbedding) return items.slice(0, k);
+  if (!queryEmbedding) {
+    // Fallback: sort by importance so most significant memories surface first
+    return [...items]
+      .sort((a, b) => (b.importance || 1) - (a.importance || 1))
+      .slice(0, k);
+  }
   return items
     .map(item => ({ item, score: scoreMemory(item, queryEmbedding, goalState) }))
     .sort((a, b) => b.score - a.score)
     .slice(0, k)
     .map(x => x.item);
+}
+
+// Infer emotional goal-state from message — activates valence weighting in scoreMemory
+function inferGoalState(message) {
+  const t = message.toLowerCase();
+  if (/\b(sad|crying|depressed|hurting|lost|broken|scared|anxious|alone|grief|overwhelmed)\b/.test(t)) return "comfort";
+  if (/\b(angry|pissed|furious|venting|vent|rage|frustrated|bullshit|unfair)\b/.test(t)) return "venting";
+  if (/\b(miss you|thinking of you|care about|feel close|like talking|glad you)\b/.test(t)) return "connection";
+  if (/\b(distract|take my mind|something else|forget about|change subject)\b/.test(t)) return "distraction";
+  return "neutral";
 }
 
 function retrieveSelfAtoms(selfAtoms, queryEmbedding, k, sptDepth, sharedSelfAtomIds) {
@@ -100,9 +186,38 @@ function retrieveSelfAtoms(selfAtoms, queryEmbedding, k, sptDepth, sharedSelfAto
 // SESSION CACHE
 // ═══════════════════════════════════════════════════════════════════
 
-const sessionCache = new Map();
-function getSession(userId) { return sessionCache.get(String(userId)); }
-function setSession(userId, data) { sessionCache.set(String(userId), data); }
+// Session cache with TTL eviction and size cap
+// Max 200 concurrent sessions in RAM; idle sessions evicted after 2 hours
+const SESSION_TTL_MS  = 2 * 60 * 60 * 1000; // 2 hours
+const SESSION_MAX     = 200;
+const sessionCache    = new Map();            // userId → { ...session, _lastActive, _flushing }
+
+function getSession(userId) {
+  const s = sessionCache.get(String(userId));
+  if (s) s._lastActive = Date.now();
+  return s;
+}
+function setSession(userId, data) {
+  // Evict oldest entry if at cap
+  if (!sessionCache.has(String(userId)) && sessionCache.size >= SESSION_MAX) {
+    let oldest = null, oldestTime = Infinity;
+    for (const [k, v] of sessionCache) {
+      if ((v._lastActive || 0) < oldestTime) { oldest = k; oldestTime = v._lastActive || 0; }
+    }
+    if (oldest) { flushSession(oldest).catch(() => {}); sessionCache.delete(oldest); }
+  }
+  sessionCache.set(String(userId), { ...data, _lastActive: Date.now() });
+}
+// Periodic TTL cleanup — runs every 30 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of sessionCache) {
+    if (now - (v._lastActive || 0) > SESSION_TTL_MS) {
+      flushSession(k).catch(() => {});
+      sessionCache.delete(k);
+    }
+  }
+}, 30 * 60 * 1000);
 
 // ═══════════════════════════════════════════════════════════════════
 // SESSION FLUSH — COMPLETE ASYNC PIPELINE
@@ -111,8 +226,11 @@ function setSession(userId, data) { sessionCache.set(String(userId), data); }
 async function flushSession(userId) {
   const session = getSession(userId);
   if (!session || !session.dirty) return;
+  // Prevent concurrent flushes for the same user corrupting memory state
+  if (session._flushing) return;
+  session._flushing = true;
   const { memory, sessionExchanges } = session;
-  if (sessionExchanges.length === 0) return;
+  if (sessionExchanges.length === 0) { session._flushing = false; return; }
 
   const exchangeText = sessionExchanges
     .map(e => `User: ${e.user}\nMorrigan: ${e.assistant}`)
@@ -148,13 +266,13 @@ Return ONLY a JSON array. Each object:
 
 If nothing worth storing, return []. Return ONLY the JSON array.`;
 
-    const extractRes = await fetch(`${COLAB_URL}/v1/chat/completions`, {
+    const extractRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
       body: JSON.stringify({
         model: CHAT_MODEL,
         messages: [{ role: "user", content: extractionPrompt }],
-        temperature: 0.1, max_tokens: 1000, inject_system: false,
+        temperature: 0.1, max_tokens: 1000,
       }),
     });
 
@@ -216,16 +334,16 @@ If nothing worth storing, return []. Return ONLY the JSON array.`;
         const chargeDiff = Math.abs((existing.valence?.charge || 0) - (newAtom.valence?.charge || 0));
         if (chargeDiff > 0.5) {
           try {
-            const contradictRes = await fetch(`${COLAB_URL}/v1/chat/completions`, {
+            const contradictRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
               method: "POST",
-              headers: { "Content-Type": "application/json" },
+              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
               body: JSON.stringify({
                 model: CHAT_MODEL,
                 messages: [{
                   role: "user",
                   content: `Do these two facts directly contradict each other? Answer only "yes" or "no".\nFact A: "${existing.fact}"\nFact B: "${newAtom.fact}"`,
                 }],
-                temperature: 0.0, max_tokens: 10, inject_system: false,
+                temperature: 0.0, max_tokens: 10,
               }),
             });
             if (contradictRes.ok) {
@@ -276,16 +394,16 @@ If nothing worth storing, return []. Return ONLY the JSON array.`;
 
     try {
       const clusterFacts = clusterAtoms.map(a => a.fact).join("\n- ");
-      const synthRes = await fetch(`${COLAB_URL}/v1/chat/completions`, {
+      const synthRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
         body: JSON.stringify({
           model: CHAT_MODEL,
           messages: [{
             role: "user",
             content: `These are related memories about a person. Write a single synthesised paragraph (2-4 sentences) that captures the emotional truth connecting them. Write it as a private note Morrigan would keep — specific, emotionally honest, no bullet points.\n\nFacts:\n- ${clusterFacts}`,
           }],
-          temperature: 0.6, max_tokens: 200, inject_system: false,
+          temperature: 0.6, max_tokens: 200,
         }),
       });
 
@@ -323,26 +441,28 @@ If nothing worth storing, return []. Return ONLY the JSON array.`;
 
   // ── Step 5: SPT Depth Update ──────────────────────────────────────
   try {
-    const sptRes = await fetch(`${COLAB_URL}/v1/chat/completions`, {
+    const sptRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
       body: JSON.stringify({
         model: CHAT_MODEL,
         messages: [{
           role: "user",
           content: SPT_DEPTH_ASSESSMENT_PROMPT(exchangeText, memory.sptDepth || 1),
         }],
-        temperature: 0.1, max_tokens: 80, inject_system: false,
+        temperature: 0.1, max_tokens: 80,
       }),
     });
 
     if (sptRes.ok) {
       const sptData = await sptRes.json();
-      const raw = sptData.choices?.[0]?.message?.content || "";
-      const depthMatch = raw.match(/[1-4]/);
+      const raw = (sptData.choices?.[0]?.message?.content || "").trim();
+      // Match the leading digit only — response format is "3 — reason..." or "depth: 3"
+      // Anchoring prevents grabbing stray digits mid-sentence (e.g. "between 2 and 3")
+      const depthMatch = raw.match(/^([1-4])\b/) || raw.match(/\bdepth[:\s]+([1-4])\b/i);
       if (depthMatch) {
-        const sessionDepth = parseInt(depthMatch[0]);
-        if (sessionDepth > (memory.sptDepth || 1)) {
+        const sessionDepth = parseInt(depthMatch[1]);
+        if (sessionDepth >= 1 && sessionDepth <= 4 && sessionDepth > (memory.sptDepth || 1)) {
           memory.sptDepth = sessionDepth;
           console.log(`[FLUSH] SPT depth updated to ${sessionDepth}`);
         }
@@ -354,16 +474,16 @@ If nothing worth storing, return []. Return ONLY the JSON array.`;
 
   // ── Step 6: Update SPT breadth per topic ─────────────────────────
   try {
-    const topicRes = await fetch(`${COLAB_URL}/v1/chat/completions`, {
+    const topicRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
       body: JSON.stringify({
         model: CHAT_MODEL,
         messages: [{
           role: "user",
           content: SPT_BREADTH_EXTRACTION_PROMPT(exchangeText),
         }],
-        temperature: 0.1, max_tokens: 200, inject_system: false,
+        temperature: 0.1, max_tokens: 200,
       }),
     });
 
@@ -387,9 +507,9 @@ If nothing worth storing, return []. Return ONLY the JSON array.`;
   try {
     const topAtoms = retrieveTopK(memory.memories, null, 8).map(a => a.fact).join("; ");
     const topMols = (memory.molecules || []).slice(-3).map(m => m.summary).join("\n");
-    const narrativeRes = await fetch(`${COLAB_URL}/v1/chat/completions`, {
+    const narrativeRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
       body: JSON.stringify({
         model: CHAT_MODEL,
         messages: [{
@@ -398,9 +518,9 @@ If nothing worth storing, return []. Return ONLY the JSON array.`;
 
 ${memory.relationshipNarrative ? `Previous entry:\n${memory.relationshipNarrative}\n\n` : ""}Key facts about them: ${topAtoms}
 ${topMols ? `Synthesised impressions:\n${topMols}\n` : ""}SPT depth reached: ${memory.sptDepth || 1}/4
-Recent session summary: ${exchangeText.substring(0, 600)}`,
+Recent session summary: ${exchangeText.slice(-600)}`,
         }],
-        temperature: 0.75, max_tokens: 200, inject_system: false,
+        temperature: 0.75, max_tokens: 200,
       }),
     });
 
@@ -418,9 +538,9 @@ Recent session summary: ${exchangeText.substring(0, 600)}`,
 
   // ── Step 8: Self-Reflection State Update (Phase 2) ────────────────
   try {
-    const reflectionRes = await fetch(`${COLAB_URL}/v1/chat/completions`, {
+    const reflectionRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
       body: JSON.stringify({
         model: CHAT_MODEL,
         messages: [{
@@ -433,7 +553,7 @@ Recent session summary: ${exchangeText.substring(0, 600)}`,
             feelings: memory.feelings,
           }),
         }],
-        temperature: 0.72, max_tokens: 200, inject_system: false,
+        temperature: 0.72, max_tokens: 200,
       }),
     });
 
@@ -457,9 +577,9 @@ Recent session summary: ${exchangeText.substring(0, 600)}`,
       .map(c => c.content)
       .join("\n");
 
-    const callbackRes = await fetch(`${COLAB_URL}/v1/chat/completions`, {
+    const callbackRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
       body: JSON.stringify({
         model: CHAT_MODEL,
         messages: [{
@@ -475,7 +595,7 @@ ${exchangeText}
 Return ONLY a JSON array: [{"content": "...", "priority": "high|medium|low"}]
 Max 3 items. If nothing was genuinely unresolved, return [].`,
         }],
-        temperature: 0.7, max_tokens: 400, inject_system: false,
+        temperature: 0.7, max_tokens: 400,
       }),
     });
 
@@ -488,22 +608,36 @@ Max 3 items. If nothing was genuinely unresolved, return [].`,
       if (Array.isArray(newCallbacks)) {
         const priorityRank = { high: 3, medium: 2, low: 1 };
         const existing = (memory.callbackQueue || []).filter(c => !c.consumed);
-        const combined = [
-          ...existing,
-          ...newCallbacks.map(cb => ({
+
+        // Deduplicate new callbacks against existing ones — skip if content is
+        // too similar (substring overlap > 60%) to prevent queue recycling
+        const isDuplicateContent = (newContent, existingItems) => {
+          const n = newContent.toLowerCase();
+          return existingItems.some(e => {
+            const e2 = (e.content || "").toLowerCase();
+            return e2.includes(n) || n.includes(e2) ||
+              (n.length > 20 && e2.length > 20 &&
+               n.split(" ").filter(w => e2.includes(w)).length / n.split(" ").length > 0.6);
+          });
+        };
+
+        const deduped = newCallbacks
+          .filter(cb => cb.content && !isDuplicateContent(cb.content, existing))
+          .map(cb => ({
             id: uuidv4(),
             content: cb.content,
             priority: cb.priority || "medium",
             sourceSessionId: String(userId),
             consumed: false,
             createdAt: new Date(),
-          })),
-        ]
+          }));
+
+        const combined = [...existing, ...deduped]
           .sort((a, b) => priorityRank[b.priority] - priorityRank[a.priority])
           .slice(0, 5);
 
         memory.callbackQueue = combined;
-        console.log(`[FLUSH] Callback queue: ${combined.length} items`);
+        console.log(`[FLUSH] Callback queue: ${combined.length} items (${deduped.length} new, ${existing.length} carried)`);
       }
     }
   } catch (e) {
@@ -582,6 +716,7 @@ Max 3 items. If nothing was genuinely unresolved, return [].`,
   });
 
   session.dirty = false;
+  session._flushing = false;
   session.sessionExchanges = [];
   session.messageEvals = [];
   console.log(`[FLUSH] Pipeline complete for user ${userId}`);
@@ -614,13 +749,13 @@ sitting with — like she was telling me a smaller version of the real thing."
 Transcript: ${transcript.slice(-3000)}
 Return: a single string, or null.`;
 
-    const res = await fetch(`${COLAB_URL}/v1/chat/completions`, {
+    const res = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
       body: JSON.stringify({
         model: CHAT_MODEL,
         messages: [{ role: "user", content: prompt }],
-        temperature: 0.72, max_tokens: 120, inject_system: false,
+        temperature: 0.72, max_tokens: 120,
       }),
     });
 
@@ -647,11 +782,8 @@ async function generateGreeting(memory) {
     const hoursSince = Math.floor((Date.now() - memory.lastSeen) / 3600000);
     const daysSince  = Math.floor(hoursSince / 24);
 
-    // Pull top 3 atoms by importance for grounding
-    const topAtoms = [...memory.memories]
-      .sort((a, b) => (b.importance || 1) - (a.importance || 1))
-      .slice(0, 3)
-      .map(a => a.fact);
+    // Pull top 3 atoms — importance + recency weighted (no query embedding at greeting time)
+    const topAtoms = retrieveTopK(memory.memories || [], null, 3).map(a => a.fact);
 
     // Top unconsumed callbacks (beyond prospectiveNote)
     const pendingCallbacks = (memory.callbackQueue || [])
@@ -716,15 +848,14 @@ Comfort: ${memory.feelings?.comfort || 0}/100
 
 Return ONLY her opening. No preamble. No labels. Just what she says.`;
 
-    const res = await fetch(`${COLAB_URL}/v1/chat/completions`, {
+    const res = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
       body: JSON.stringify({
         model: CHAT_MODEL,
         messages: [{ role: "user", content: prompt }],
         temperature: 0.72,
         max_tokens: 150,
-        inject_system: false,
       }),
     });
 
@@ -1694,7 +1825,7 @@ ${sptDepth < 3
 }`;
 }
 
-function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart = false, primingSentence = null) {
+function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart = false, primingSentence = null, queryEmbedding = null, goalState = "neutral") {
   const level = memory.trustLevel;
   const levelData = TRUST_LEVELS[level];
   const daysSinceFirstMet = Math.floor((Date.now() - memory.firstMet) / (1000 * 60 * 60 * 24));
@@ -1756,7 +1887,9 @@ function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart = false
   }
 
   // ── Position 8: Memory context ────────────────────────────────────
-  const sorted = [...memory.memories].sort((a, b) => (b.importance || 1) - (a.importance || 1));
+  // Rank atoms by cosine similarity to current message (+ importance + recency + valence).
+  // Falls back to importance-only sort when no embedding available (cold start).
+  const sorted = retrieveTopK(memory.memories || [], queryEmbedding, 25, goalState);
   const byCategory = (cat) => sorted.filter(m => m.category === cat).map(m => {
     let fact = m.fact;
     if (m.temporal?.isOngoing === "no" || m.temporal?.isOngoing === "ended recently") {
@@ -1810,8 +1943,10 @@ function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart = false
   }
 
   if (memory.molecules && memory.molecules.length > 0) {
+    // Pick most relevant molecules by cosine similarity; fall back to most recent 3
+    const topMols = retrieveTopK(memory.molecules, queryEmbedding, 3, goalState);
     memoryContext += `\nSynthesised impressions (clusters of connected things):\n`;
-    for (const mol of memory.molecules.slice(-3)) {
+    for (const mol of topMols) {
       memoryContext += `  ${mol.period ? `[${mol.period}] ` : ""}${mol.summary}\n`;
     }
   }
@@ -1891,7 +2026,7 @@ function updateTrustFromMessage(userMessage, memory) {
     memory.feelings.protectiveness = Math.min(100, memory.feelings.protectiveness + 1);
   }
 
-  memory.trustPoints += points;
+  memory.trustPoints = Math.min(10000, (memory.trustPoints || 0) + points);
   const newLevel = calculateTrustLevel(memory.trustPoints);
   if (newLevel > memory.trustLevel) {
     memory.trustLevel = newLevel;
@@ -1917,14 +2052,36 @@ function updateTrustFromMessage(userMessage, memory) {
 const auth = (req, res, next) => {
   const token = req.headers.authorization?.split(" ")[1];
   if (!token) return res.status(401).json({ error: "No token provided" });
-  try { req.user = jwt.verify(token, JWT_SECRET); next(); }
-  catch { res.status(401).json({ error: "Invalid token" }); }
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    // Explicit expiry check (jwt.verify throws if exp is past, but be explicit)
+    if (decoded.exp && Date.now() / 1000 > decoded.exp) {
+      return res.status(401).json({ error: "Token expired" });
+    }
+    if (!decoded.id) return res.status(401).json({ error: "Invalid token claims" });
+    req.user = decoded;
+    next();
+  } catch (err) {
+    const msg = err.name === "TokenExpiredError" ? "Token expired" : "Invalid token";
+    res.status(401).json({ error: msg });
+  }
 };
 
 app.post("/api/auth/phrase", async (req, res) => {
+  // Per-IP brute-force guard — max 5 attempts per 60 seconds
+  const clientIp = req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || req.socket.remoteAddress || "unknown";
+  if (!checkAuthRate(clientIp)) {
+    return res.status(429).json({ error: "Too many auth attempts. Please wait before trying again." });
+  }
+
   try {
     const { phrase } = req.body;
-    if (!phrase || phrase.trim().length < 3) return res.status(400).json({ error: "Phrase must be at least 3 characters" });
+    if (!phrase || typeof phrase !== "string" || phrase.trim().length < 3) {
+      return res.status(400).json({ error: "Phrase must be at least 3 characters" });
+    }
+    if (phrase.length > 200) {
+      return res.status(400).json({ error: "Phrase too long." });
+    }
     const phraseHash = crypto.createHash("sha256").update(phrase.trim().toLowerCase()).digest("hex");
     let user = await User.findOne({ phraseHash });
     if (!user) user = await User.create({ phraseHash });
@@ -2142,13 +2299,13 @@ The total response should feel like one coherent thing, not two.
 Keep her voice. Don't over-explain the shift.
 ${COMPOSITION_CONSTRAINTS}`;
 
-    const res = await fetch(`${COLAB_URL}/v1/chat/completions`, {
+    const res = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
       body: JSON.stringify({
         model: CHAT_MODEL,
         messages: [{ role: "user", content: prompt }],
-        temperature: 0.65, max_tokens: 600, inject_system: false,
+        temperature: 0.65, max_tokens: 600,
         stream: false,
       }),
     });
@@ -2177,7 +2334,7 @@ app.get("/api/self-atoms", auth, async (req, res) => {
 });
 
 // ── Seed self-atoms (Phase 2) with self-criticism filter ──────────
-app.post("/api/self-atoms/seed", async (req, res) => {
+app.post("/api/self-atoms/seed", auth, async (req, res) => {
   try {
     const rawAtoms = req.body.atoms;
     if (!rawAtoms || !Array.isArray(rawAtoms)) {
@@ -2190,14 +2347,13 @@ app.post("/api/self-atoms/seed", async (req, res) => {
     for (const atom of rawAtoms) {
       try {
         // Step A: Self-criticism pass
-        const critiqueRes = await fetch(`${COLAB_URL}/v1/chat/completions`, {
+        const critiqueRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
           body: JSON.stringify({
             model: CHAT_MODEL,
             temperature: 0.2,
             max_tokens: 300,
-            inject_system: false,
             messages: [{ role: "user", content: SELF_ATOM_CRITIQUE_PROMPT(atom) }],
           }),
         });
@@ -2219,10 +2375,10 @@ app.post("/api/self-atoms/seed", async (req, res) => {
         if (parsed.action === "rewrite") results.rewritten++;
 
         // Step B: Embed the (possibly revised) content
-        const embedRes = await fetch(`${COLAB_URL}/v1/embeddings`, {
+        const embedRes = await fetchWithTimeout(`${COLAB_URL}/v1/embeddings`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ input: finalContent, model: CHAT_MODEL }),
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
+          body: JSON.stringify({ input: finalContent, model: EMBED_MODEL }),
         });
         const embedData = await embedRes.json();
         const embedding = embedData.data?.[0]?.embedding || [];
@@ -2259,7 +2415,35 @@ app.post("/api/self-atoms/seed", async (req, res) => {
 
 app.post("/api/chat", auth, async (req, res) => {
   const { conversationId, message } = req.body;
-  await Message.create({ conversationId, role: "user", content: message });
+
+  // ── Input validation ──────────────────────────────────────────────
+  if (!message || typeof message !== "string" || !message.trim()) {
+    return res.status(400).json({ error: "Message is required." });
+  }
+  if (message.length > MAX_MESSAGE_LENGTH) {
+    return res.status(400).json({ error: `Message too long (max ${MAX_MESSAGE_LENGTH} characters).` });
+  }
+  if (!conversationId || typeof conversationId !== "string") {
+    return res.status(400).json({ error: "conversationId is required." });
+  }
+  // Validate conversationId is a UUID (prevents injection via this field)
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!UUID_RE.test(conversationId)) {
+    return res.status(400).json({ error: "Invalid conversationId format." });
+  }
+
+  // ── Per-user rate limiting ────────────────────────────────────────
+  if (!checkChatRate(req.user.id)) {
+    return res.status(429).json({ error: "Too many requests. Please slow down." });
+  }
+
+  // ── Verify conversation belongs to this user (prevents cross-user message injection)
+  const convoOwner = await Conversation.findOne({ conversationId, userId: req.user.id });
+  if (!convoOwner) {
+    return res.status(403).json({ error: "Conversation not found." });
+  }
+
+  await Message.create({ conversationId, role: "user", content: message.trim() });
 
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
@@ -2274,13 +2458,14 @@ app.post("/api/chat", auth, async (req, res) => {
     console.log(`[CACHE] Cold load for user ${req.user.id}`);
   }
 
-  // ── Pair pending greeting with first user message ──────────────────
-  // When generateGreeting() fired before the user spoke, we stored the
-  // greeting as session.pendingGreeting. On the first user message we
-  // form the exchange pair so flushSession() has a complete record.
+  // ── Record pending greeting as a standalone assistant turn ───────────
+  // When generateGreeting() fired before the user spoke, we stored it as
+  // session.pendingGreeting. We record it with an empty user turn so the
+  // flush pipeline sees the full session without duplicating the first
+  // user message (which finish() will also record with the real response).
   if (session.pendingGreeting && session.sessionExchanges.length === 0) {
     session.sessionExchanges.push({
-      user: message,
+      user: "",  // greeting was unprompted — no user turn precedes it
       assistant: session.pendingGreeting,
     });
     session.pendingGreeting = null;
@@ -2300,6 +2485,13 @@ app.post("/api/chat", auth, async (req, res) => {
   if (!session.messageEvals)             session.messageEvals = []; // Phase 5: eval buffer
   if (!session.currentSessionId)         session.currentSessionId = `sess_${Date.now()}`; // Phase 6
   session.msgCount++;
+
+  // ── Embed message for cosine retrieval ────────────────────────────
+  // Runs early so both self-atom retrieval and memory ranking can use it.
+  // Non-blocking: embedding failure degrades gracefully to importance-only sort.
+  const msgEmbedding = await embedText(message).catch(() => null);
+  if (msgEmbedding) session.lastMessageEmbedding = msgEmbedding;
+  const goalState = inferGoalState(message);
 
   // ── Phase 6: Load RelationshipHealth + apply at-risk adjustments ──
   // At-risk flag (Section 4.1): lower motivation threshold to 2.5,
@@ -2378,14 +2570,13 @@ app.post("/api/chat", auth, async (req, res) => {
     // ── Stage 3: Thought Formation (1 LLM call) ──────────────────
     // Temperature 0.68: creative but disciplined.
     try {
-      const thoughtRes = await fetch(`${COLAB_URL}/v1/chat/completions`, {
+      const thoughtRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
         body: JSON.stringify({
           model: CHAT_MODEL,
           temperature: 0.68,
           max_tokens: 500,
-          inject_system: false,
           messages: [{ role: "user", content: INNER_THOUGHT_FORMATION_PROMPT(material) }],
         }),
       });
@@ -2474,7 +2665,7 @@ app.post("/api/chat", auth, async (req, res) => {
   const isSessionStart = session.isSessionStart || false;
   // thoughtBlock at 4.75, selfAtomHint at 4.5 — exactly ONE fires per turn
   const dynamicPrompt =
-    buildSystemPrompt(session.memory, session.sessionExchanges, isSessionStart) +
+    buildSystemPrompt(session.memory, session.sessionExchanges, isSessionStart, null, session.lastMessageEmbedding, goalState) +
     thoughtBlock +
     selfAtomHint;
   session.isSessionStart = false;
@@ -2488,15 +2679,18 @@ app.post("/api/chat", auth, async (req, res) => {
   }
 
   try {
-    const llmRes = await fetch(`${COLAB_URL}/v1/chat/completions`, {
+    const llmRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model: CHAT_MODEL, messages, stream: true, temperature: 0.7, max_tokens: -1, inject_system: false }),
-    });
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
+      body: JSON.stringify({ model: CHAT_MODEL, messages, stream: true, temperature: 0.7, max_tokens: -1 }),
+    }, 120_000); // 120s for streaming — allows longer responses
 
     if (!llmRes.ok) {
       const errText = await llmRes.text();
-      res.write(`data: ${JSON.stringify({ error: `LLM returned ${llmRes.status}: ${errText}` })}\n\n`);
+      console.error(`[LLM] Error ${llmRes.status}: ${errText}`);
+      // Return generic message to client — never expose internal API details
+      const clientMsg = llmRes.status === 429 ? "AI service is busy. Please try again shortly." : "AI service error. Please try again.";
+      res.write(`data: ${JSON.stringify({ error: clientMsg })}\n\n`);
       return res.end();
     }
 
@@ -2527,10 +2721,16 @@ app.post("/api/chat", auth, async (req, res) => {
         await Message.create({ conversationId, role: "assistant", content: composedResponse });
         Conversation.updateOne({ conversationId }, {
           updatedAt: new Date(),
-          title: composedResponse.substring(0, 50) + (composedResponse.length > 50 ? "..." : ""),
+          title: composedResponse.replace(/<[^>]*>/g, "").substring(0, 50) + (composedResponse.length > 50 ? "..." : ""),
         }).exec();
-        session.sessionExchanges.push({ user: message, assistant: composedResponse });
+        // Mark dirty BEFORE pushing exchange — ensures flush captures this turn
+        // even if the client disconnects immediately after the SSE write below
         session.dirty = true;
+        session.sessionExchanges.push({ user: message, assistant: composedResponse });
+        // Cap exchange buffer — prevents unbounded memory growth in long sessions
+        if (session.sessionExchanges.length > 100) {
+          session.sessionExchanges = session.sessionExchanges.slice(-100);
+        }
         updateTrustFromMessage(message, session.memory);
 
         // ── Phase 5+6: Record MessageEval with dual-reasoning + Phase 6 fields ──
@@ -2539,7 +2739,6 @@ app.post("/api/chat", auth, async (req, res) => {
           morriganResponse: composedResponse,
           innerThoughtSelected: session.pendingWinner?.content || null,
           innerThoughtFit: session.pendingWinner?.currentScore || null,
-          innerThoughtScore: session.pendingWinner?.currentScore || null,
           innerThoughtReasoning: session.pendingWinner ? {
             reasonsFor: session.pendingWinner.reasonsFor || [],
             reasonsAgainst: session.pendingWinner.reasonsAgainst || [],
@@ -2566,26 +2765,27 @@ app.post("/api/chat", auth, async (req, res) => {
             if (!session.memory.sharedSelfAtomIds.includes(expressedWinner.linkedAtomId)) {
               session.memory.sharedSelfAtomIds.push(expressedWinner.linkedAtomId);
               console.log(`[INNER-THOUGHT] Marked atom ${expressedWinner.linkedAtomId} as shared`);
+              // Persist immediately — prevents re-disclosure if server restarts before flush
+              session.memory.save().catch(e => console.error("[ATOM-SHARE-SAVE]", e.message));
             }
           }
 
           // ② Callback consumption
-          // When a callback-type thought is expressed with a linked callback ID,
-          // mark that callback consumed so it leaves the queue.
-          // (Phase 5 hook — ready for when callback queue is fully wired)
           if (expressedWinner.type === "callback" && expressedWinner.linkedCallbackId) {
             const cb = (session.memory.callbackQueue || [])
               .find(c => c.id === expressedWinner.linkedCallbackId);
             if (cb) {
               cb.consumed = true;
               console.log(`[INNER-THOUGHT] Consumed callback ${expressedWinner.linkedCallbackId}`);
+              // Persist immediately — prevents callback reappearing if server restarts before flush
+              session.memory.save().catch(e => console.error("[CB-SAVE]", e.message));
             }
           }
         }
 
         // ── Processing metadata for SSE done event ──────────────────
         {
-          const mem = session.memory;
+          const mem = session.memory || {};
           const sorted = [...(mem.memories || [])].sort((a, b) => (b.importance || 1) - (a.importance || 1));
           const byCat = (cat) => sorted.filter(m => m.category === cat).map(m => ({
             fact: m.fact,
@@ -2594,6 +2794,7 @@ app.post("/api/chat", auth, async (req, res) => {
           }));
           processingMetaForDone = {
             triggerFired,
+            goalState,
             compositionApplied: !!winnerForCompose,
             innerThought: winnerForCompose ? {
               content: winnerForCompose.content.substring(0, 120),
@@ -2649,14 +2850,13 @@ app.post("/api/chat", auth, async (req, res) => {
         // max 200 tokens. Zero user-facing latency impact.
         setImmediate(async () => {
           try {
-            const imRes = await fetch(`${COLAB_URL}/v1/chat/completions`, {
+            const imRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
               method: "POST",
-              headers: { "Content-Type": "application/json" },
+              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
               body: JSON.stringify({
                 model: CHAT_MODEL,
                 temperature: 0.65,
                 max_tokens: 200,
-                inject_system: false,
                 messages: [{
                   role: "user",
                   content: INNER_MONOLOGUE_UPDATE_PROMPT({
@@ -2743,7 +2943,10 @@ app.post("/api/chat", auth, async (req, res) => {
     reader.on("end", () => { if (!res.writableEnded) finish(); });
 
   } catch (err) {
-    res.write(`data: ${JSON.stringify({ error: `Failed to connect to Kaggle at ${COLAB_URL}. Is the notebook running?` })}\n\n`);
+    const isTimeout = err.name === "AbortError";
+    const clientMsg = isTimeout ? "AI service timed out. Please try again." : "Failed to connect to AI service.";
+    console.error(`[LLM] Connection error: ${err.message}`);
+    res.write(`data: ${JSON.stringify({ error: clientMsg })}\n\n`);
     res.end();
   }
 });
@@ -2771,7 +2974,7 @@ app.get("/api/phase5/tuning", auth, async (req, res) => {
   try {
     const lastN = parseInt(req.query.sessions) || 100;
     const records = await EvaluationRecord
-      .find({}).sort({ sessionDate: -1 }).limit(lastN);
+      .find({ userId: req.user.id }).sort({ sessionDate: -1 }).limit(lastN);
 
     const session = getSession(String(req.user.id));
 
@@ -2954,7 +3157,7 @@ app.post("/api/phase6/health/compute", auth, async (req, res) => {
 // more than 0.8 points below non-composed avg.
 app.post("/api/phase6/voice-audit", auth, async (req, res) => {
   try {
-    const records = await EvaluationRecord.find({}).sort({ sessionDate: -1 }).limit(200);
+    const records = await EvaluationRecord.find({ userId: req.user.id }).sort({ sessionDate: -1 }).limit(200);
     const allEvals = records.flatMap(r => r.messageEvals || []);
 
     const composed    = allEvals.filter(e => e.wasComposed && e.morriganResponse).slice(0, 20);
@@ -2979,13 +3182,13 @@ Return only valid JSON: { "score": N, "evidence": "one sentence" }`;
 
     async function scoreVoice(evalEntry) {
       try {
-        const r = await fetch(`${COLAB_URL}/v1/chat/completions`, {
+        const r = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
           body: JSON.stringify({
             model: CHAT_MODEL,
             messages: [{ role: "user", content: VOICE_AUDIT_PROMPT(evalEntry.morriganResponse) }],
-            temperature: 0.1, max_tokens: 80, inject_system: false,
+            temperature: 0.1, max_tokens: 80,
           }),
         });
         if (!r.ok) return null;
@@ -3088,7 +3291,7 @@ app.get("/api/status", async (req, res) => {
     const timer = setTimeout(() => ctrl.abort(), 8000);
     try {
       const r = await fetch(url, {
-        method: "POST", headers: { "Content-Type": "application/json" },
+        method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
         body: JSON.stringify(body), signal: ctrl.signal,
       });
       return r.ok;
@@ -3096,8 +3299,8 @@ app.get("/api/status", async (req, res) => {
   };
 
   const [llm, embed] = await Promise.all([
-    ping(`${COLAB_URL}/v1/chat/completions`, { model: CHAT_MODEL, messages: [{ role: "user", content: "ping" }], max_tokens: 1, inject_system: false }),
-    ping(`${COLAB_URL}/v1/embeddings`,        { model: CHAT_MODEL, input: "test" }),
+    ping(`${COLAB_URL}/v1/chat/completions`, { model: CHAT_MODEL, messages: [{ role: "user", content: "ping" }], max_tokens: 1 }),
+    ping(`${COLAB_URL}/v1/embeddings`,        { model: EMBED_MODEL, input: "test" }),
   ]);
 
   res.json({ ollama: llm, embeddings: embed, model: CHAT_MODEL, backend: "kaggle", mongo: true });
@@ -3208,14 +3411,13 @@ async function seedSelfAtomsIfEmpty() {
 
         // Try self-criticism pass — non-fatal if Kaggle is offline
         try {
-          const critiqueRes = await fetch(`${COLAB_URL}/v1/chat/completions`, {
+          const critiqueRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
             body: JSON.stringify({
               model: CHAT_MODEL,
               temperature: 0.2,
               max_tokens: 300,
-              inject_system: false,
               messages: [{ role: "user", content: SELF_ATOM_CRITIQUE_PROMPT(atom) }],
             }),
           });
@@ -3243,10 +3445,10 @@ async function seedSelfAtomsIfEmpty() {
         let embedding = [];
         if (!isDeprecated) {
           try {
-            const embedRes = await fetch(`${COLAB_URL}/v1/embeddings`, {
+            const embedRes = await fetchWithTimeout(`${COLAB_URL}/v1/embeddings`, {
               method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ input: finalContent, model: CHAT_MODEL }),
+              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
+              body: JSON.stringify({ input: finalContent, model: EMBED_MODEL }),
             });
             if (embedRes.ok) {
               const embedData = await embedRes.json();
