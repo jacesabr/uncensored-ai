@@ -500,7 +500,7 @@ function Phase5Tab({ token }) {
       setLoading(true);
       try {
         const [s, t] = await Promise.allSettled([
-          fetch(`${endpoint}/api/phase5/status`, { headers: hdrs() }).then(r => r.json()),
+          fetch(`${endpoint}/api/phase5/health`, { headers: hdrs() }).then(r => r.json()),
           fetch(`${endpoint}/api/phase5/tuning`,  { headers: hdrs() }).then(r => r.json()),
         ]);
         if (s.status === "fulfilled") setStatus(s.value);
