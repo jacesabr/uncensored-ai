@@ -1049,9 +1049,21 @@ export default function App() {
     if (justCreated.current) { justCreated.current = false; return; }
     fetch(`${API}/api/conversations/${activeConvo}/messages`, { headers: hdrs() })
       .then(r => r.json())
-      .then(d => {
-        if (d.length === 0) setMessages([{ role: "assistant", content: CHARACTER.greeting, timestamp: new Date() }]);
-        else setMessages(d);
+      .then(async d => {
+        if (d.length === 0) {
+          // Empty conversation opened from sidebar — fetch dynamic greeting
+          let greetingContent = CHARACTER.greeting;
+          try {
+            const greetRes = await fetch(`${API}/api/session/greeting?conversationId=${activeConvo}`, { headers: hdrs() });
+            if (greetRes.ok) {
+              const { greeting } = await greetRes.json();
+              if (greeting) greetingContent = greeting;
+            }
+          } catch { /* non-fatal — use static fallback */ }
+          setMessages([{ role: "assistant", content: greetingContent, timestamp: new Date() }]);
+        } else {
+          setMessages(d);
+        }
       }).catch(() => {});
   }, [activeConvo]);
 
@@ -1068,7 +1080,18 @@ export default function App() {
     const convo = await res.json();
     setConversations(p => [convo, ...p]);
     justCreated.current = true;
-    setMessages([{ role: "assistant", content: CHARACTER.greeting, timestamp: new Date() }]);
+
+    // Fetch dynamic greeting — falls back to static CHARACTER.greeting if unavailable
+    let greetingContent = CHARACTER.greeting;
+    try {
+      const greetRes = await fetch(`${API}/api/session/greeting?conversationId=${convo.conversationId}`, { headers: hdrs() });
+      if (greetRes.ok) {
+        const { greeting } = await greetRes.json();
+        if (greeting) greetingContent = greeting;
+      }
+    } catch { /* non-fatal — use static fallback */ }
+
+    setMessages([{ role: "assistant", content: greetingContent, timestamp: new Date() }]);
     setActiveConvo(convo.conversationId);
     return convo.conversationId;
   };
