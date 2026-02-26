@@ -1,5 +1,13 @@
 import React, { useState, useEffect, useRef } from "react";
 import morriganImg from "./morgan.png";
+import M from "../../shared/morrigan.js";
+
+// Validate character data loaded
+if (!M?.name || !M?.TRUST_LEVELS || !M?.MOODS) {
+  console.error("[CHARACTER] shared/morrigan.js failed to load required fields:", { name: M?.name, trustLevels: !!M?.TRUST_LEVELS, moods: !!M?.MOODS });
+} else {
+  console.log(`[CHARACTER] ${M.name} loaded — ${Object.keys(M).length} exports`);
+}
 
 const API = import.meta.env.DEV
   ? (import.meta.env.VITE_API_URL || "http://localhost:5000")
@@ -16,20 +24,8 @@ const FONT = "'Crimson Pro', 'Georgia', serif";
 const FONT_MONO = "'JetBrains Mono', monospace";
 const FONT_DISPLAY = "'Playfair Display', 'Crimson Pro', serif";
 
-const MOODS = {
-  neutral: { label: "guarded" }, happy: { label: "genuinely smiling" },
-  sad: { label: "hurting" }, flirty: { label: "flustered" },
-  angry: { label: "walls up" }, shy: { label: "vulnerable" },
-  sarcastic: { label: "deflecting" }, vulnerable: { label: "letting you in" },
-  excited: { label: "nerding out" },
-};
-// Minimal fallbacks — only used before first LLM mood reflection arrives.
-// These are intentionally vague. Real mood descriptions are generated dynamically
-// by the server via MOOD_REFLECTION_PROMPT after each exchange.
-const MOOD_DESCRIPTIONS = {
-  neutral: "", happy: "", sad: "", flirty: "",
-  angry: "", shy: "", sarcastic: "", vulnerable: "", excited: "",
-};
+const MOODS = M.MOODS;
+const MOOD_DESCRIPTIONS = M.MOOD_DESCRIPTIONS;
 
 // Lightweight heuristic for mood badge during streaming — overridden by
 // server's LLM-generated moodReflection once the response completes.
@@ -65,23 +61,8 @@ function ParticlesBg() {
   );
 }
 
-const CHARACTER = {
-  name: "Morrigan", color: "#9B2D5E",
-  greeting: `*glances up from a battered paperback. dark eyes, smudged eyeliner. doesn't smile.*
-
-...hey.
-
-*pulls her sleeves over her hands. studies you for a second too long, then looks away*
-
-Store's open, I guess. If you're looking for something.`,
-};
-
-const TRUST_LEVELS = {
-  0: { name: "stranger", points: 0 }, 1: { name: "acquaintance", points: 15 },
-  2: { name: "maybe-friend", points: 40 }, 3: { name: "friend", points: 80 },
-  4: { name: "close friend", points: 140 }, 5: { name: "trusted", points: 220 },
-  6: { name: "bonded", points: 320 },
-};
+const CHARACTER = { name: M.name, color: M.color, greeting: M.greeting };
+const TRUST_LEVELS = M.TRUST_LEVELS;
 
 // ═══════════════════════════════════════════════════════════════════
 // MONITOR PANEL
@@ -918,13 +899,7 @@ function MoodBadge({ mood, dynamicLabel }) {
 // INFO SIDEBAR
 // ═══════════════════════════════════════════════════════════════════
 
-// Depth-based sidebar categories — maps SPT depth to human-readable sections
-const DISCLOSURE_SECTIONS = [
-  { depth: 1, label: "Her World", locked: "you're still a stranger.", color: "#10b981" },
-  { depth: 2, label: "What She Carries", locked: "she's not ready to show you.", color: "#0ea5e9" },
-  { depth: 3, label: "Where She's Been", locked: "this takes real trust.", color: "#9f67ff" },
-  { depth: 4, label: "Her Depths", locked: "she may never share this.", color: "#dc2626" },
-];
+const DISCLOSURE_SECTIONS = M.DISCLOSURE_SECTIONS;
 
 function InfoSidebar({ mood, moodReflection, latestMeta, disclosedAtoms }) {
   // Group disclosed atoms by depth for section display
@@ -941,8 +916,8 @@ function InfoSidebar({ mood, moodReflection, latestMeta, disclosedAtoms }) {
   return (
     <div style={{ width: 380, minWidth: 380, background: `linear-gradient(180deg, ${T.surface}, ${T.bg})`, borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", padding: "32px 24px 40px 30px", overflowY: "auto", gap: 20, position: "relative", zIndex: 1 }}>
       <div>
-        <h2 style={{ fontFamily: FONT_DISPLAY, fontSize: 30, color: T.text, margin: "0 0 3px", fontWeight: 500 }}>Morrigan</h2>
-        <p style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.textDim, margin: 0, letterSpacing: "1px" }}>HOLLOW VINYL · RECORD STORE</p>
+        <h2 style={{ fontFamily: FONT_DISPLAY, fontSize: 30, color: T.text, margin: "0 0 3px", fontWeight: 500 }}>{M.name}</h2>
+        <p style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.textDim, margin: 0, letterSpacing: "1px" }}>{M.workplace}</p>
       </div>
       <D />
       {/* Mood — always visible, dynamic from LLM reflection */}

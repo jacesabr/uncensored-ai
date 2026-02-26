@@ -3,10 +3,18 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   plugins: [react()],
+  build: {
+    commonjsOptions: {
+      include: [/shared\//, /node_modules\//],
+    },
+  },
   server: {
     port: 3000,
     proxy: {
       "/api": "http://localhost:5000",
+    },
+    fs: {
+      allow: [".."],
     },
   },
 });
