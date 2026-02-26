@@ -258,6 +258,7 @@ User types → Frontend analyzeMood() → POST /api/chat (JWT)
 | 2026-02-25 | Fixed status endpoint — pings now run in parallel with 8s AbortController timeout (was sequential ~30s) | server/index.js |
 | 2026-02-25 | Fixed auth flash on reload — `authed`/`user` initialized synchronously from localStorage | client/src/App.jsx |
 | 2026-02-25 | Migrated LLM backend from Kaggle/Colab+ngrok → OpenRouter API. Added `OPENROUTER_API_KEY`, `EMBED_MODEL`. Updated all 21 fetch headers + 2 embedding model refs. New defaults: `CHAT_MODEL=meta-llama/llama-3.1-8b-instruct`, `COLAB_URL=https://openrouter.ai/api/v1`, `EMBED_MODEL=openai/text-embedding-3-small` | server/index.js |
+| 2026-02-26 | Contradiction system overhaul — (1) Schema: `contradicts` changed from `[ObjectId]` to `[{atomId, type, detectedAt}]` with "ambivalence"/"contradiction" types. (2) `normalizeContradicts()` utility for backward-compat migration. (3) Detection: yes/no LLM prompt → 5-category classifier (TEMPORAL_EVOLUTION, AMBIVALENCE, GENUINE_CONTRADICTION, REFINEMENT, NOT_CONTRADICTORY) with temporal context. (4) Prompt injection: relevance-ranked via `retrieveTopK()`. (5) Bidirectional pair dedup. (6) Lifecycle filtering for resolved evolutions. (7) Memory guide: ambivalence/tension instructions. | server/index.js, client/src/App.jsx |
 
 ---
 

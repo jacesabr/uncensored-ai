@@ -361,7 +361,14 @@ function SessionTab({ messages, livePersonality }) {
                       </span>
                     )}
                     {mem.embedding?.length > 0 && <span style={{ fontFamily: MMONO, fontSize: 9, color: MON.green, background: MON.green + "10", borderRadius: 4, padding: "2px 7px" }}>⬡ embedded</span>}
-                    {mem.contradicts?.length > 0 && <span style={{ fontFamily: MMONO, fontSize: 9, color: MON.amber, background: MON.amber + "12", border: `1px solid ${MON.amber}25`, borderRadius: 4, padding: "2px 7px" }}>⚡ {mem.contradicts.length} tension{mem.contradicts.length > 1 ? "s" : ""}</span>}
+                    {mem.contradicts?.length > 0 && (() => {
+                      const ambCount = mem.contradicts.filter(c => c && c.type === "ambivalence").length;
+                      const contraCount = mem.contradicts.length - ambCount;
+                      return <>
+                        {ambCount > 0 && <span style={{ fontFamily: MMONO, fontSize: 9, color: MON.purple, background: MON.purple + "12", border: `1px solid ${MON.purple}25`, borderRadius: 4, padding: "2px 7px" }}>~ {ambCount} ambivalence{ambCount > 1 ? "s" : ""}</span>}
+                        {contraCount > 0 && <span style={{ fontFamily: MMONO, fontSize: 9, color: MON.amber, background: MON.amber + "12", border: `1px solid ${MON.amber}25`, borderRadius: 4, padding: "2px 7px" }}>⚡ {contraCount} tension{contraCount > 1 ? "s" : ""}</span>}
+                      </>;
+                    })()}
                   </div>
                   {mem.learnedAt && <span style={{ fontFamily: MMONO, fontSize: 10, color: MON.textDim, marginTop: 4, display: "block" }}>learned {new Date(mem.learnedAt).toLocaleString()}</span>}
                 </div>
@@ -814,26 +821,41 @@ function InfoSidebar({ mood }) {
 // CHARACTER PANEL
 // ═══════════════════════════════════════════════════════════════════
 
-function CharacterPanel({ mood, speaking }) {
+function CharacterPanel({ mood, speaking, latestMeta }) {
   return (
-    <div style={{ width: 360, minWidth: 360, background: `linear-gradient(180deg, ${T.surface}f0, ${T.bg}f0)`, borderLeft: `1px solid ${T.border}`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, position: "relative" }}>
-      <div style={{ position: "absolute", inset: 0, background: `radial-gradient(ellipse at 50% 45%, rgba(155,45,94,0.07) 0%, transparent 70%)`, pointerEvents: "none" }} />
-      <div style={{ position: "relative", zIndex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 14, padding: "0 18px", width: "100%" }}>
-        <div style={{ height: 24, display: "flex", alignItems: "center", justifyContent: "center" }}>
+    <div style={{ width: 300, minWidth: 300, background: `linear-gradient(180deg, ${T.surface}f0, ${T.bg}f0)`, borderLeft: `1px solid ${T.border}`, display: "flex", flexDirection: "column", alignItems: "center", position: "relative", overflowY: "auto" }}>
+      <div style={{ position: "absolute", inset: 0, background: `radial-gradient(ellipse at 50% 20%, rgba(155,45,94,0.07) 0%, transparent 70%)`, pointerEvents: "none" }} />
+      <div style={{ position: "relative", zIndex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 10, padding: "14px 12px", width: "100%" }}>
+        {/* Speaking indicator */}
+        <div style={{ height: 18, display: "flex", alignItems: "center", justifyContent: "center" }}>
           {speaking && (
-            <div style={{ display: "flex", gap: 5 }}>
-              {[0,1,2].map(i => <div key={i} style={{ width: 7, height: 7, borderRadius: "50%", background: T.accent, animation: "speakBounce 0.6s ease-in-out infinite", animationDelay: `${i * 0.2}s` }} />)}
+            <div style={{ display: "flex", gap: 4 }}>
+              {[0,1,2].map(i => <div key={i} style={{ width: 6, height: 6, borderRadius: "50%", background: T.accent, animation: "speakBounce 0.6s ease-in-out infinite", animationDelay: `${i * 0.2}s` }} />)}
             </div>
           )}
         </div>
-        <div style={{ width: "100%", maxWidth: 324, aspectRatio: "3/4", borderRadius: 20, overflow: "hidden", border: `2px solid ${T.border}`, boxShadow: speaking ? `0 0 0 3px ${T.accentSoft}, 0 0 30px rgba(124,58,237,0.5), 0 8px 40px rgba(80,0,60,0.28)` : `0 0 0 3px ${T.accentSoft}, 0 8px 40px rgba(80,0,60,0.18)`, transition: "box-shadow 0.5s ease" }}>
+        {/* Character image — smaller */}
+        <div style={{ width: "100%", maxWidth: 180, aspectRatio: "3/4", borderRadius: 16, overflow: "hidden", border: `2px solid ${T.border}`, boxShadow: speaking ? `0 0 0 3px ${T.accentSoft}, 0 0 20px rgba(124,58,237,0.4), 0 6px 28px rgba(80,0,60,0.22)` : `0 0 0 3px ${T.accentSoft}, 0 6px 28px rgba(80,0,60,0.14)`, transition: "box-shadow 0.5s ease" }}>
           <img src={morriganImg} alt="Morrigan" style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center 15%", display: "block" }} />
         </div>
-        <div style={{ textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: 7 }}>
-          <span style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: T.text, fontWeight: 400 }}>Morrigan</span>
-          <span style={{ fontFamily: FONT, fontSize: 14, color: T.textDim, fontStyle: "italic" }}>23 · record store girl · hollow vinyl</span>
+        {/* Name — compact */}
+        <div style={{ textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+          <span style={{ fontFamily: FONT_DISPLAY, fontSize: 17, color: T.text, fontWeight: 400 }}>Morrigan</span>
+          <span style={{ fontFamily: FONT, fontSize: 11, color: T.textDim, fontStyle: "italic" }}>23 · hollow vinyl</span>
           <MoodBadge mood={mood} />
         </div>
+        {/* Divider */}
+        <div style={{ width: "90%", height: 1, background: T.border, margin: "2px 0" }} />
+        {/* Brain panel */}
+        {latestMeta ? (
+          <div style={{ width: "100%" }}>
+            <ProcessingMeta meta={latestMeta} />
+          </div>
+        ) : (
+          <div style={{ padding: "20px 8px", textAlign: "center", color: T.textDim, fontSize: 11, fontFamily: FONT_MONO, lineHeight: 1.6 }}>
+            send a message to see her thoughts
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1280,33 +1302,27 @@ function AuthScreen({ onAuth }) {
   );
 }
 
-function MessageBubble({ msg }) {
+function MessageBubble({ msg, onMetaClick }) {
   const isUser = msg.role === "user";
-  if (!isUser && msg.meta) {
-    return (
-      <div style={{ marginBottom: 28, animation: "fadeSlideIn 0.3s ease forwards", display: "flex", gap: 16, alignItems: "flex-start" }}>
-        {/* Left: processing panel */}
-        <div style={{ flex: "0 0 42%", minWidth: 0 }}>
-          <ProcessingMeta meta={msg.meta} />
-        </div>
-        {/* Right: Morrigan's response */}
-        <div style={{ flex: "1 1 0", minWidth: 0 }}>
-          <div style={{ background: T.aiBubble, color: T.text, border: `1px solid ${T.border}`, borderRadius: "4px 22px 22px 22px", padding: "16px 20px", wordBreak: "break-word", boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
-              <span style={{ color: "#9B2D5E", fontSize: 12, fontWeight: 700, fontFamily: FONT_DISPLAY, letterSpacing: "0.3px" }}>Morrigan</span>
-            </div>
-            <div style={{ fontSize: 15, lineHeight: 1.9, whiteSpace: "pre-wrap", fontFamily: FONT }}><FormatMessage text={msg.content} bold={true} /></div>
-          </div>
-        </div>
-      </div>
-    );
-  }
   return (
     <div style={{ display: "flex", marginBottom: 22, alignItems: "flex-start", justifyContent: isUser ? "flex-end" : "flex-start", animation: "fadeSlideIn 0.3s ease forwards" }}>
       <div style={isUser
         ? { background: `linear-gradient(135deg, ${T.userBubble}, ${T.purple})`, color: "#fff", borderRadius: "22px 22px 4px 22px", padding: "13px 20px", maxWidth: "65%", wordBreak: "break-word", boxShadow: `0 2px 12px ${T.accentGlow}` }
         : { background: T.aiBubble, color: T.text, border: `1px solid ${T.border}`, borderRadius: "22px 22px 22px 4px", padding: "13px 20px", maxWidth: "75%", wordBreak: "break-word", boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
-        {!isUser && <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}><span style={{ color: "#9B2D5E", fontSize: 12, fontWeight: 600, fontFamily: FONT_DISPLAY }}>Morrigan</span></div>}
+        {!isUser && (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+            <span style={{ color: "#9B2D5E", fontSize: 12, fontWeight: 600, fontFamily: FONT_DISPLAY }}>Morrigan</span>
+            {msg.meta && onMetaClick && (
+              <span onClick={() => onMetaClick(msg.meta)}
+                style={{ color: T.accent, fontSize: 10, fontFamily: FONT_MONO, cursor: "pointer", opacity: 0.5, transition: "opacity 0.2s" }}
+                onMouseEnter={e => e.currentTarget.style.opacity = 1}
+                onMouseLeave={e => e.currentTarget.style.opacity = 0.5}
+                title="View brain state">
+                ◈ brain
+              </span>
+            )}
+          </div>
+        )}
         <div style={{ fontSize: 15, lineHeight: 1.85, whiteSpace: "pre-wrap", fontFamily: FONT }}><FormatMessage text={msg.content} bold={!isUser} /></div>
       </div>
     </div>
@@ -1363,6 +1379,7 @@ export default function App() {
   const [usage,         setUsage]         = useState({ used: 0, limit: 100, remaining: 100, resetAt: null });
   const [currentMood,   setCurrentMood]   = useState("neutral");
   const [showExplain,   setShowExplain]   = useState(false);
+  const [latestMeta,    setLatestMeta]    = useState(null);
   const messagesEndRef = useRef(null);
   const inputRef       = useRef(null);
   const justCreated    = useRef(false);
@@ -1499,6 +1516,7 @@ export default function App() {
                 setMessages(p => [...p, { role: "assistant", content: finalText, timestamp: new Date(), meta: json.processingMeta || null }]);
                 setConversations(p => p.map(c => c.conversationId === cid ? { ...c, title: `🖤 ${finalText.substring(0, 40)}${finalText.length > 40 ? "..." : ""}`, updatedAt: new Date() } : c));
               }
+              if (json.processingMeta) setLatestMeta(json.processingMeta);
               if (json.usage) setUsage(json.usage);
               setStreamText("");
               setStreaming(false);
@@ -1592,7 +1610,7 @@ export default function App() {
         <div style={{ flex: 1, overflowY: "auto", padding: "28px 32px" }}>
           {showWelcome ? <WelcomeScreen onStart={createConvo} /> : (
             <>
-              {messages.map((msg, i) => <MessageBubble key={i} msg={msg} />)}
+              {messages.map((msg, i) => <MessageBubble key={i} msg={msg} onMetaClick={setLatestMeta} />)}
               {streaming && (
                 <div style={{ display: "flex", marginBottom: 22, alignItems: "flex-start", animation: "fadeSlideIn 0.3s ease forwards" }}>
                   <div style={{ background: T.aiBubble, border: `1px solid ${T.border}`, borderRadius: "22px 22px 22px 4px", padding: "13px 20px", maxWidth: "75%", wordBreak: "break-word", boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
@@ -1636,7 +1654,7 @@ export default function App() {
         </div>
       </div>
 
-      <CharacterPanel mood={currentMood} speaking={!!streamText} />
+      <CharacterPanel mood={currentMood} speaking={!!streamText} latestMeta={latestMeta} />
 
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&family=Playfair+Display:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@300;400;500&display=swap');

@@ -221,6 +221,33 @@ function retrieveSelfAtoms(selfAtoms, queryEmbedding, k, sptDepth, sharedSelfAto
     .map(x => x.atom);
 }
 
+/**
+ * Normalize legacy contradicts entries (plain ObjectIds) into the new
+ * structured format { atomId, type, detectedAt }. Mutates in place.
+ */
+function normalizeContradicts(memories) {
+  let migrated = 0;
+  for (const mem of memories) {
+    if (!mem.contradicts || mem.contradicts.length === 0) continue;
+    const normalized = [];
+    for (const entry of mem.contradicts) {
+      if (entry && entry.atomId) {
+        normalized.push(entry);
+      } else if (entry) {
+        migrated++;
+        normalized.push({
+          atomId: entry,
+          type: "contradiction",
+          detectedAt: mem.learnedAt || new Date(),
+        });
+      }
+    }
+    mem.contradicts = normalized;
+  }
+  if (migrated > 0) console.log(`[MIGRATION] Normalized ${migrated} legacy contradicts entries`);
+  return migrated;
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // SESSION CACHE
 // ═══════════════════════════════════════════════════════════════════
@@ -345,6 +372,7 @@ If nothing worth storing, return []. Return ONLY the JSON array.`;
     if (!atom.fact || !atom.category) continue;
     const embedding = await embedText(atom.fact);
     const newAtom = {
+      _id: new mongoose.Types.ObjectId(),
       fact: atom.fact,
       category: atom.category,
       importance: atom.importance || 3,
@@ -385,24 +413,61 @@ If nothing worth storing, return []. Return ONLY the JSON array.`;
         const chargeDiff = Math.abs((existing.valence?.charge || 0) - (newAtom.valence?.charge || 0));
         if (chargeDiff > 0.5) {
           try {
+            const existDate = existing.learnedAt ? new Date(existing.learnedAt).toLocaleDateString() : "unknown";
+            const newDate = newAtom.learnedAt ? new Date(newAtom.learnedAt).toLocaleDateString() : "today";
+            const eTmp = existing.temporal || {};
+            const nTmp = newAtom.temporal || {};
+            const classifyPrompt = `You are a memory analyst for an emotional companion AI. Two facts about the same person appear to conflict. Classify their relationship.
+
+Fact A (learned ${existDate}):
+"${existing.fact}"
+${eTmp.period ? `Period: ${eTmp.period}` : ""}${eTmp.eventDate ? ` | Date: ${eTmp.eventDate}` : ""}${eTmp.isOngoing ? ` | Ongoing: ${eTmp.isOngoing}` : ""}
+Emotion: ${existing.valence?.emotion || "neutral"} (charge: ${existing.valence?.charge ?? 0})
+
+Fact B (learned ${newDate}):
+"${newAtom.fact}"
+${nTmp.period ? `Period: ${nTmp.period}` : ""}${nTmp.eventDate ? ` | Date: ${nTmp.eventDate}` : ""}${nTmp.isOngoing ? ` | Ongoing: ${nTmp.isOngoing}` : ""}
+Emotion: ${newAtom.valence?.emotion || "neutral"} (charge: ${newAtom.valence?.charge ?? 0})
+
+Categories:
+- TEMPORAL_EVOLUTION: Situation changed over time. Fact A was true then, Fact B is true now.
+- AMBIVALENCE: Person holds genuinely mixed feelings. Both are simultaneously true.
+- GENUINE_CONTRADICTION: Cannot both be true at the same time.
+- REFINEMENT: Fact B adds nuance or correction to Fact A. Not a real conflict.
+- NOT_CONTRADICTORY: Actually compatible. No real conflict.
+
+Answer with ONLY the category name.`;
+
             const cRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
               method: "POST",
               headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
               body: JSON.stringify({
                 model: CHAT_MODEL,
-                messages: [{ role: "user", content: `Do these two facts directly contradict each other? Answer only "yes" or "no".\nFact A: "${existing.fact}"\nFact B: "${newAtom.fact}"` }],
-                temperature: 0.0, max_tokens: 10,
+                messages: [{ role: "user", content: classifyPrompt }],
+                temperature: 0.0, max_tokens: 20,
               }),
             });
             if (cRes.ok) {
               const cData = await cRes.json();
-              if ((cData.choices?.[0]?.message?.content || "").toLowerCase().includes("yes")) {
-                contradictIds.push(existing._id);
+              const classification = (cData.choices?.[0]?.message?.content || "").trim().toUpperCase();
+              console.log(`[BRAIN-CLASSIFY] "${existing.fact.substring(0, 40)}" vs "${newAtom.fact.substring(0, 40)}" → ${classification}`);
+
+              if (classification.includes("TEMPORAL_EVOLUTION")) {
+                // Situation changed — mark older atom as no longer ongoing, link for context
+                if (existing.temporal) existing.temporal.isOngoing = "no";
+                if (!linkedIds.includes(existing._id)) linkedIds.push(existing._id);
+              } else if (classification.includes("AMBIVALENCE")) {
+                contradictIds.push({ atomId: existing._id, type: "ambivalence", detectedAt: new Date() });
                 existing.contradicts = existing.contradicts || [];
-                existing.contradicts.push(newAtom._id);
+                existing.contradicts.push({ atomId: newAtom._id, type: "ambivalence", detectedAt: new Date() });
+              } else if (classification.includes("GENUINE_CONTRADICTION")) {
+                contradictIds.push({ atomId: existing._id, type: "contradiction", detectedAt: new Date() });
+                existing.contradicts = existing.contradicts || [];
+                existing.contradicts.push({ atomId: newAtom._id, type: "contradiction", detectedAt: new Date() });
               }
+              // REFINEMENT and NOT_CONTRADICTORY: no action needed
             }
-          } catch (e) { console.error("[BRAIN-CONTRADICT]", e.message); }
+          } catch (e) { console.error("[BRAIN-CLASSIFY]", e.message); }
         }
       }
     }
@@ -1555,7 +1620,11 @@ const MemoryAtomSchema = new mongoose.Schema({
   importance: { type: Number, default: 3 },
   embedding: { type: [Number], default: [] },
   linkedTo: [{ type: mongoose.Schema.Types.ObjectId }],
-  contradicts: [{ type: mongoose.Schema.Types.ObjectId }],
+  contradicts: [{
+    atomId: { type: mongoose.Schema.Types.ObjectId },
+    type: { type: String, enum: ["ambivalence", "contradiction"], default: "contradiction" },
+    detectedAt: { type: Date, default: Date.now },
+  }],
   context: { type: String, default: "" },
   learnedAt: { type: Date, default: Date.now },
   conversationId: String,
@@ -1922,19 +1991,58 @@ function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart = false
   memoryContext += `  Attraction: ${memory.feelings.attraction}/100 | Protectiveness: ${memory.feelings.protectiveness}/100\n`;
   memoryContext += `  Vulnerability shown: ${memory.feelings.vulnerability}/100\n`;
 
-  const contradictionPairs = memory.memories
-    .filter(m => m.contradicts && m.contradicts.length > 0)
-    .flatMap(m => m.contradicts.map(cid => {
-      const other = memory.memories.find(o => String(o._id) === String(cid));
-      return other ? `[Morrigan holds this tension: "${m.fact}" / "${other.fact}"]` : null;
-    }))
-    .filter(Boolean);
+  // Build contradiction pairs with relevance ranking, dedup, and lifecycle filtering
+  const contradictionPairObjects = [];
+  const seenPairKeys = new Set();
 
-  if (contradictionPairs.length > 0) {
-    memoryContext += `\nContradictions she holds (never flatten these — they're part of who he is):\n`;
-    for (const pair of contradictionPairs.slice(0, 3)) {
-      memoryContext += `  ${pair}\n`;
+  for (const mem of memory.memories) {
+    if (!mem.contradicts || mem.contradicts.length === 0) continue;
+    for (const entry of mem.contradicts) {
+      const otherId = entry.atomId ? String(entry.atomId) : String(entry);
+      const other = memory.memories.find(o => String(o._id) === otherId);
+      if (!other) continue;
+
+      // Deduplicate bidirectional pairs using canonical key
+      const pairKey = [String(mem._id), otherId].sort().join("::");
+      if (seenPairKeys.has(pairKey)) continue;
+      seenPairKeys.add(pairKey);
+
+      // Lifecycle filtering — skip resolved temporal evolutions
+      const memEnded = mem.temporal?.isOngoing === "no" || mem.temporal?.isOngoing === "ended recently";
+      const otherEnded = other.temporal?.isOngoing === "no" || other.temporal?.isOngoing === "ended recently";
+      if (memEnded && !otherEnded) continue;
+      if (otherEnded && !memEnded) continue;
+
+      const contradictType = entry.type || "contradiction";
+      const label = contradictType === "ambivalence"
+        ? `[She holds this ambivalence: "${mem.fact}" / "${other.fact}" — both are true, both are real]`
+        : `[Morrigan holds this tension: "${mem.fact}" / "${other.fact}"]`;
+
+      // Synthetic scoreable object for relevance ranking (same shape as scoreMemory expects)
+      const pairEmbedding = mem.embedding?.length && other.embedding?.length
+        ? mem.embedding.map((v, i) => (v + (other.embedding[i] || 0)) / 2)
+        : mem.embedding?.length ? mem.embedding : other.embedding || [];
+
+      contradictionPairObjects.push({
+        text: label,
+        embedding: pairEmbedding,
+        importance: Math.max(mem.importance || 3, other.importance || 3),
+        learnedAt: new Date(Math.max(
+          new Date(mem.learnedAt || 0).getTime(),
+          new Date(other.learnedAt || 0).getTime()
+        )),
+        valence: { emotion: mem.valence?.emotion || other.valence?.emotion || "neutral" },
+      });
     }
+  }
+
+  if (contradictionPairObjects.length > 0) {
+    const topPairs = retrieveTopK(contradictionPairObjects, queryEmbedding, 3, goalState);
+    memoryContext += `\nContradictions she holds (never flatten these — they're part of who he is):\n`;
+    for (const pair of topPairs) {
+      memoryContext += `  ${pair.text}\n`;
+    }
+    console.log(`[PROMPT-CONTRADICT] Injecting ${topPairs.length} of ${contradictionPairObjects.length} pairs (${seenPairKeys.size} unique, pre-filter)`);
   }
 
   if (memory.molecules && memory.molecules.length > 0) {
@@ -1960,7 +2068,9 @@ function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart = false
 - Reference shared history: "remember when you told me about..."
 - If they shared something emotional before, check in on it naturally.
 - Respect temporal markers — don't say "you work nights" if that was past tense.
-- Hold contradictions without flattening them. Both things can be true.`;
+- Hold contradictions without flattening them. Both things can be true.
+- When you see ambivalence (mixed feelings), validate BOTH sides. Don't pick one.
+- When you see a genuine tension, hold it gently — don't try to resolve it unless they ask.`;
 
   // ── Position 8b: Self-atom hint (Phase 2, position 4.5) ───────────
   // topSelfAtoms injected from the chat route via session; defaults empty
@@ -2082,6 +2192,7 @@ app.post("/api/auth/phrase", async (req, res) => {
     if (!user) user = await User.create({ phraseHash });
     let memory = await PersonalityMemory.findOne({ userId: user._id });
     if (!memory) memory = await PersonalityMemory.create({ userId: user._id });
+    normalizeContradicts(memory.memories || []);
 
     const existingSession = getSession(String(user._id));
     if (existingSession) {
@@ -2120,6 +2231,7 @@ app.get("/api/session/greeting", auth, async (req, res) => {
     if (!session) {
       const memory = await PersonalityMemory.findOne({ userId: req.user.id });
       if (!memory) return res.json({ greeting: null });
+      normalizeContradicts(memory.memories || []);
       session = { memory, sessionExchanges: [], dirty: false, isSessionStart: true };
       setSession(req.user.id, session);
     }
@@ -2461,6 +2573,7 @@ app.post("/api/chat", auth, async (req, res) => {
   if (!session) {
     let memory = await PersonalityMemory.findOne({ userId: req.user.id });
     if (!memory) memory = await PersonalityMemory.create({ userId: req.user.id });
+    normalizeContradicts(memory.memories || []);
     session = { memory, sessionExchanges: [], dirty: false, isSessionStart: true, _updating: false, _updateQueue: [], _brainUpdatePromise: null };
     setSession(req.user.id, session);
     console.log(`[CACHE] Cold load for user ${req.user.id}`);
