@@ -859,7 +859,7 @@ function FormatMessage({ text, bold }) {
 
 function ProcessingMeta({ meta }) {
   const [open, setOpen] = useState(false);
-  const [sec, setSec] = useState({ reservoir: false, atoms: true, knowledge: true, molecules: true, state: true, history: false });
+  const [sec, setSec] = useState({ reservoir: false, atoms: true, disclosed: false, knowledge: true, molecules: true, state: true, callbacks: true, history: false });
   if (!meta) return null;
   const m = meta.memorySummary || {};
   const tog = k => setSec(s => ({ ...s, [k]: !s[k] }));
@@ -953,13 +953,27 @@ function ProcessingMeta({ meta }) {
           <div style={{ display: "flex", flexWrap: "wrap", marginBottom: 10 }}>
             <Pill label="spt depth" value={`${meta.sptDepth} / 4`} />
             <Pill label="msg" value={`#${meta.msgCount}`} />
+            {meta.memorySummary?.totalMessages > 0 && <Pill label="total msgs" value={meta.memorySummary.totalMessages} />}
+            {meta.memorySummary?.totalConversations > 0 && <Pill label="convos" value={meta.memorySummary.totalConversations} />}
             {meta.goalState && <Pill label="goal" value={meta.goalState} on={meta.goalState !== "neutral"} />}
             <Pill label="reservoir" value={`${meta.reservoirSize} thoughts`} />
+            <Pill label="cooldown" value={`${meta.thoughtCooldown}/3`} on={meta.thoughtCooldown >= 3} />
+            <Pill label="threshold" value={meta.motivationThreshold} />
             <Pill label="trigger" value={meta.triggerFired ? "fired" : "—"} on={meta.triggerFired} />
             <Pill label="composition" value={meta.compositionApplied ? "applied" : "—"} on={meta.compositionApplied} />
+            {meta.callbackQueue?.length > 0 && <Pill label="callbacks" value={meta.callbackQueue.length} on />}
+            {meta.alreadyDisclosedAtoms?.length > 0 && <Pill label="disclosed" value={`${meta.alreadyDisclosedAtoms.length} atoms`} />}
             {meta.atRisk && <Pill label="status" value="⚠ at-risk" on />}
             {!meta.innerThought && meta.atomHintUsed && <Pill label="phase 2" value="hint active" />}
           </div>
+
+          {/* ── Theory of Mind ── */}
+          {meta.theoryOfMind && (
+            <div style={{ background: "#fdf6e3", border: `1px solid #f59e0b40`, borderRadius: 8, padding: "10px 14px", marginBottom: 10 }}>
+              <div style={{ color: "#b45309", fontSize: 10, fontWeight: 700, letterSpacing: "1px", marginBottom: 5 }}>THEORY OF MIND — HER READ ON YOU</div>
+              <div style={{ color: T.textSoft, lineHeight: 1.6, fontSize: 12, fontStyle: "italic" }}>{meta.theoryOfMind}</div>
+            </div>
+          )}
 
           {/* ── Inner thought expressed (highlighted) ── */}
           {meta.innerThought && (
@@ -971,6 +985,27 @@ function ProcessingMeta({ meta }) {
               <div style={{ color: T.text, fontStyle: "italic", lineHeight: 1.65, fontSize: 13 }}>
                 "{meta.innerThought.content}"
               </div>
+              {meta.innerThought.participationDirective && (
+                <div style={{ color: T.textDim, fontSize: 11, marginTop: 6, borderTop: `1px solid ${T.accent}20`, paddingTop: 6 }}>
+                  directive: <span style={{ fontStyle: "italic" }}>{meta.innerThought.participationDirective}</span>
+                </div>
+              )}
+              {(meta.innerThought.reasonsFor?.length > 0 || meta.innerThought.reasonsAgainst?.length > 0) && (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8 }}>
+                  {meta.innerThought.reasonsFor?.length > 0 && (
+                    <div>
+                      <div style={{ color: "#10b981", fontSize: 9.5, fontWeight: 700, letterSpacing: "1px", marginBottom: 4 }}>FOR</div>
+                      {meta.innerThought.reasonsFor.map((r, i) => <div key={i} style={{ color: T.textSoft, fontSize: 11, lineHeight: 1.5, marginBottom: 2 }}>+ {r}</div>)}
+                    </div>
+                  )}
+                  {meta.innerThought.reasonsAgainst?.length > 0 && (
+                    <div>
+                      <div style={{ color: "#dc2626", fontSize: 9.5, fontWeight: 700, letterSpacing: "1px", marginBottom: 4 }}>AGAINST</div>
+                      {meta.innerThought.reasonsAgainst.map((r, i) => <div key={i} style={{ color: T.textSoft, fontSize: 11, lineHeight: 1.5, marginBottom: 2 }}>− {r}</div>)}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -1011,6 +1046,59 @@ function ProcessingMeta({ meta }) {
             </>
           )}
 
+          {/* ── Callback queue (threads she's tracking to raise) ── */}
+          {meta.callbackQueue?.length > 0 && (
+            <>
+              <SecBtn label="Callback Queue — Threads She's Tracking" count={meta.callbackQueue.length} sk="callbacks" />
+              {sec.callbacks && (
+                <div style={{ marginBottom: 4 }}>
+                  {meta.callbackQueue.map((cb, i) => (
+                    <div key={i} style={{ display: "flex", gap: 10, marginBottom: 6, alignItems: "flex-start" }}>
+                      <span style={{ color: cb.priority === "high" ? "#dc2626" : cb.priority === "medium" ? "#f59e0b" : T.textDim, fontSize: 10.5, minWidth: 44, flexShrink: 0, fontWeight: 700, paddingTop: 1 }}>{cb.priority}</span>
+                      <span style={{ color: T.textSoft, lineHeight: 1.5, fontSize: 12 }}>{cb.content}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
+          {/* ── Already-disclosed atoms (what she's shared about herself) ── */}
+          {meta.alreadyDisclosedAtoms?.length > 0 && (
+            <>
+              <SecBtn label="Already Disclosed About Herself" count={meta.alreadyDisclosedAtoms.length} sk="disclosed" />
+              {sec.disclosed && (
+                <div style={{ marginBottom: 4 }}>
+                  {meta.alreadyDisclosedAtoms.map((a, i) => (
+                    <div key={i} style={{ display: "flex", gap: 10, marginBottom: 6, alignItems: "flex-start" }}>
+                      <span style={{ color: DEPTH_CLR[a.depth] || T.textDim, fontSize: 10.5, fontWeight: 700, minWidth: 58, flexShrink: 0, paddingTop: 1 }}>
+                        d{a.depth} <span style={{ fontWeight: 400, fontSize: 9.5 }}>{DEPTH_LBL[a.depth]}</span>
+                      </span>
+                      <span style={{ color: T.textSoft, lineHeight: 1.5, fontSize: 12, textDecoration: "line-through", opacity: 0.6 }}>{a.content}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
+          {/* ── SPT Breadth map ── */}
+          {meta.sptBreadth && Object.keys(meta.sptBreadth).length > 0 && (
+            <>
+              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "1.2px", textTransform: "uppercase", color: T.accent, marginTop: 14, marginBottom: 8, paddingBottom: 5, borderBottom: `1px solid ${T.border}` }}>
+                SPT Breadth — Topic Depth Progress
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
+                {Object.entries(meta.sptBreadth).map(([topic, depth]) => (
+                  <span key={topic} style={{ background: T.surface2, border: `1px solid ${DEPTH_CLR[depth] || T.border}40`, borderRadius: 6, padding: "2px 8px", fontSize: 11 }}>
+                    <span style={{ color: T.textDim }}>{topic}</span>
+                    <span style={{ color: DEPTH_CLR[depth] || T.textDim, fontWeight: 700, marginLeft: 5 }}>d{depth}</span>
+                  </span>
+                ))}
+              </div>
+            </>
+          )}
+
           {/* ── What she knows about you ── */}
           {hasKnowledge && (
             <>
@@ -1024,6 +1112,8 @@ function ProcessingMeta({ meta }) {
                     <KV label="trust pts" value={m.trustPoints} />
                     <KV label="first met" value={`${m.daysSinceFirstMet}d ago`} />
                     <KV label="last seen" value={`${m.hoursSinceLastSeen}h ago`} />
+                    {m.totalMessages > 0 && <KV label="total msgs" value={m.totalMessages} />}
+                    {m.totalConversations > 0 && <KV label="convos" value={m.totalConversations} />}
                   </div>
                   {/* Trust track */}
                   <div style={{ marginBottom: 10 }}>
@@ -1142,10 +1232,6 @@ function ProcessingMeta({ meta }) {
             </>
           )}
 
-          {/* ── Divider ── */}
-          <div style={{ marginTop: 14, paddingTop: 8, borderTop: `1px solid ${T.border}`, fontSize: 10.5, color: T.textDim, letterSpacing: "0.5px", textAlign: "center" }}>
-            ↓ &nbsp;response
-          </div>
         </div>
       )}
     </div>
@@ -1198,11 +1284,15 @@ function MessageBubble({ msg }) {
   const isUser = msg.role === "user";
   if (!isUser && msg.meta) {
     return (
-      <div style={{ marginBottom: 28, animation: "fadeSlideIn 0.3s ease forwards" }}>
-        <ProcessingMeta meta={msg.meta} />
-        <div style={{ display: "flex", justifyContent: "flex-start" }}>
-          <div style={{ background: T.aiBubble, color: T.text, border: `1px solid ${T.border}`, borderRadius: "4px 22px 22px 22px", padding: "13px 20px", maxWidth: "82%", wordBreak: "break-word", boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+      <div style={{ marginBottom: 28, animation: "fadeSlideIn 0.3s ease forwards", display: "flex", gap: 16, alignItems: "flex-start" }}>
+        {/* Left: processing panel */}
+        <div style={{ flex: "0 0 42%", minWidth: 0 }}>
+          <ProcessingMeta meta={msg.meta} />
+        </div>
+        {/* Right: Morrigan's response */}
+        <div style={{ flex: "1 1 0", minWidth: 0 }}>
+          <div style={{ background: T.aiBubble, color: T.text, border: `1px solid ${T.border}`, borderRadius: "4px 22px 22px 22px", padding: "16px 20px", wordBreak: "break-word", boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
               <span style={{ color: "#9B2D5E", fontSize: 12, fontWeight: 700, fontFamily: FONT_DISPLAY, letterSpacing: "0.3px" }}>Morrigan</span>
             </div>
             <div style={{ fontSize: 15, lineHeight: 1.9, whiteSpace: "pre-wrap", fontFamily: FONT }}><FormatMessage text={msg.content} bold={true} /></div>

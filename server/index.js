@@ -2819,6 +2819,9 @@ app.post("/api/chat", auth, async (req, res) => {
               content: winnerForCompose.content.substring(0, 120),
               type: winnerForCompose.type,
               score: winnerForCompose.currentScore != null ? Number(winnerForCompose.currentScore).toFixed(1) : null,
+              participationDirective: winnerForCompose.participationDirective || null,
+              reasonsFor: winnerForCompose.reasonsFor || [],
+              reasonsAgainst: winnerForCompose.reasonsAgainst || [],
             } : null,
             topSelfAtoms: (session.topSelfAtoms || []).map(a => ({
               id: a.id, depth: a.depth, content: a.content,
@@ -2827,15 +2830,28 @@ app.post("/api/chat", auth, async (req, res) => {
             reservoirSize: (session.thoughtReservoir || []).length,
             reservoirContents: (session.thoughtReservoir || []).map(t => ({
               type: t.type, score: Number(t.currentScore || 0).toFixed(1), content: t.content,
+              reasonsFor: t.reasonsFor || [], reasonsAgainst: t.reasonsAgainst || [],
             })),
+            theoryOfMind: thoughtResult?.theoryOfMind || null,
+            thoughtCooldown: session.thoughtCooldown || 0,
+            motivationThreshold: session.effectiveMotivationThreshold ?? 7.0,
             sptDepth: mem.sptDepth || 1,
+            sptBreadth: Object.fromEntries(mem.sptBreadth || new Map()),
             msgCount: session.msgCount || 0,
             atRisk,
+            callbackQueue: (mem.callbackQueue || [])
+              .filter(c => !c.consumed)
+              .map(c => ({ content: c.content, priority: c.priority })),
+            alreadyDisclosedAtoms: (session.selfAtomCache || [])
+              .filter(a => (mem.sharedSelfAtomIds || []).includes(a.id))
+              .map(a => ({ depth: a.depth, content: a.content, id: a.id })),
             memorySummary: {
               userName: mem.memories?.find(m => m.category === "name")?.fact || null,
               trustLevel: mem.trustLevel,
               trustLevelName: TRUST_LEVELS[mem.trustLevel]?.name,
               trustPoints: mem.trustPoints,
+              totalMessages: mem.totalMessages || 0,
+              totalConversations: mem.totalConversations || 0,
               daysSinceFirstMet: Math.floor((Date.now() - (mem.firstMet || Date.now())) / (1000 * 60 * 60 * 24)),
               hoursSinceLastSeen: Math.floor((Date.now() - (mem.lastSeen || Date.now())) / (1000 * 60 * 60)),
               feelings: mem.feelings,
