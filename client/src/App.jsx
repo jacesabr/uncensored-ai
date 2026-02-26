@@ -893,7 +893,7 @@ function ExplainPanel({ onClose, token, user, conversations, messages, status })
           {activeTab === "phase6"  && <Phase6Tab  token={token} />}
         </div>
       </div>
-      <style>{`button:focus{outline:none}::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:${MON.border};border-radius:3px}`}</style>
+      <style>{`button:focus{outline:none}::-webkit-scrollbar{width:14px}::-webkit-scrollbar-track{background:${MON.bg};border-radius:7px}::-webkit-scrollbar-thumb{background:${MON.accent}55;border-radius:7px;border:3px solid transparent;background-clip:padding-box}::-webkit-scrollbar-thumb:hover{background:${MON.accent}88;border:3px solid transparent;background-clip:padding-box}`}</style>
     </div>
   );
 }
@@ -939,7 +939,7 @@ function InfoSidebar({ mood, moodReflection, latestMeta, disclosedAtoms }) {
   const D  = () => <div style={{ height: 1, background: T.border, margin: "4px 0" }} />;
 
   return (
-    <div style={{ width: 380, minWidth: 380, background: `linear-gradient(180deg, ${T.surface}, ${T.bg})`, borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", padding: "32px 30px", overflowY: "auto", gap: 20, position: "relative", zIndex: 1 }}>
+    <div style={{ width: 380, minWidth: 380, background: `linear-gradient(180deg, ${T.surface}, ${T.bg})`, borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", padding: "32px 24px 40px 30px", overflowY: "auto", gap: 20, position: "relative", zIndex: 1 }}>
       <div>
         <h2 style={{ fontFamily: FONT_DISPLAY, fontSize: 30, color: T.text, margin: "0 0 3px", fontWeight: 500 }}>Morrigan</h2>
         <p style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.textDim, margin: 0, letterSpacing: "1px" }}>HOLLOW VINYL · RECORD STORE</p>
@@ -953,42 +953,91 @@ function InfoSidebar({ mood, moodReflection, latestMeta, disclosedAtoms }) {
       </div>
       <D />
 
-      {/* Disclosure sections — populated ONLY from what Morrigan has actually shared */}
-      {totalDisclosed === 0 ? (
-        <div style={{ padding: "16px 0" }}>
-          <SL>What You Know About Her</SL>
-          <p style={{ fontFamily: FONT_MONO, fontSize: 13, color: T.textDim, margin: 0, lineHeight: 1.6, opacity: 0.5 }}>nothing yet. keep talking.</p>
-        </div>
-      ) : (
-        DISCLOSURE_SECTIONS.map(sec => {
-          const atoms = atomsByDepth[sec.depth] || [];
-          if (atoms.length === 0) return null; // Don't show empty sections — no spoilers
-          return (
-            <div key={sec.depth}>
-              <SL color={sec.color}>{sec.label}</SL>
-              {atoms.map((atom, i) => (
-                <p key={atom.id || i} style={{ fontFamily: FONT, fontSize: 15, color: T.text, margin: i < atoms.length - 1 ? "0 0 14px" : 0, lineHeight: 1.85, paddingLeft: 12, borderLeft: `2px solid ${sec.color}30` }}>
-                  {atom.content}
-                </p>
-              ))}
-              <D />
-            </div>
-          );
-        })
-      )}
+      {/* Disclosure sections — from what Morrigan has actually shared + inferred observations */}
+      {totalDisclosed > 0 && DISCLOSURE_SECTIONS.map(sec => {
+        const atoms = atomsByDepth[sec.depth] || [];
+        if (atoms.length === 0) return null;
+        return (
+          <div key={sec.depth}>
+            <SL color={sec.color}>{sec.label}</SL>
+            {atoms.map((atom, i) => (
+              <p key={atom.id || i} style={{ fontFamily: FONT, fontSize: 15, color: T.text, margin: i < atoms.length - 1 ? "0 0 14px" : 0, lineHeight: 1.85, paddingLeft: 12, borderLeft: `2px solid ${sec.color}30` }}>
+                {atom.content}
+              </p>
+            ))}
+            <D />
+          </div>
+        );
+      })}
+      {/* Inferred observations — always show what we've picked up from interactions */}
+      {(() => {
+        const m = latestMeta?.memorySummary || {};
+        const feelings = m.feelings || {};
+        const observations = [];
+        // Current emotional state
+        if (latestMeta?.somaticMarker?.gutFeeling) observations.push({ label: "Her gut feeling", value: latestMeta.somaticMarker.gutFeeling, color: "#10b981" });
+        // Feelings toward user
+        const feelingEntries = Object.entries(feelings).filter(([,v]) => v > 0);
+        if (feelingEntries.length > 0) {
+          const top = feelingEntries.sort((a,b) => b[1] - a[1]).slice(0, 3);
+          observations.push({ label: "How she feels", value: top.map(([k,v]) => `${k} (${v})`).join(", "), color: T.accent });
+        }
+        // Inner thought if expressed
+        if (latestMeta?.innerThought?.content) observations.push({ label: "What's on her mind", value: latestMeta.innerThought.content, color: "#9f67ff" });
+        // Prospective note
+        if (m.prospectiveNote) observations.push({ label: "Sitting with", value: m.prospectiveNote, color: "#0ea5e9" });
+        // Loose thread
+        if (m.looseThread) observations.push({ label: "Unresolved", value: m.looseThread, color: "#f59e0b" });
+        // Callbacks
+        if (latestMeta?.callbackQueue?.length > 0) observations.push({ label: "Wants to bring up", value: latestMeta.callbackQueue.slice(0, 2).map(c => c.content).join("; "), color: "#f59e0b" });
 
-      {/* Personality tags — derived from disclosed atoms' topics */}
+        return observations.length > 0 ? (
+          <div>
+            <SL>What You Know About Her</SL>
+            {observations.map((obs, i) => (
+              <div key={i} style={{ marginBottom: 12, paddingLeft: 12, borderLeft: `2px solid ${obs.color}30` }}>
+                <p style={{ fontFamily: FONT_MONO, fontSize: 9, color: obs.color, margin: "0 0 4px", letterSpacing: "1px", textTransform: "uppercase", fontWeight: 600 }}>{obs.label}</p>
+                <p style={{ fontFamily: FONT, fontSize: 14, color: T.text, margin: 0, lineHeight: 1.7, fontStyle: "italic" }}>{obs.value}</p>
+              </div>
+            ))}
+            <D />
+          </div>
+        ) : totalDisclosed === 0 ? (
+          <div style={{ padding: "8px 0" }}>
+            <SL>What You Know About Her</SL>
+            <p style={{ fontFamily: FONT_MONO, fontSize: 13, color: T.textDim, margin: 0, lineHeight: 1.6, opacity: 0.5 }}>nothing yet. keep talking.</p>
+            <D />
+          </div>
+        ) : null;
+      })()}
+
+      {/* Personality tags — from disclosed topics + inferred signals */}
       <div>
         <SL>What You've Gathered</SL>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-          {totalDisclosed === 0 ? (
-            <span style={{ fontFamily: FONT_MONO, fontSize: 11, color: T.textDim, opacity: 0.5 }}>nothing yet</span>
-          ) : (
-            // Extract unique topics from disclosed atoms as personality tags
-            [...new Set((disclosedAtoms || []).flatMap(a => a.topics || []))].slice(0, 12).map(tag => (
+          {(() => {
+            const tags = [];
+            // From disclosed atoms
+            if (totalDisclosed > 0) {
+              tags.push(...[...new Set((disclosedAtoms || []).flatMap(a => a.topics || []))]);
+            }
+            // From processing meta — mood, somatic, feelings
+            if (latestMeta?.somaticMarker?.emotionalRegister) tags.push(latestMeta.somaticMarker.emotionalRegister);
+            if (moodReflection?.moodLabel && !tags.includes(moodReflection.moodLabel)) tags.push(moodReflection.moodLabel);
+            if (latestMeta?.goalState && latestMeta.goalState !== "neutral") tags.push(latestMeta.goalState);
+            if (latestMeta?.disclosureDepth?.label) tags.push(`${latestMeta.disclosureDepth.label} disclosure`);
+            if (latestMeta?.crisisDetection?.safeHavenActive) tags.push("crisis mode");
+            if (latestMeta?.atRisk) tags.push("at-risk");
+            // Trust level tag
+            const trustLabels = ["stranger", "acquaintance", "maybe-friend", "friend", "close friend", "trusted", "bonded"];
+            if (latestMeta?.memorySummary?.trustLevel != null) tags.push(trustLabels[latestMeta.memorySummary.trustLevel] || "unknown");
+            const unique = [...new Set(tags)].slice(0, 14);
+            return unique.length > 0 ? unique.map(tag => (
               <span key={tag} style={{ fontFamily: FONT_MONO, fontSize: 9, color: T.text, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, padding: "4px 9px" }}>{tag}</span>
-            ))
-          )}
+            )) : (
+              <span style={{ fontFamily: FONT_MONO, fontSize: 11, color: T.textDim, opacity: 0.5 }}>send a message to start reading her</span>
+            );
+          })()}
         </div>
       </div>
       <D />
@@ -997,7 +1046,7 @@ function InfoSidebar({ mood, moodReflection, latestMeta, disclosedAtoms }) {
       {latestMeta?.memorySummary?.relationshipNarrative && (
         <div style={{ background: T.accentSoft, borderRadius: 14, border: `1px solid ${T.accent}20`, padding: "16px 18px" }}>
           <p style={{ fontFamily: FONT, fontSize: 15, color: T.text, margin: 0, lineHeight: 1.9, fontStyle: "italic" }}>
-            "{latestMeta.memorySummary.relationshipNarrative.substring(0, 200)}"
+            "{latestMeta.memorySummary.relationshipNarrative}"
           </p>
         </div>
       )}
@@ -1011,9 +1060,9 @@ function InfoSidebar({ mood, moodReflection, latestMeta, disclosedAtoms }) {
 
 function CharacterPanel({ mood, speaking, latestMeta, moodReflection }) {
   return (
-    <div style={{ width: 300, minWidth: 300, background: `linear-gradient(180deg, ${T.surface}f0, ${T.bg}f0)`, borderLeft: `1px solid ${T.border}`, display: "flex", flexDirection: "column", alignItems: "center", position: "relative", overflowY: "auto" }}>
+    <div style={{ width: 420, minWidth: 420, background: `linear-gradient(180deg, ${T.surface}f0, ${T.bg}f0)`, borderLeft: `1px solid ${T.border}`, display: "flex", flexDirection: "column", alignItems: "center", position: "relative", overflowY: "auto" }}>
       <div style={{ position: "absolute", inset: 0, background: `radial-gradient(ellipse at 50% 20%, rgba(155,45,94,0.07) 0%, transparent 70%)`, pointerEvents: "none" }} />
-      <div style={{ position: "relative", zIndex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 10, padding: "14px 12px", width: "100%" }}>
+      <div style={{ position: "relative", zIndex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 10, padding: "14px 16px", width: "100%", boxSizing: "border-box" }}>
         {/* Speaking indicator */}
         <div style={{ height: 18, display: "flex", alignItems: "center", justifyContent: "center" }}>
           {speaking && (
@@ -2028,7 +2077,7 @@ export default function App() {
         @keyframes floatParticle{0%,100%{transform:translateY(0) translateX(0);opacity:0.3}25%{transform:translateY(-20px) translateX(10px);opacity:0.6}50%{transform:translateY(-10px) translateX(-5px);opacity:0.4}75%{transform:translateY(-30px) translateX(15px);opacity:0.5}}
         @keyframes speakBounce{0%,100%{transform:translateY(0);opacity:0.5}50%{transform:translateY(-5px);opacity:1}}
         ::placeholder{color:${T.textDim}}
-        ::-webkit-scrollbar{width:5px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:${T.border};border-radius:3px}
+        ::-webkit-scrollbar{width:14px}::-webkit-scrollbar-track{background:${T.surface2 || T.bg};border-radius:7px}::-webkit-scrollbar-thumb{background:${T.accent}55;border-radius:7px;border:3px solid transparent;background-clip:padding-box}::-webkit-scrollbar-thumb:hover{background:${T.accent}88;border:3px solid transparent;background-clip:padding-box}
         body{background:${T.bg};overflow:hidden}textarea:focus{outline:none}
       `}</style>
     </div>
