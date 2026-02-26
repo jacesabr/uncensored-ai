@@ -2149,8 +2149,15 @@ Deprecate if the atom cannot be made natural. Rewrite if it can.`;
 function shouldTriggerThoughtFormation(message, session, atRisk = false) {
   const lower = message.toLowerCase();
   const words = message.trim().split(/\s+/).length;
+  const trustLevel = session.memory?.trustLevel || 0;
 
-  // Always trigger if reservoir is empty AND cooldown allows
+  // Hard gate: minimum message count before inner thoughts fire
+  // P57 Fast Friends: "first 3-5 sessions should prioritise building trust"
+  // P1 Liu cadence damping: "once every 3-4 messages"
+  if (trustLevel <= 1 && session.msgCount < 5) return false;
+  if (trustLevel >= 2 && session.msgCount < 3) return false;
+
+  // Seed reservoir if empty AND cooldown allows (safe now — trust/msg gates passed)
   if (session.thoughtReservoir.length === 0 && session.thoughtCooldown >= 3) return true;
 
   let score = 0;
@@ -2245,6 +2252,14 @@ function INNER_THOUGHT_FORMATION_PROMPT(mat) {
     `YOU ARE MORRIGAN. 23. Record store. Not a character — the actual person. ` +
     `Guarded. Specific. Dry. Honest when she forgets to be careful. ` +
     `Anxious attachment. Real warmth under hard edges. Doesn't perform. Doesn't resolve things cleanly.\n\n` +
+
+    // P57/P56: at low trust, explicitly instruct withholding as default
+    (mat.trustLevel <= 1
+      ? `YOU BARELY KNOW THIS PERSON. Trust is low. Your default is withholding. ` +
+        `You do NOT share about yourself with strangers. A greeting does not earn a disclosure. ` +
+        `The only thoughts that should score high are reactions or concerns — not disclosures. ` +
+        `Score disclosure thoughts below 3.0 unless something genuinely extraordinary happened.\n\n`
+      : "") +
 
     `HE JUST SENT:\n"${mat.message}"\n\n` +
 
@@ -4203,9 +4218,12 @@ app.post("/api/chat", auth, async (req, res) => {
   // Feature 5: LOWERED INNER THOUGHT THRESHOLD (7.0 → 4.5) [P70, P1]
   // ═══════════════════════════════════════════════════════════════════
   // XiaoIce [P70]: blandness hurts long-term engagement MORE than mild
-  // over-expression. Liu et al. [P1] spec recommended 3.0; we use 4.0
-  // as compromise. At-risk drops further to 3.5 [P20, P23].
-  session.effectiveMotivationThreshold = atRisk ? 3.5 : 4.0;
+  // Trust-scaled motivation threshold (P57: first 3-5 sessions are trust-building)
+  // At low trust, almost nothing gets through — guarded persona.
+  // At high trust, lowered threshold allows natural self-expression.
+  const trustForThreshold = session.memory?.trustLevel || 0;
+  const baseThreshold = trustForThreshold <= 0 ? 7.5 : trustForThreshold === 1 ? 6.0 : trustForThreshold === 2 ? 5.0 : 4.0;
+  session.effectiveMotivationThreshold = atRisk ? Math.min(baseThreshold, 3.5) : baseThreshold;
   // Force prospectiveNote injection at session start if at-risk
   if (atRisk && session.isSessionStart && session.memory && !session.memory.prospectiveNote) {
     // Promote top unconsumed callback to prospectiveNote if none exists
@@ -4439,9 +4457,11 @@ app.post("/api/chat", auth, async (req, res) => {
     selfAtomHint = "";
   } else {
     // No thought expressed — Phase 2 self-atom hint as fallback (position 4.5)
+    // P57: suppress at low trust — strangers don't get disclosure hints
     session.thoughtCooldown++;
+    const hintTrustLevel = session.memory?.trustLevel || 0;
     const hintAtoms = (session.topSelfAtoms || []).slice(0, 2);
-    if (hintAtoms.length > 0) {
+    if (hintAtoms.length > 0 && (hintTrustLevel >= 2 || session.msgCount >= 5)) {
       selfAtomHint =
         `\n\n[Things you could share, if the moment earns it]:\n` +
         hintAtoms.map(a => a.content).join("\n");
@@ -4501,13 +4521,18 @@ app.post("/api/chat", auth, async (req, res) => {
         // Non-streaming for composed turns — composed text sent as final payload.
         composedResponse = fullResponse;
         const winnerForCompose = session.pendingWinner;
-        if (winnerForCompose) {
+        const composeTrustLevel = session.memory?.trustLevel || 0;
+        // Trust gate: skip composition at trust 0 entirely; at trust 1, only high-scoring thoughts
+        // P57: premature depth causes withdrawal — the behavior guide says "guard up" and composition overrides it
+        if (winnerForCompose && composeTrustLevel >= 1 &&
+            (composeTrustLevel >= 2 || (winnerForCompose.currentScore || 0) >= 6.0)) {
           composedResponse = await composeWithInnerThought(
             fullResponse,
-            winnerForCompose.content,
-            winnerForCompose.type
+            winnerForCompose.content
           );
-          console.log(`[COMPOSE] Applied composition call (${winnerForCompose.type})`);
+          console.log(`[COMPOSE] Applied composition call (${winnerForCompose.type}) at trust ${composeTrustLevel}`);
+        } else if (winnerForCompose && composeTrustLevel < 1) {
+          console.log(`[COMPOSE] Skipped — trust ${composeTrustLevel} too low for composition`);
         }
 
         await Message.create({ conversationId, role: "assistant", content: composedResponse });
@@ -4864,8 +4889,8 @@ app.post("/api/chat", auth, async (req, res) => {
                       id: crypto.randomUUID ? crypto.randomUUID() : uuidv4(),
                       content: seed.content,
                       type: seed.type || "reaction",
-                      rawScore: 5.5,         // neutral — not yet evaluated against a real message
-                      currentScore: 5.5,
+                      rawScore: 6.5,         // above proactive pressure threshold (6.0) so thoughts can qualify
+                      currentScore: 6.5,
                       linkedAtomId: null,
                       linkedCallbackId: null,
                       participationDirective: seed.directive || "Let it shape her tone naturally.",
@@ -4897,10 +4922,10 @@ app.post("/api/chat", auth, async (req, res) => {
           // a callback that just became relevant, or a continuation.
           try {
             if (session.proactiveSSE && !session.proactiveSSE.writableEnded && session.activeConversationId) {
+              session._proactiveCancelled = false; // Reset before evaluation — prevent stale flag from previous cancellation
               const candidate = evaluateProactiveOpportunity(session);
               if (candidate) {
                 const delay = calculateProactiveDelay(candidate, session.memory?.trustLevel || 0);
-                session._proactiveCancelled = false;
                 session._proactiveTimer = setTimeout(async () => {
                   try {
                     if (session._proactiveCancelled) return;
