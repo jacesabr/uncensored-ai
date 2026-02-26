@@ -30,22 +30,21 @@ const app = express();
 // trusts all proxies and allows IP spoofing via forged headers.
 app.set("trust proxy", 1);
 
-// ── CORS — only allow configured origin; never wildcard in production ──
-const _allowedOrigin = process.env.CLIENT_URL;
-if (!_allowedOrigin) {
-  console.warn("[WARN] CLIENT_URL not set — CORS will block all cross-origin requests. Set CLIENT_URL in .env");
+// ── CORS ──
+const _allowedOrigin = process.env.CLIENT_URL || "*";
+if (_allowedOrigin === "*") {
+  console.warn("[WARN] CLIENT_URL not set — allowing all origins (dev mode)");
+} else {
+  console.log(`[CORS] Allowing origin: ${_allowedOrigin}`);
 }
-app.use(cors({
-  origin: (origin, cb) => {
-    // Allow same-origin requests (origin === undefined) and the configured origin
-    if (!origin || origin === _allowedOrigin) return cb(null, true);
-    cb(null, false);
-  },
-  credentials: true,
+const _corsOptions = {
+  origin: _allowedOrigin,
+  credentials: _allowedOrigin !== "*",
   methods: ["GET", "POST", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
-}));
-app.options("*", cors());
+};
+app.use(cors(_corsOptions));
+app.options("*", cors(_corsOptions));
 app.use(express.json({ limit: "1mb" }));
 const CHAT_MODEL = process.env.CHAT_MODEL || "meta-llama/llama-3.1-8b-instruct";
 // All fetch calls append /v1/... — so this base must NOT include /v1
