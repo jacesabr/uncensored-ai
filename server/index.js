@@ -39,10 +39,13 @@ app.use(cors({
   origin: (origin, cb) => {
     // Allow same-origin requests (origin === undefined) and the configured origin
     if (!origin || origin === _allowedOrigin) return cb(null, true);
-    cb(new Error("CORS: origin not allowed"));
+    cb(null, false);
   },
   credentials: true,
+  methods: ["GET", "POST", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
 }));
+app.options("*", cors());
 app.use(express.json({ limit: "1mb" }));
 const CHAT_MODEL = process.env.CHAT_MODEL || "meta-llama/llama-3.1-8b-instruct";
 // All fetch calls append /v1/... — so this base must NOT include /v1

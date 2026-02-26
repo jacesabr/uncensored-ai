@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from "react";
 import morriganImg from "./morgan.png";
 
-const API = import.meta.env.VITE_API_URL || "http://localhost:5000";
+const _rawApi = import.meta.env.VITE_API_URL || "http://localhost:5000";
+const API = _rawApi.startsWith("http") ? _rawApi : `https://${_rawApi}`;
 
 const T = {
   bg: "#f6f7fb", surface: "#ffffff", surface2: "#f0f0f5", surface3: "#e8e8f0",
@@ -161,7 +162,7 @@ function MBar({ value, max = 100, color = MON.accent, label, sub }) {
 // ── Tab 1: System Status ──────────────────────────────────────────
 
 function StatusTab({ status, user, conversations, messages, liveHealth }) {
-  const endpoint = import.meta.env.VITE_API_URL || "http://localhost:5000";
+  const endpoint = API;
   const checks = [
     {
       key: "express", label: "Express Server",
@@ -419,7 +420,7 @@ function Phase5Tab({ token }) {
   const [dataset,  setDataset]  = useState(null);
   const [loading,  setLoading]  = useState(true);
   const [building, setBuilding] = useState(false);
-  const endpoint = import.meta.env.VITE_API_URL || "http://localhost:5000";
+  const endpoint = API;
   const hdrs = () => ({ "Content-Type": "application/json", Authorization: `Bearer ${typeof token === "function" ? token() : token}` });
 
   useEffect(() => {
