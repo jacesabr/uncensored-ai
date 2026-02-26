@@ -38,6 +38,9 @@ app.use((req, res, next) => {
   next();
 });
 app.use(express.json({ limit: "1mb" }));
+
+// Railway health check
+app.get("/", (req, res) => res.sendStatus(200));
 const CHAT_MODEL = process.env.CHAT_MODEL || "meta-llama/llama-3.1-8b-instruct";
 // All fetch calls append /v1/... — so this base must NOT include /v1
 const COLAB_URL = process.env.COLAB_URL || "https://openrouter.ai/api";
