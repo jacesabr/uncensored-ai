@@ -1147,14 +1147,14 @@ function ProcessingMeta({ meta }) {
 
   const KV = ({ label, value, italic, accent }) => value != null && String(value).trim() ? (
     <div style={{ display: "flex", gap: 8, marginBottom: 4, alignItems: "flex-start" }}>
-      <span style={{ color: T.textDim, fontSize: 11, minWidth: 110, flexShrink: 0 }}>{label}</span>
-      <span style={{ color: accent ? T.accent : T.textSoft, fontSize: 12, flex: 1, fontStyle: italic ? "italic" : "normal", lineHeight: 1.55 }}>{String(value)}</span>
+      <span style={{ color: T.textDim, fontSize: 11, minWidth: 80, flexShrink: 0 }}>{label}</span>
+      <span style={{ color: accent ? T.accent : T.textSoft, fontSize: 12, flex: 1, fontStyle: italic ? "italic" : "normal", lineHeight: 1.55, wordBreak: "break-word", minWidth: 0 }}>{String(value)}</span>
     </div>
   ) : null;
 
   const MemRow = ({ label, arr }) => arr?.length ? (
     <div style={{ display: "flex", gap: 8, marginBottom: 4, alignItems: "flex-start" }}>
-      <span style={{ color: T.textDim, fontSize: 11, minWidth: 110, flexShrink: 0 }}>{label}</span>
+      <span style={{ color: T.textDim, fontSize: 11, minWidth: 80, flexShrink: 0 }}>{label}</span>
       <span style={{ color: T.textSoft, fontSize: 12, flex: 1, lineHeight: 1.55 }}>
         {arr.map((x, i) => <React.Fragment key={i}>
           {x.isPast && <span style={{ color: T.textDim, fontSize: 10 }}>[past] </span>}
@@ -1165,9 +1165,9 @@ function ProcessingMeta({ meta }) {
   ) : null;
 
   const Bar = ({ label, value, color }) => (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
-      <span style={{ color: T.textDim, fontSize: 11, minWidth: 108, flexShrink: 0 }}>{label}</span>
-      <div style={{ flex: 1, height: 5, borderRadius: 3, background: T.surface3, overflow: "hidden" }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
+      <span style={{ color: T.textDim, fontSize: 11, minWidth: 72, flexShrink: 0 }}>{label}</span>
+      <div style={{ flex: 1, height: 5, borderRadius: 3, background: T.surface3, overflow: "hidden", minWidth: 30 }}>
         <div style={{ height: "100%", width: `${value || 0}%`, background: color, borderRadius: 3, transition: "width 0.4s ease" }} />
       </div>
       <span style={{ color: T.text, fontSize: 11, minWidth: 22, textAlign: "right", fontFamily: FONT_MONO }}>{value ?? 0}</span>
@@ -1187,7 +1187,7 @@ function ProcessingMeta({ meta }) {
   ].filter(Boolean).join("  ·  ");
 
   return (
-    <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, marginBottom: 10, fontFamily: FONT_MONO, fontSize: 12, overflow: "hidden", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
+    <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, marginBottom: 10, fontFamily: FONT_MONO, fontSize: 12, overflow: "hidden", boxShadow: "0 1px 4px rgba(0,0,0,0.05)", maxWidth: "100%", wordBreak: "break-word" }}>
 
       {/* ── Clickable header ── */}
       <div onClick={() => setOpen(o => !o)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 16px", background: T.surface2, borderBottom: open ? `1px solid ${T.border}` : "none", cursor: "pointer", userSelect: "none", gap: 12 }}>
@@ -1208,7 +1208,7 @@ function ProcessingMeta({ meta }) {
 
       {/* ── Expanded body ── */}
       {open && (
-        <div style={{ padding: "14px 16px" }}>
+        <div style={{ padding: "14px 16px", overflow: "hidden" }}>
 
           {/* ── Stat pills row ── */}
           <div style={{ display: "flex", flexWrap: "wrap", marginBottom: 10 }}>
@@ -1275,7 +1275,7 @@ function ProcessingMeta({ meta }) {
                   </span>
                 )}
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "6px 14px" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 12px" }}>
                 <Bar label="authenticity" value={Math.round(meta.linguisticSignals.authenticity * 100)} color="#10b981" />
                 <Bar label="emotion" value={Math.round(meta.linguisticSignals.emotionalTone * 100)} color="#f59e0b" />
                 <Bar label="self-focus" value={Math.round(meta.linguisticSignals.selfFocus * 100)} color="#0ea5e9" />
@@ -1322,17 +1322,17 @@ function ProcessingMeta({ meta }) {
                 </div>
               )}
               {(meta.innerThought.reasonsFor?.length > 0 || meta.innerThought.reasonsAgainst?.length > 0) && (
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8, overflow: "hidden" }}>
                   {meta.innerThought.reasonsFor?.length > 0 && (
-                    <div>
+                    <div style={{ minWidth: 0 }}>
                       <div style={{ color: "#10b981", fontSize: 9.5, fontWeight: 700, letterSpacing: "1px", marginBottom: 4 }}>FOR</div>
-                      {meta.innerThought.reasonsFor.map((r, i) => <div key={i} style={{ color: T.textSoft, fontSize: 11, lineHeight: 1.5, marginBottom: 2 }}>+ {r}</div>)}
+                      {meta.innerThought.reasonsFor.map((r, i) => <div key={i} style={{ color: T.textSoft, fontSize: 11, lineHeight: 1.5, marginBottom: 2, wordBreak: "break-word" }}>+ {r}</div>)}
                     </div>
                   )}
                   {meta.innerThought.reasonsAgainst?.length > 0 && (
-                    <div>
+                    <div style={{ minWidth: 0 }}>
                       <div style={{ color: "#dc2626", fontSize: 9.5, fontWeight: 700, letterSpacing: "1px", marginBottom: 4 }}>AGAINST</div>
-                      {meta.innerThought.reasonsAgainst.map((r, i) => <div key={i} style={{ color: T.textSoft, fontSize: 11, lineHeight: 1.5, marginBottom: 2 }}>− {r}</div>)}
+                      {meta.innerThought.reasonsAgainst.map((r, i) => <div key={i} style={{ color: T.textSoft, fontSize: 11, lineHeight: 1.5, marginBottom: 2, wordBreak: "break-word" }}>− {r}</div>)}
                     </div>
                   )}
                 </div>
