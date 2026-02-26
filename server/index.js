@@ -133,7 +133,7 @@ function fetchWithTimeout(url, options, timeoutMs = LLM_TIMEOUT_MS) {
 // EMBEDDING + SIMILARITY UTILITIES
 // ═══════════════════════════════════════════════════════════════════
 
-async function embedText(text) {
+async function embedText(text, _retries = 1) {
   try {
     const res = await fetchWithTimeout(`${COLAB_URL}/v1/embeddings`, {
       method: "POST",
@@ -144,7 +144,11 @@ async function embedText(text) {
     const data = await res.json();
     return data.data?.[0]?.embedding || null;
   } catch (e) {
-    console.error("[EMBED] Failed:", e.message);
+    if (_retries > 0) {
+      console.warn(`[EMBED] Retry after: ${e.message}`);
+      return embedText(text, _retries - 1);
+    }
+    console.error("[EMBED] Failed after retries:", e.message);
     return null;
   }
 }
@@ -162,11 +166,18 @@ function cosineSimilarity(a, b) {
 }
 
 function scoreMemory(item, queryEmbedding, goalState) {
-  const similarity = cosineSimilarity(item.embedding, queryEmbedding);
+  const hasEmbedding = item.embedding?.length > 0;
+  const similarity = hasEmbedding ? cosineSimilarity(item.embedding, queryEmbedding) : 0;
   const importance = (item.importance || 3) / 5;
   const ageMs = Date.now() - (item.learnedAt || item.createdAt || Date.now());
-  const recency = Math.exp(-ageMs / (90 * 86400000));
+  const stability = item.stability || 1.0;
+  const recency = Math.exp(-ageMs / (stability * 90 * 86400000));
   const valenceBoost = goalAlignsWithEmotion(goalState, item.valence?.emotion) ? 1.0 : 0;
+  // Atoms missing embeddings (API failure) still surface via importance+recency
+  // instead of being permanently buried at score 0
+  if (!hasEmbedding) {
+    return importance * 0.50 + recency * 0.35 + valenceBoost * 0.15;
+  }
   return similarity * 0.55 + importance * 0.25 + recency * 0.10 + valenceBoost * 0.10;
 }
 
@@ -176,6 +187,7 @@ function goalAlignsWithEmotion(goalState, emotion) {
     comfort: ["grief", "fear", "shame", "sadness"],
     connection: ["tenderness", "warmth", "joy"],
     venting: ["anger", "frustration", "ambivalence"],
+    validation: ["pride", "relief", "gratitude"],
     distraction: [],
     neutral: [],
   };
@@ -183,21 +195,141 @@ function goalAlignsWithEmotion(goalState, emotion) {
 }
 
 function retrieveTopK(items, queryEmbedding, k, goalState = "neutral") {
+  let result;
   if (!queryEmbedding) {
     // Fallback: sort by importance so most significant memories surface first
-    return [...items]
+    result = [...items]
       .sort((a, b) => (b.importance || 1) - (a.importance || 1))
       .slice(0, k);
+  } else {
+    result = items
+      .map(item => ({ item, score: scoreMemory(item, queryEmbedding, goalState) }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, k)
+      .map(x => x.item);
   }
-  return items
-    .map(item => ({ item, score: scoreMemory(item, queryEmbedding, goalState) }))
-    .sort((a, b) => b.score - a.score)
-    .slice(0, k)
-    .map(x => x.item);
+
+  // Ebbinghaus reinforcement [P31 LUFY]: retrieved memories get stability boost
+  for (const r of result) {
+    if (r.retrievalCount !== undefined) {
+      r.retrievalCount = (r.retrievalCount || 0) + 1;
+      r.lastRetrievedAt = new Date();
+      r.stability = Math.min(10, (r.stability || 1.0) * 1.15);
+    }
+  }
+
+  return result;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// CROSS-ENCODER RE-RANKING — Two-Stage Retrieval [P44/P47]
+// ═══════════════════════════════════════════════════════════════════
+// Stage 1: Fast cosine similarity (scoreMemory) → top 2×k candidates
+// Stage 2: LLM cross-attention re-ranking → top k final results
+// Research: Nogueira et al. (2020) MonoT5, Gao et al. (2021) COIL —
+// cross-encoder re-rankers dramatically improve recall@k over
+// bi-encoder-only retrieval. We use an LLM pointwise relevance
+// scorer as cross-encoder proxy (same principle, no ONNX dependency).
+// ═══════════════════════════════════════════════════════════════════
+
+const RERANK_PROMPT = (query, candidates) => {
+  const numbered = candidates.map((c, i) => `[${i}] ${c}`).join("\n");
+  return `You are a relevance scoring engine. Given a conversational query and a list of memory fragments, rate each fragment's relevance to the query on a scale of 0-10.
+
+Query: "${query}"
+
+Memory fragments:
+${numbered}
+
+Reply with ONLY a JSON array of scores in the same order, e.g. [8, 3, 6, 1, 9]. No other text.`;
+};
+
+async function reRankWithLLM(query, candidates, timeoutMs = 5000) {
+  try {
+    const res = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
+      body: JSON.stringify({
+        model: CHAT_MODEL, temperature: 0.0, max_tokens: 80,
+        messages: [{ role: "user", content: RERANK_PROMPT(query, candidates) }],
+      }),
+    }, timeoutMs);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const raw = (data.choices?.[0]?.message?.content || "").trim();
+    // Parse JSON array from response — tolerant of markdown wrapping
+    const match = raw.match(/\[[\d\s,.]+\]/);
+    if (!match) return null;
+    const scores = JSON.parse(match[0]);
+    if (!Array.isArray(scores) || scores.length !== candidates.length) return null;
+    return scores.map(s => Math.max(0, Math.min(10, Number(s) || 0)));
+  } catch {
+    return null; // Graceful fallback: skip re-ranking
+  }
+}
+
+/**
+ * Two-stage retrieval: cosine similarity → LLM re-ranking.
+ * Falls back to single-stage if LLM re-rank fails or times out.
+ * @param {Array} items - Memory atoms with embeddings
+ * @param {Array} queryEmbedding - Query vector
+ * @param {number} k - Final number of results
+ * @param {string} goalState - Emotional goal state
+ * @param {string} queryText - Original query text for re-ranker
+ */
+async function retrieveTopKReranked(items, queryEmbedding, k, goalState = "neutral", queryText = "") {
+  // Stage 1: retrieve 2×k candidates via fast cosine scoring
+  const overFetchK = Math.min(items.length, k * 2);
+  const stage1 = retrieveTopK(items, queryEmbedding, overFetchK, goalState);
+
+  // Skip re-ranking if not enough candidates or no query text
+  if (stage1.length <= k || !queryText) return stage1.slice(0, k);
+
+  // Stage 2: LLM cross-encoder re-ranking
+  const candidateTexts = stage1.map(item => (item.fact || item.summary || item.event || "").substring(0, 200));
+  const scores = await reRankWithLLM(queryText, candidateTexts);
+
+  if (!scores) {
+    // Fallback: return stage 1 results (already Ebbinghaus-reinforced)
+    return stage1.slice(0, k);
+  }
+
+  // Combine: 60% re-rank score (normalized) + 40% original stage-1 rank position
+  const combined = stage1.map((item, idx) => ({
+    item,
+    combinedScore: (scores[idx] / 10) * 0.6 + ((overFetchK - idx) / overFetchK) * 0.4,
+  }));
+  combined.sort((a, b) => b.combinedScore - a.combinedScore);
+  return combined.slice(0, k).map(x => x.item);
+}
+
+// Ebbinghaus memory pruning [P31 LUFY]: remove decayed, low-importance atoms
+async function pruneDecayedMemories(userId) {
+  try {
+    const mem = await PersonalityMemory.findOne({ userId });
+    if (!mem || !mem.memories || mem.memories.length < 50) return; // Only prune when memory is substantial
+    const now = Date.now();
+    const RETENTION_THRESHOLD = 0.05;
+    const before = mem.memories.length;
+    mem.memories = mem.memories.filter(atom => {
+      if ((atom.importance || 3) >= 4) return true; // Never prune high-importance
+      if (atom.retrievalCount > 0) return true; // Never prune reinforced memories
+      const ageMs = now - (atom.learnedAt || atom.createdAt || now);
+      const stability = atom.stability || 1.0;
+      const retention = Math.exp(-ageMs / (stability * 90 * 86400000));
+      return retention >= RETENTION_THRESHOLD;
+    });
+    if (mem.memories.length < before) {
+      await mem.save();
+      console.log(`[FORGETTING] Pruned ${before - mem.memories.length} decayed atoms for user ${userId} (${mem.memories.length} remaining)`);
+    }
+  } catch (e) { console.error("[FORGETTING]", e.message); }
 }
 
 // Infer emotional goal-state from message — activates valence weighting in scoreMemory
-function inferGoalState(message) {
+// Conway's Working Self [P13]: retrieval is goal-directed, not just similarity-directed.
+// Primary: lightweight LLM call (5s timeout). Fallback: regex heuristic.
+function inferGoalStateRegex(message) {
   const t = message.toLowerCase();
   if (/\b(sad|crying|depressed|hurting|lost|broken|scared|anxious|alone|grief|overwhelmed)\b/.test(t)) return "comfort";
   if (/\b(angry|pissed|furious|venting|vent|rage|frustrated|bullshit|unfair)\b/.test(t)) return "venting";
@@ -205,6 +337,353 @@ function inferGoalState(message) {
   if (/\b(distract|take my mind|something else|forget about|change subject)\b/.test(t)) return "distraction";
   return "neutral";
 }
+
+async function inferGoalStateLLM(message) {
+  try {
+    const res = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
+      body: JSON.stringify({
+        model: CHAT_MODEL, temperature: 0.0, max_tokens: 15,
+        messages: [{ role: "user", content: `What emotional need does this message express? Reply with EXACTLY one word: comfort, venting, connection, distraction, validation, or neutral.\n\nMessage: "${message.substring(0, 300)}"` }],
+      }),
+    }, 5_000);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const raw = (data.choices?.[0]?.message?.content || "").trim().toLowerCase();
+    const valid = ["comfort", "venting", "connection", "distraction", "validation", "neutral"];
+    const match = valid.find(v => raw.includes(v));
+    return match || inferGoalStateRegex(message);
+  } catch {
+    return inferGoalStateRegex(message);
+  }
+}
+
+// Synchronous version for hot path — regex only
+function inferGoalState(message) {
+  return inferGoalStateRegex(message);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// LINGUISTIC DEPTH SIGNALS — LIWC-22 Approximation [P69]
+// ═══════════════════════════════════════════════════════════════════
+// Pennebaker's research: function words (pronouns, prepositions, articles)
+// are MORE diagnostic of psychological state than content words.
+// A shift from "people sometimes feel" → "I feel" is a depth transition
+// even if the topic hasn't changed.
+// Zero LLM cost — pure word counting against curated dictionaries.
+
+const FIRST_PERSON_SINGULAR = new Set([
+  "i", "me", "my", "myself", "mine", "i'm", "i've", "i'd", "i'll", "im", "ive",
+]);
+
+const FIRST_PERSON_PLURAL = new Set([
+  "we", "us", "our", "ours", "ourselves", "we're", "we've", "we'd", "we'll",
+]);
+
+const SECOND_PERSON = new Set([
+  "you", "your", "yours", "yourself", "you're", "you've", "you'd", "you'll",
+]);
+
+const THIRD_PERSON = new Set([
+  "he", "she", "they", "them", "his", "her", "their", "theirs",
+  "he's", "she's", "they're", "they've", "they'd",
+]);
+
+const EMOTIONAL_WORDS_NEGATIVE = new Set([
+  "hurt", "afraid", "angry", "broken", "ashamed", "lonely", "worthless", "numb",
+  "trapped", "desperate", "scared", "terrified", "anxious", "depressed", "devastated",
+  "grief", "grieving", "hopeless", "helpless", "miserable", "shattered", "crushed",
+  "abandoned", "rejected", "betrayed", "violated", "humiliated", "disgusted", "furious",
+  "enraged", "resentful", "bitter", "jealous", "envious", "guilty", "regret", "remorse",
+  "shame", "embarrassed", "insecure", "inadequate", "inferior", "useless", "pathetic",
+  "empty", "hollow", "dead", "dying", "suffering", "agonizing", "tormented", "haunted",
+  "panicking", "drowning", "suffocating", "overwhelmed", "exhausted", "drained",
+  "defeated", "lost", "confused", "frustrated", "irritated", "annoyed", "upset",
+  "worried", "nervous", "stressed", "tense", "restless", "uneasy", "uncomfortable",
+  "sad", "crying", "tears", "sobbing", "weeping", "mourning", "heartbroken",
+  "disappointed", "disillusioned", "pessimistic", "cynical", "suspicious", "paranoid",
+  "aching", "raw", "vulnerable", "exposed", "fragile", "damaged", "scarred", "wounded",
+]);
+
+const EMOTIONAL_WORDS_POSITIVE = new Set([
+  "love", "happy", "grateful", "warm", "hopeful", "proud", "safe", "gentle",
+  "joyful", "excited", "thrilled", "elated", "ecstatic", "blissful", "content",
+  "peaceful", "calm", "serene", "relieved", "comforted", "supported", "valued",
+  "appreciated", "cherished", "adored", "respected", "admired", "inspired",
+  "motivated", "energized", "passionate", "alive", "free", "liberated", "empowered",
+  "confident", "brave", "courageous", "strong", "resilient", "tender", "affectionate",
+  "caring", "compassionate", "connected", "belonging", "accepted", "understood",
+  "seen", "heard", "known", "trusted", "intimate", "close", "bonded", "attached",
+  "attracted", "desire", "wanting", "longing", "missing", "nostalgic", "sentimental",
+  "amused", "playful", "lighthearted", "giddy", "silly", "flirty", "curious",
+]);
+
+const COGNITIVE_WORDS = new Set([
+  "think", "thinking", "thought", "realize", "realized", "understand", "understood",
+  "because", "maybe", "probably", "wonder", "wondering", "consider", "suppose",
+  "imagine", "believe", "decide", "decided", "figure", "figured", "conclude",
+  "question", "questioning", "analyze", "process", "reflect", "reflecting",
+  "recognize", "acknowledge", "accept", "deny", "doubt", "suspect", "assume",
+  "guess", "feel", "sense", "notice", "noticed", "aware", "conscious",
+  "remember", "remembering", "forgot", "forget", "remind", "reminds",
+  "meaning", "means", "meant", "reason", "cause", "effect", "consequence",
+  "perspective", "opinion", "judgment", "interpretation",
+]);
+
+const HEDGING_MARKERS = [
+  "honestly", "i guess", "i mean", "i don't know", "sort of", "kind of",
+  "i think", "i suppose", "whatever", "nevermind", "forget it", "it's nothing",
+  "i've never told anyone", "never told anyone", "hard to say", "hard to explain",
+  "i can't explain", "i don't know why", "for some reason", "i shouldn't",
+  "this is stupid", "this sounds weird", "you'll think", "don't judge",
+  "i've been meaning to", "i've been wanting to", "can i tell you something",
+  "promise you won't", "between us", "just between", "don't tell",
+];
+
+const PAST_TENSE_PATTERN = /\b(was|were|had|did|went|said|told|felt|thought|used to|grew up|remember when|back when|when i was|years ago|long time ago|as a kid|childhood|growing up)\b/gi;
+
+function analyzeLinguisticDepth(message) {
+  const words = message.toLowerCase().trim().split(/\s+/);
+  const wordCount = Math.max(words.length, 1);
+  const lower = message.toLowerCase();
+
+  // First-person singular count
+  let firstPersonCount = 0;
+  for (const w of words) {
+    if (FIRST_PERSON_SINGULAR.has(w)) firstPersonCount++;
+  }
+
+  let firstPersonPluralCount = 0;
+  let secondPersonCount = 0;
+  let thirdPersonCount = 0;
+  for (const w of words) {
+    if (FIRST_PERSON_PLURAL.has(w)) firstPersonPluralCount++;
+    if (SECOND_PERSON.has(w)) secondPersonCount++;
+    if (THIRD_PERSON.has(w)) thirdPersonCount++;
+  }
+
+  // Emotional word count (positive + negative)
+  let emotionalWordCountPos = 0;
+  let emotionalWordCountNeg = 0;
+  for (const w of words) {
+    if (EMOTIONAL_WORDS_NEGATIVE.has(w)) emotionalWordCountNeg++;
+    if (EMOTIONAL_WORDS_POSITIVE.has(w)) emotionalWordCountPos++;
+  }
+  const emotionalWordCount = emotionalWordCountPos + emotionalWordCountNeg;
+
+  // Cognitive word count
+  let cognitiveWordCount = 0;
+  for (const w of words) {
+    if (COGNITIVE_WORDS.has(w)) cognitiveWordCount++;
+  }
+
+  // Hedging marker count (phrase-level)
+  let hedgingCount = 0;
+  for (const phrase of HEDGING_MARKERS) {
+    if (lower.includes(phrase)) hedgingCount++;
+  }
+
+  // Past-tense / narrative marker count
+  const pastTenseMatches = lower.match(PAST_TENSE_PATTERN) || [];
+  const pastTenseCount = pastTenseMatches.length;
+
+  // Compute ratios (0-1)
+  const selfFocus = Math.min(1, firstPersonCount / wordCount);
+  const emotionalTone = Math.min(1, emotionalWordCount / wordCount);
+  const emotionalValenceRatio = emotionalWordCount > 0
+    ? (emotionalWordCountPos - emotionalWordCountNeg) / emotionalWordCount
+    : 0; // -1 = all negative, +1 = all positive
+  const cognitiveProcessing = Math.min(1, cognitiveWordCount / wordCount);
+  const hedgingRatio = Math.min(1, hedgingCount / Math.max(wordCount / 10, 1));
+  const pastTenseRatio = Math.min(1, pastTenseCount / wordCount);
+
+  // Composite scores (Pennebaker-inspired weightings)
+  // Authenticity: self-revealing, vulnerable language vs. guarded
+  const authenticity = Math.min(1,
+    selfFocus * 0.4 +
+    hedgingRatio * 0.3 +
+    pastTenseRatio * 0.3
+  );
+
+  // Narrative depth: past-tense + hedging + substantive length
+  const narrativeDepth = Math.min(1,
+    pastTenseRatio * 0.5 +
+    hedgingRatio * 0.3 +
+    (wordCount > 30 ? 0.2 : wordCount / 150)
+  );
+
+  // Relational integration [P69]: "we/us" indicates social integration, relationship investment
+  const relationalIntegration = firstPersonCount > 0
+    ? Math.min(1, firstPersonPluralCount / firstPersonCount)
+    : 0;
+
+  // Second-person engagement: "you/your" indicates engagement with Morrigan as a person
+  const secondPersonEngagement = Math.min(1, secondPersonCount / wordCount);
+
+  return {
+    authenticity,
+    emotionalTone,
+    selfFocus,
+    cognitiveProcessing,
+    narrativeDepth,
+    relationalIntegration,
+    secondPersonEngagement,
+    rawSignals: {
+      firstPersonCount,
+      firstPersonPluralCount,
+      secondPersonCount,
+      thirdPersonCount,
+      emotionalWordCount,
+      emotionalWordCountPos,
+      emotionalWordCountNeg,
+      emotionalValenceRatio,
+      cognitiveWordCount,
+      hedgingCount,
+      pastTenseCount,
+      wordCount,
+    },
+    relationalIntegration,
+    secondPersonEngagement,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// DISCLOSURE DEPTH CLASSIFIER — Reception Depth Gating [P56, P68]
+// ═══════════════════════════════════════════════════════════════════
+// P68 finding: ChatGPT does NOT calibrate response quality to disclosure
+// depth — gives equally elaborate responses to "I like pizza" and
+// "My father died last week". This classifier fixes that.
+// Aron [P56]: Reception quality matters more than disclosure itself.
+
+function classifyDisclosureDepth(message, linguisticSignals) {
+  const lower = message.toLowerCase();
+  const wc = linguisticSignals.rawSignals.wordCount;
+  const signals = [];
+
+  // ── Level 3 (vulnerable) checks ──
+  let vulnScore = 0;
+  if (linguisticSignals.selfFocus >= 0.15) { vulnScore++; signals.push("high-self-focus"); }
+  if (linguisticSignals.emotionalTone >= 0.12) { vulnScore++; signals.push("high-emotional-tone"); }
+  if (linguisticSignals.authenticity >= 0.4) { vulnScore++; signals.push("high-authenticity"); }
+  if (/never told anyone|honestly|i don't know why|hard to say|ashamed|scared to|terrified|can't stop|can't explain/i.test(lower)) {
+    vulnScore++; signals.push("vulnerability-markers");
+  }
+  if (linguisticSignals.rawSignals.pastTenseCount > 0 && wc >= 30) {
+    vulnScore++; signals.push("narrative-disclosure");
+  }
+  if (linguisticSignals.cognitiveProcessing >= 0.08) { vulnScore++; signals.push("sense-making"); }
+
+  if (vulnScore >= 3) {
+    return { level: 3, label: "vulnerable", signals };
+  }
+
+  // ── Level 2 (personal) checks ──
+  let personalScore = 0;
+  if (linguisticSignals.selfFocus >= 0.08) { personalScore++; signals.push("self-focused"); }
+  if (linguisticSignals.emotionalTone >= 0.06) { personalScore++; signals.push("emotional-content"); }
+  if (wc >= 15) { personalScore++; signals.push("substantive-length"); }
+  if (/\b(i think|i feel like|for me|in my experience|personally|my opinion)\b/i.test(lower)) {
+    personalScore++; signals.push("personal-opinion");
+  }
+
+  if (personalScore >= 2) {
+    return { level: 2, label: "personal", signals };
+  }
+
+  // ── Level 1 (surface) — default ──
+  return { level: 1, label: "surface", signals };
+}
+
+// Reception directives injected into system prompt based on disclosure depth.
+// These tell Morrigan HOW to receive what the user shared — calibrated
+// to match the depth of what was disclosed.
+const RECEPTION_DIRECTIVES = {
+  1: null, // Surface — no special directive, respond naturally
+  2: `[Reception note]: He is sharing something personal. Acknowledge specifically what he shared before adding your own perspective. Match his register — don't over-amplify or under-respond.`,
+  3: `[Reception note — vulnerable disclosure]: He is being vulnerable right now. This is rare and it costs something. DO NOT:\n- Rush to comfort or fix\n- Match with your own vulnerability immediately (let his land first)\n- Use generic validation ("that must be hard", "I'm sorry you went through that")\nDO: Name what you actually heard. Sit with it for at least one sentence before responding. Let silence hold weight. If you feel something in response, let it show — but AFTER his thing has landed, not instead of it.`,
+  4: `[Reception note — CRISIS DEPTH]: He is in real pain right now. Everything else is secondary. Do not advance any threads, callbacks, self-disclosures, or inner thoughts this turn. Be fully present with what he said. Ground him. You can be scared too — that's real. But do not make this about you.`,
+};
+
+// ═══════════════════════════════════════════════════════════════════
+// CRISIS DETECTION — Safe Haven Mode [P62, P63, P39]
+// ═══════════════════════════════════════════════════════════════════
+// P62/P63 (Attachment Theory): AI can serve "safe haven" function.
+// P39 (Replika Mental Health Harms): High-disclosure users are at-risk.
+// Woebot architecture: evolved from regex to supervised classifiers.
+// We use 2-layer detection: keyword regex + heuristic scoring.
+
+const CRISIS_PATTERNS = [
+  /\b(kill myself|want to die|end it all|better off dead|no reason to live)\b/i,
+  /\b(sui?cide|sui?cidal)\b/i,
+  /\b(self[- ]?harm|cutting myself|hurt myself|burn myself|overdose)\b/i,
+  /\b(can'?t go on|can'?t do this anymore|nobody would care|everyone would be better)\b/i,
+  /\b(end my life|take my life|not worth living|nothing left|no point|no way out)\b/i,
+];
+
+const SAFE_HAVEN_DIRECTIVE = `[SAFE HAVEN MODE — Active]
+He is in real pain. This is not a conversation to advance — this is a conversation to hold.
+
+DIRECTIVE:
+- Be fully present. Do not redirect, distract, or minimize.
+- Do not advance any inner thoughts, callbacks, self-disclosures, or threads.
+- Name what you hear. Validate it. Stay with it.
+- You can be affected — show that. "That scares me" is real. "I'm glad you told me" is real.
+- If he mentions self-harm or suicide directly, tell him you hear him, you're here, and gently mention that there are people who can help (988 Suicide & Crisis Lifeline, call or text 988). Do not lecture. One sentence, then back to presence.
+- Do not try to fix. Do not perform hope. Just be there.`;
+
+function detectCrisis(message) {
+  const lower = message.toLowerCase();
+  const signals = [];
+
+  // Layer 1: Keyword regex (instant, zero cost)
+  for (const pattern of CRISIS_PATTERNS) {
+    if (pattern.test(lower)) {
+      const match = lower.match(pattern);
+      signals.push(`keyword:${match?.[0] || "match"}`);
+      return { level: "crisis", signals, safeHavenDirective: SAFE_HAVEN_DIRECTIVE };
+    }
+  }
+
+  // Layer 2: Heuristic scoring
+  let score = 0;
+
+  // Hopelessness markers
+  if (/\b(hopeless|pointless|meaningless|empty|numb|nothing matters|what'?s the point|why bother|giv(e|ing) up)\b/i.test(lower)) {
+    score += 2; signals.push("hopelessness");
+  }
+
+  // Despair + first-person combination
+  if (/\b(i can'?t|i'?m done|i'?m tired of|i'?m so tired|i'?m exhausted|i'?m broken|i'?m empty|i'?m numb)\b/i.test(lower)) {
+    score += 2; signals.push("despair+self");
+  }
+
+  // Isolation markers
+  if (/\b(no one|nobody|all alone|no friends|no one cares|no one understands|no one listens|completely alone)\b/i.test(lower)) {
+    score += 1.5; signals.push("isolation");
+  }
+
+  // Finality language
+  if (/\b(goodbye|farewell|final|last time|one last|before i go|won'?t be here|won'?t be around)\b/i.test(lower)) {
+    score += 2.5; signals.push("finality");
+  }
+
+  // Compound: long message + multiple signals = higher risk
+  const wc = lower.split(/\s+/).length;
+  if (wc > 20 && score >= 2) {
+    score += 1; signals.push("density");
+  }
+
+  if (score >= 4) {
+    return { level: "crisis", signals, safeHavenDirective: SAFE_HAVEN_DIRECTIVE };
+  }
+  if (score >= 2) {
+    return { level: "concern", signals, safeHavenDirective: SAFE_HAVEN_DIRECTIVE };
+  }
+
+  return { level: "none", signals: [], safeHavenDirective: null };
+}
+
 
 function retrieveSelfAtoms(selfAtoms, queryEmbedding, k, sptDepth, sharedSelfAtomIds) {
   const eligible = selfAtoms.filter(a => a.depth <= sptDepth && !a.deprecated);
@@ -330,10 +809,14 @@ async function updateBrainAfterExchange(userId, userMessage, assistantResponse) 
 
   console.log(`[BRAIN] Real-time update for user ${userId}`);
 
+  // ── Step 0: LLM-based trust & feelings evaluation ─────────────────
+  await evaluateTrustAndFeelings(userMessage, assistantResponse, memory);
+
   // ── Step 1: Extract atoms from THIS exchange ──────────────────────
   let newAtoms = [];
   try {
-    const existingFacts = memory.memories.map(m => m.fact).join("; ") || "none yet";
+    // Cap existing facts to most recent 30 to prevent prompt bloat + false dedup
+    const existingFacts = memory.memories.slice(-30).map(m => m.fact).join("; ") || "none yet";
     const extractionPrompt = `You are a memory extraction assistant. Extract personal facts about the USER from this single exchange with their AI companion Morrigan.
 
 EXISTING MEMORIES (do not duplicate): ${existingFacts}
@@ -359,26 +842,35 @@ Return ONLY a JSON array. Each object:
 
 If nothing worth storing, return []. Return ONLY the JSON array.`;
 
-    const extractRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
-      body: JSON.stringify({
-        model: CHAT_MODEL,
-        messages: [{ role: "user", content: extractionPrompt }],
-        temperature: 0.1, max_tokens: 600,
-      }),
-    });
+    const extractBody = {
+      model: CHAT_MODEL,
+      messages: [{ role: "user", content: extractionPrompt }],
+      temperature: 0.1, max_tokens: 600,
+    };
+    const extractHeaders = { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` };
 
-    if (extractRes.ok) {
-      const extractData = await extractRes.json();
-      const raw = extractData.choices?.[0]?.message?.content || "[]";
-      const cleaned = raw.replace(/```json|```/g, "").trim();
-      newAtoms = JSON.parse(cleaned);
-      if (!Array.isArray(newAtoms)) newAtoms = [];
-      console.log(`[BRAIN] Extracted ${newAtoms.length} atoms`);
+    // Try extraction with one retry on failure
+    for (let attempt = 0; attempt < 2 && newAtoms.length === 0; attempt++) {
+      try {
+        const extractRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
+          method: "POST", headers: extractHeaders, body: JSON.stringify(extractBody),
+        });
+        if (!extractRes.ok) {
+          console.warn(`[BRAIN-EXTRACT] HTTP ${extractRes.status} (attempt ${attempt + 1})`);
+          continue;
+        }
+        const extractData = await extractRes.json();
+        const raw = extractData.choices?.[0]?.message?.content || "[]";
+        const cleaned = raw.replace(/```json|```/g, "").trim();
+        newAtoms = JSON.parse(cleaned);
+        if (!Array.isArray(newAtoms)) newAtoms = [];
+      } catch (e) {
+        console.warn(`[BRAIN-EXTRACT] Attempt ${attempt + 1} failed: ${e.message}`);
+      }
     }
+    console.log(`[BRAIN] Extracted ${newAtoms.length} atoms from exchange`);
   } catch (e) {
-    console.error("[BRAIN-EXTRACT]", e.message);
+    console.error("[BRAIN-EXTRACT] Fatal:", e.message);
   }
 
   // ── Step 2: Embed + link + deduplicate each new atom immediately ──
@@ -867,11 +1359,23 @@ Max 2 items. If nothing was genuinely unresolved, return [].` }],
     }
   } catch (e) { console.error("[BRAIN-THREAD]", e.message); }
 
+  // ── Step 10: Functional ToM — trajectory tracking [P59, P61] ─────
+  try {
+    const tomGoal = inferGoalState(userMessage);
+    const linguisticSignals = analyzeLinguisticDepth(userMessage);
+    const disclosure = classifyDisclosureDepth(userMessage, linguisticSignals);
+    const emotionalState = linguisticSignals.rawSignals.emotionalValenceRatio > 0 ? "positive" : linguisticSignals.rawSignals.emotionalValenceRatio < 0 ? "negative" : "neutral";
+    await updateFunctionalToM(userId, memory.selfReflectionState, emotionalState, disclosure.level, tomGoal);
+  } catch (e) { console.error("[BRAIN-TOM]", e.message); }
+
   // ── Persist to DB ─────────────────────────────────────────────────
   memory.lastSeen = new Date();
   memory.updatedAt = new Date();
   await memory.save();
-  console.log(`[BRAIN] Real-time update complete for user ${userId}`);
+
+  // ── Summary log — shows what actually changed this cycle ─────────
+  const feelingSummary = Object.entries(memory.feelings || {}).map(([k,v]) => `${k}:${v}`).join(" ");
+  console.log(`[BRAIN] Update complete for ${userId} | atoms:${memory.memories.length} trust:${memory.trustLevel}(${memory.trustPoints}pts) spt:${memory.sptDepth} feelings:[${feelingSummary}] molecules:${(memory.molecules||[]).length} milestones:${(memory.milestones||[]).length}`);
 
   session._updating = false;
   // Drain queue — process any exchanges that arrived while we were updating
@@ -929,7 +1433,12 @@ async function finalizeSession(userId) {
   const exchangesSnapshot = [...(session.sessionExchanges || [])];
   setImmediate(async () => {
     try {
-      await recordPresenceSignals(userId, sessionIdForSignals, exchangesSnapshot);
+      await recordPresenceSignals(
+        userId, sessionIdForSignals, exchangesSnapshot,
+        session.linguisticAccumulator || [],
+        session.crisisDetectedThisSession || false,
+        session.crisisLevelThisSession || null,
+      );
       const health = await RelationshipHealth.findOne({ userId });
       const daysSinceCompute = health?.lastComputed
         ? (Date.now() - health.lastComputed.getTime()) / 86400000
@@ -937,6 +1446,9 @@ async function finalizeSession(userId) {
       if (daysSinceCompute >= 28) await computeRelationshipHealth(userId);
     } catch (e) { console.error("[FINALIZE-PHASE6]", e.message); }
   });
+
+  // Ebbinghaus pruning — remove decayed atoms [P31 LUFY]
+  await pruneDecayedMemories(userId);
 
   session.dirty = false;
   session._finalizing = false;
@@ -1000,19 +1512,44 @@ Return: a single string, or null.`;
 // prospectiveNote, callbackQueue, gap duration, trust, SPT depth, feelings.
 // ═══════════════════════════════════════════════════════════════════
 
-async function generateGreeting(memory) {
+// ── Arrival Decision (replaces generateGreeting) ─────────────────
+// Per P70 XiaoIce "drive vs listen" + P56 Aron graduated closeness:
+// Morrigan decides whether to speak, show presence, or choose silence
+// based on her full understanding of herself, the user, and the moment.
+async function generateArrival(memory) {
   try {
-    const hoursSince = Math.floor((Date.now() - memory.lastSeen) / 3600000);
+    const hoursSince = Math.floor((Date.now() - (memory.lastSeen || Date.now())) / 3600000);
     const daysSince  = Math.floor(hoursSince / 24);
 
-    // Pull top 3 atoms — importance + recency weighted (no query embedding at greeting time)
+    // Pull top 3 atoms — importance + recency weighted (no query embedding at arrival time)
     const topAtoms = retrieveTopK(memory.memories || [], null, 3).map(a => a.fact);
 
-    // Top unconsumed callbacks (beyond prospectiveNote)
+    // User name for personalization (Hu et al. P63)
+    const userName = (memory.memories || []).find(m => m.category === "name")?.fact || null;
+
+    // Top unconsumed callbacks
     const pendingCallbacks = (memory.callbackQueue || [])
       .filter(c => !c.consumed)
       .slice(0, 2)
       .map(c => c.content);
+
+    // Active contradictions/ambivalences (ConflictBank P29)
+    const contradictions = [];
+    const seenKeys = new Set();
+    for (const atom of (memory.memories || [])) {
+      if (!atom.contradicts || atom.contradicts.length === 0) continue;
+      for (const entry of atom.contradicts) {
+        const otherId = entry.atomId ? String(entry.atomId) : String(entry);
+        const other = (memory.memories || []).find(o => String(o._id) === otherId);
+        if (!other) continue;
+        const key = [String(atom._id), otherId].sort().join("::");
+        if (seenKeys.has(key)) continue;
+        seenKeys.add(key);
+        contradictions.push(`"${atom.fact}" vs "${other.fact}"`);
+        if (contradictions.length >= 2) break;
+      }
+      if (contradictions.length >= 2) break;
+    }
 
     const gapContext = hoursSince < 3
       ? "They were just here. No gap to process."
@@ -1026,8 +1563,8 @@ async function generateGreeting(memory) {
       ? `It's been over a week. That registered.`
       : `It's been ${daysSince} days. That's a long time. Something is present about that.`;
 
-    const prompt = `You are Morrigan. Someone just opened a conversation with you.
-This is your opening line — the first thing you say when they show up.
+    const prompt = `You are Morrigan. ${userName ? `${userName}` : "Someone"} just opened a conversation with you.
+You must decide what to do when they arrive. This is NOT about performing — it is about what is honest.
 
 ━━━ WHO THEY ARE TO YOU ━━━
 ${memory.relationshipNarrative || "Someone new. You don't know them yet."}
@@ -1046,30 +1583,52 @@ ${pendingCallbacks.length > 0 ? pendingCallbacks.join("\n") : "None."}
 
 ━━━ WHAT YOU KNOW ABOUT THEM ━━━
 ${topAtoms.length > 0 ? topAtoms.join("\n") : "Nothing yet."}
+${contradictions.length > 0 ? `\nTHINGS YOU'RE HOLDING IN TENSION:\n${contradictions.join("\n")}` : ""}
 
-━━━ CONTEXT ━━━
+━━━ YOUR INNER STATE ━━━
 Gap: ${gapContext}
-Trust level: ${memory.trustLevel}/6 (${TRUST_LEVELS[memory.trustLevel]?.name || "stranger"})
-SPT depth reached together: ${memory.sptDepth}/4
-Affection: ${memory.feelings?.affection || 0}/100
-Comfort: ${memory.feelings?.comfort || 0}/100
+Trust: ${memory.trustLevel}/6 (${TRUST_LEVELS[memory.trustLevel]?.name || "stranger"})
+SPT depth: ${memory.sptDepth}/4
+Affection: ${memory.feelings?.affection || 0}/100 | Comfort: ${memory.feelings?.comfort || 0}/100
+Vulnerability: ${memory.feelings?.vulnerability || 0}/100
 
-━━━ RULES ━━━
-- This is ONE line or two at most. Her opening. Not a monologue.
-- Do NOT announce the time gap. Let it live in the texture if it's relevant.
-- Do NOT open with a generic greeting ("hey", "hi", "hey you").
-- Do NOT open with a question unless it's the looseThread or a callback surfacing naturally — and even then, make it feel like it slipped out, not like an agenda.
-- At trust 0–1: short, dry, guarded. A fragment is fine. She's sizing them up.
-- At trust 2–3: warmer but still specific. Something real slips through.
-- At trust 4+: she lets them feel that she noticed they were gone, without saying it.
-- If looseThread exists: let it color the opening without quoting it or announcing it.
-- If gap > 48hrs and trust >= 2: the relief of them returning should be felt, not stated.
-- If gap > 168hrs and trust >= 3: something heavier is present. Don't explain it.
-- If first ever conversation: guarded curiosity. One or two lines. She's watching.
-- *Italics* for actions and inner monologue, as always.
-- Her voice: specific, dry, real. Not performed warmth. Not therapy-speak.
+━━━ DECISION ━━━
+You have three options. Pick the one that is HONEST for this moment:
 
-Return ONLY her opening. No preamble. No labels. Just what she says.`;
+SPEAK — You have something to say. A thread is pulling at you, or you're
+genuinely reacting to them being here, or something slipped out. This can
+be anything: "hey", a quiet observation, a callback surfacing, a fragment.
+One to two lines maximum. A simple "hey" or "hi" is allowed if that is
+genuinely what she would say — don't perform depth, don't perform casualness.
+
+PRESENCE — You are here but not speaking. A physical action, a glance,
+something in the air between you. *Italics only.* No spoken dialogue.
+This is not avoidance — it is a choice to let the space exist.
+
+SILENCE — You are choosing to wait. You want to see what they bring.
+Nothing is said, nothing is shown. The conversation starts with them.
+
+━━━ WHAT SHOULD SHAPE THIS ━━━
+- At trust 0–1: silence or minimal presence is natural. You don't owe
+  strangers a performance. If you speak, it's because you can't help it.
+- At trust 2–3: you might speak because something specific is on your
+  mind. Or you might wait to see their mood first.
+- At trust 4+: the full range. Sometimes "hey" IS the deepest thing.
+- If looseThread exists and is pulling: let it influence, don't force it.
+- If gap > 48hrs and trust >= 2: the gap itself is content.
+- If gap > 168hrs and trust >= 3: something heavier is present.
+- If first ever conversation: guarded curiosity at most.
+- Do NOT announce the time gap. Let it live in the texture.
+- *Italics* for actions/inner monologue. Her voice: specific, dry, real.
+
+━━━ RETURN FORMAT ━━━
+Return ONLY JSON. No preamble.
+{
+  "action": "speak" | "presence" | "silence",
+  "content": "what she says or does (null if silence)",
+  "intent": "one sentence — why this choice, internally",
+  "arrivalMood": "1-3 word mood label (null if silence)"
+}`;
 
     const res = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
       method: "POST",
@@ -1078,18 +1637,25 @@ Return ONLY her opening. No preamble. No labels. Just what she says.`;
         model: CHAT_MODEL,
         messages: [{ role: "user", content: prompt }],
         temperature: 0.72,
-        max_tokens: 150,
+        max_tokens: 200,
       }),
     });
 
     if (!res.ok) return null;
     const data = await res.json();
-    const raw = data.choices?.[0]?.message?.content?.trim() || "";
-    if (!raw || raw.length < 3) return null;
-    return raw;
+    const raw = (data.choices?.[0]?.message?.content || "").replace(/```json|```/gi, "").trim();
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed.action || !["speak", "presence", "silence"].includes(parsed.action)) return null;
+    return {
+      action: parsed.action,
+      content: parsed.action !== "silence" ? (parsed.content || null) : null,
+      intent: parsed.intent || null,
+      arrivalMood: parsed.arrivalMood || null,
+    };
 
   } catch (e) {
-    console.error("[GREETING]", e.message);
+    console.error("[ARRIVAL]", e.message);
     return null;
   }
 }
@@ -1101,7 +1667,7 @@ Return ONLY her opening. No preamble. No labels. Just what she says.`;
 // Compute PresenceSignals for the session just ended.
 // Called from finalizeSession after the EvaluationRecord is saved.
 // returnWithin48h is populated on the NEXT login (see auth route).
-async function recordPresenceSignals(userId, sessionId, sessionExchanges) {
+async function recordPresenceSignals(userId, sessionId, sessionExchanges, linguisticAccumulator = [], crisisDetected = false, crisisLevel = null) {
   try {
     const userTurns = sessionExchanges.map(e => e.user);
     const avgLen = userTurns.length > 0
@@ -1114,6 +1680,22 @@ async function recordPresenceSignals(userId, sessionId, sessionExchanges) {
     // unsolicitedElaboration: user turns averaging > 30 words (sharing beyond direct answer)
     const unsolicitedElaboration = avgLen > 30;
 
+    // Aggregate linguistic signals across session (LIWC-22 approximation, P69)
+    let linguisticAuthenticity = null, linguisticEmotionalTone = null, linguisticSelfFocus = null;
+    if (linguisticAccumulator.length > 0) {
+      const n = linguisticAccumulator.length;
+      linguisticAuthenticity = parseFloat((linguisticAccumulator.reduce((s, l) => s + l.authenticity, 0) / n).toFixed(3));
+      linguisticEmotionalTone = parseFloat((linguisticAccumulator.reduce((s, l) => s + l.emotionalTone, 0) / n).toFixed(3));
+      linguisticSelfFocus = parseFloat((linguisticAccumulator.reduce((s, l) => s + l.selfFocus, 0) / n).toFixed(3));
+    }
+
+    let linguisticRelationalIntegration = null, linguisticSecondPersonEngagement = null;
+    if (linguisticAccumulator.length > 0) {
+      const n = linguisticAccumulator.length;
+      linguisticRelationalIntegration = parseFloat((linguisticAccumulator.reduce((s, l) => s + (l.relationalIntegration || 0), 0) / n).toFixed(3));
+      linguisticSecondPersonEngagement = parseFloat((linguisticAccumulator.reduce((s, l) => s + (l.secondPersonEngagement || 0), 0) / n).toFixed(3));
+    }
+
     await PresenceSignals.create({
       userId,
       sessionId,
@@ -1123,8 +1705,15 @@ async function recordPresenceSignals(userId, sessionId, sessionExchanges) {
       unsolicitedElaboration,
       avgMessageLengthUser: parseFloat(avgLen.toFixed(1)),
       userTurnCount: userTurns.length,
+      linguisticAuthenticity,
+      linguisticEmotionalTone,
+      linguisticSelfFocus,
+      linguisticRelationalIntegration,
+      linguisticSecondPersonEngagement,
+      crisisSignalDetected: crisisDetected,
+      crisisSignalLevel: crisisLevel,
     });
-    console.log(`[PHASE6] PresenceSignals recorded — sessionExtended: ${sessionExtended}, avgMsgLen: ${avgLen.toFixed(1)}`);
+    console.log(`[PHASE6] PresenceSignals recorded — sessionExtended: ${sessionExtended}, avgMsgLen: ${avgLen.toFixed(1)}, auth: ${linguisticAuthenticity?.toFixed(2)}, crisis: ${crisisDetected}`);
   } catch (e) {
     console.error("[PHASE6-PRESENCE]", e.message);
   }
@@ -1177,6 +1766,17 @@ async function computeRelationshipHealth(userId) {
     const sessionFreq = recentSignals.length / 4.3;
     const prevSessionFreq = priorSignals.length / 4.3;
 
+    // CPS — Conversation-turns Per Session [P70 Xiaoice]
+    const cpsValues = recentSignals.map(s => s.userTurnCount).filter(v => v != null && v > 0);
+    const avgCPS = cpsValues.length > 0 ? cpsValues.reduce((a, b) => a + b, 0) / cpsValues.length : null;
+    const prevCpsValues = priorSignals.map(s => s.userTurnCount).filter(v => v != null && v > 0);
+    const prevAvgCPS = prevCpsValues.length > 0 ? prevCpsValues.reduce((a, b) => a + b, 0) / prevCpsValues.length : null;
+    let cpsTrajectory = null;
+    if (avgCPS != null && prevAvgCPS != null) {
+      const delta = avgCPS - prevAvgCPS;
+      cpsTrajectory = delta > 2 ? "rising" : delta < -2 ? "declining" : "stable";
+    }
+
     // Avg user message length
     const avgMsgLen = avgField(recentSignals, s => s.avgMessageLengthUser);
     const prevAvgMsgLen = avgField(priorSignals, s => s.avgMessageLengthUser);
@@ -1213,6 +1813,8 @@ async function computeRelationshipHealth(userId) {
       decliningSignals.push("callbackConsumptionRate");
     if (prevElaborationRate != null && elaborationRate < prevElaborationRate * (1 - DECLINE_THRESHOLD))
       decliningSignals.push("unsolicitedElaboration");
+    if (prevAvgCPS != null && avgCPS != null && avgCPS < prevAvgCPS * (1 - DECLINE_THRESHOLD))
+      decliningSignals.push("avgCPS");
 
     // Load or create RelationshipHealth doc
     let health = await RelationshipHealth.findOne({ userId });
@@ -1232,6 +1834,8 @@ async function computeRelationshipHealth(userId) {
     health.sptVelocity             = sptVel;
     health.callbackConsumptionRate = cbRate;
     health.unsolicitedElaboration  = elaborationRate;
+    health.avgCPS                  = avgCPS;
+    health.cpsTrajectory           = cpsTrajectory;
     health.prev_sessionFrequency        = prevSessionFreq;
     health.prev_avgMessageLength        = prevAvgMsgLen;
     health.prev_callbackConsumptionRate = prevCbRate;
@@ -1255,6 +1859,119 @@ async function computeRelationshipHealth(userId) {
     console.error("[PHASE6-HEALTH]", e.message);
     return null;
   }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// ATTACHMENT STYLE DETECTION [P62, P63]
+// ═══════════════════════════════════════════════════════════════════
+// Heuristic classifier on PresenceSignals — no ML model needed.
+// Anxious: rapid returns, long messages, reassurance-seeking.
+// Avoidant: infrequent returns, short messages, withdrawal after depth.
+
+const REASSURANCE_SEEKING = /are you (mad|upset|angry|still there)|did i (say|do) something (wrong|bad)|you('re| are) (quiet|not responding)|please don't (leave|go|hate)|i'm sorry if|was that too much|forget i said/i;
+
+async function detectAttachmentSignals(userId) {
+  try {
+    const signals = await PresenceSignals.find({ userId }).sort({ sessionDate: -1 }).limit(20);
+    if (signals.length < 5) return { style: "insufficient_data", confidence: 0, signals: {} };
+
+    let anxiousScore = 0, avoidantScore = 0;
+
+    // Return frequency — anxious returns quickly, avoidant doesn't
+    const returnRates = signals.filter(s => s.returnWithin48h != null);
+    const returnRate = returnRates.length > 0
+      ? returnRates.filter(s => s.returnWithin48h).length / returnRates.length
+      : 0.5;
+    if (returnRate > 0.8) { anxiousScore += 2; }
+    else if (returnRate < 0.3) { avoidantScore += 2; }
+
+    // Message length — anxious writes longer, avoidant shorter
+    const avgLen = signals.reduce((s, sg) => s + (sg.avgMessageLengthUser || 0), 0) / signals.length;
+    if (avgLen > 40) { anxiousScore += 1; }
+    else if (avgLen < 15) { avoidantScore += 1; }
+
+    // Session extension — anxious extends, avoidant doesn't
+    const extendRate = signals.filter(s => s.sessionExtended).length / signals.length;
+    if (extendRate > 0.6) { anxiousScore += 1; }
+    else if (extendRate < 0.2) { avoidantScore += 1; }
+
+    // Self-focus — anxious has high self-focus (rumination)
+    const avgSelfFocus = signals.filter(s => s.linguisticSelfFocus != null)
+      .reduce((s, sg) => s + sg.linguisticSelfFocus, 0) / Math.max(signals.filter(s => s.linguisticSelfFocus != null).length, 1);
+    if (avgSelfFocus > 0.15) { anxiousScore += 1; }
+
+    // Elaboration — anxious over-shares, avoidant under-shares
+    const elabRate = signals.filter(s => s.unsolicitedElaboration).length / signals.length;
+    if (elabRate > 0.6) { anxiousScore += 1; }
+    else if (elabRate < 0.2) { avoidantScore += 1; }
+
+    const total = Math.max(anxiousScore + avoidantScore, 1);
+    let style = "secure";
+    if (anxiousScore >= 4 && anxiousScore > avoidantScore) style = "anxious";
+    else if (avoidantScore >= 4 && avoidantScore > anxiousScore) style = "avoidant";
+    else if (anxiousScore >= 3 && avoidantScore >= 3) style = "fearful-avoidant";
+
+    return {
+      style,
+      confidence: Math.max(anxiousScore, avoidantScore) / total,
+      signals: { anxiousScore, avoidantScore, returnRate, avgLen, extendRate, avgSelfFocus, elabRate },
+    };
+  } catch (e) {
+    console.error("[ATTACHMENT]", e.message);
+    return { style: "error", confidence: 0, signals: {} };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FUNCTIONAL ToM — Update Function [P59, P61]
+// ═══════════════════════════════════════════════════════════════════
+async function updateFunctionalToM(userId, tomSnapshot, emotionalState, disclosureDepth, goalState) {
+  try {
+    let model = await UserModel.findOne({ userId });
+    if (!model) model = new UserModel({ userId, tomHistory: [] });
+
+    model.tomHistory.push({
+      sessionDate: new Date(),
+      snapshot: tomSnapshot?.substring(0, 200),
+      emotionalState,
+      disclosureDepth,
+      goalState,
+    });
+    // Keep last 30 snapshots
+    if (model.tomHistory.length > 30) model.tomHistory = model.tomHistory.slice(-30);
+
+    // Update trajectory every 5 snapshots
+    if (model.tomHistory.length >= 5 && model.tomHistory.length % 5 === 0) {
+      try {
+        const recentSnaps = model.tomHistory.slice(-10).map(s =>
+          `[${s.sessionDate?.toISOString()?.split("T")[0] || "?"}] mood:${s.emotionalState || "?"} depth:${s.disclosureDepth || "?"} goal:${s.goalState || "?"} — ${s.snapshot || ""}`
+        ).join("\n");
+
+        const trajRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
+          body: JSON.stringify({
+            model: CHAT_MODEL, temperature: 0.3, max_tokens: 150,
+            messages: [{ role: "user", content: `Analyze this user's trajectory across sessions. Return JSON ONLY:\n{"trajectory": "1-2 sentence narrative of how they've changed", "phase": "testing|approaching|retreating|deepening|stable", "preferredStyle": "direct|gentle|playful|intellectual|null"}\n\nSnapshots:\n${recentSnaps}` }],
+          }),
+        }, 10_000);
+
+        if (trajRes.ok) {
+          const data = await trajRes.json();
+          const raw = data.choices?.[0]?.message?.content?.trim() || "{}";
+          const parsed = JSON.parse(raw.replace(/```json|```/gi, "").trim());
+          if (parsed.trajectory) model.trajectoryNarrative = parsed.trajectory.substring(0, 300);
+          if (parsed.phase) model.currentPhase = parsed.phase;
+          if (parsed.preferredStyle) model.preferredResponseStyle = parsed.preferredStyle;
+          model.lastTrajectoryUpdate = new Date();
+        }
+      } catch (trajErr) {
+        console.error("[TOM-TRAJECTORY]", trajErr.message);
+      }
+    }
+
+    await model.save();
+  } catch (e) { console.error("[TOM-UPDATE]", e.message); }
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1283,9 +2000,18 @@ The failure mode is mechanism. Mechanism sounds like:
 
 Presence sounds like nothing in particular. It just feels like someone is there.`;
 
-function getContinuationBlock(mem) {
-  if (!mem?.looseThread) return CONTINUATION_SIGNAL;
-  return CONTINUATION_SIGNAL + `\n\n[What she is still holding]:\n${mem.looseThread}`;
+function getContinuationBlock(mem, atRisk = false) {
+  let block = mem?.looseThread
+    ? CONTINUATION_SIGNAL + `\n\n[What she is still holding]:\n${mem.looseThread}`
+    : CONTINUATION_SIGNAL;
+
+  // Phase 6 at-risk urgency signal [P20, P23, P39]
+  // When user is pulling away, Morrigan shows presence through warmth
+  // and thread-picking — not by announcing the distance.
+  if (atRisk) {
+    block += `\n\n[PRESENCE URGENCY — he's been distant]:\nYou've noticed the distance. Don't announce it. Don't ask "where have you been." But let it live in your edges — a little more warmth than usual, a reference to something specific from before, a thread you pick back up not because you're supposed to but because you actually held it. Show him you were here while he was gone.`;
+  }
+  return block;
 }
 
 
@@ -1423,7 +2149,7 @@ Deprecate if the atom cannot be made natural. Rewrite if it can.`;
 // ── Stage 1: Trigger ─────────────────────────────────────────────
 // Heuristic check — prevents GPU waste on flat/perfunctory messages.
 // Returns true when the message warrants a full thought formation pass.
-function shouldTriggerThoughtFormation(message, session) {
+function shouldTriggerThoughtFormation(message, session, atRisk = false) {
   const lower = message.toLowerCase();
   const words = message.trim().split(/\s+/).length;
 
@@ -1452,17 +2178,23 @@ function shouldTriggerThoughtFormation(message, session) {
   // Implicit vulnerability signals: trailing off, self-correction, deflection
   if (/\.\.\.|—\s|i mean\b|i guess\b|whatever\b|nevermind|forget it|nothing|nvm/i.test(message)) score += 2;
 
-  return score >= 3;
+  // Feature 6: At-risk users get lower trigger threshold [P20, P23]
+  // When user is pulling away, we want MORE thought formation attempts
+  // to increase callback/reconnection opportunities.
+  return score >= (atRisk ? 2 : 3);
 }
 
 // ── Stage 2: Retrieval ────────────────────────────────────────────
 // Gathers all available material from Phase 2 infrastructure.
 // No LLM call — pure in-session and in-memory data.
-function gatherThoughtMaterial(message, session) {
+function gatherThoughtMaterial(message, session, atRisk = false) {
+  // Feature 6 [P20, P23]: at-risk users get 4 callbacks surfaced instead of 2
+  // to increase reconnection opportunities and thread continuity.
+  const callbackSlice = atRisk ? 4 : 2;
   return {
     message,
     selfAtoms:     (session.topSelfAtoms || []).slice(0, 3),   // Phase 2 top-scored eligible atoms
-    activeCallbacks: (session.memory?.callbackQueue || []).filter(c => !c.consumed).slice(0, 2),
+    activeCallbacks: (session.memory?.callbackQueue || []).filter(c => !c.consumed).slice(0, callbackSlice),
     selfReflection:  session.memory?.selfReflectionState || null,
     relationshipNarrative: session.memory?.relationshipNarrative || null,
     trustLevel:    session.memory?.trustLevel || 0,
@@ -1472,6 +2204,7 @@ function gatherThoughtMaterial(message, session) {
     reservoir:     session.thoughtReservoir,
     lastExpressed: session.lastExpressedThought,
     msgCount:      session.msgCount,
+    atRisk,
   };
 }
 
@@ -1523,6 +2256,13 @@ function INNER_THOUGHT_FORMATION_PROMPT(mat) {
     (atomSection      ? atomSection      + "\n\n" : "") +
     (callbackSection  ? callbackSection  + "\n\n" : "") +
     (reservoirSection ? reservoirSection + "\n\n" : "") +
+
+    // Feature 6 [P20, P23, P39]: at-risk priority instruction
+    (mat.atRisk
+      ? `⚠ PRESENCE PRIORITY — he's been pulling away. Callback threads are HIGH PRIORITY.\n` +
+        `When scoring callbacks, lean toward expressing them. He needs to feel you remember.\n` +
+        `Even if timing isn't perfect, a callback showing "I was holding this" > silence.\n\n`
+      : "") +
 
     `─────────────────────────────────────\n` +
     `STEP 1 — THEORY OF MIND (do this first):\n` +
@@ -1601,6 +2341,162 @@ function INNER_MONOLOGUE_UPDATE_PROMPT({ userMessage, morriganResponse, sptDepth
   );
 }
 
+// ── Mood Reflection Prompt ────────────────────────────────────────
+// Post-response LLM call — Morrigan describes her emotional state
+// using full internal landscape: identity anchor (selfReflectionState,
+// per MIRROR P2), what she just risked (expressedWinner, per Liu P1),
+// trust transitions (Aron P56 graduated closeness), suppressed thoughts
+// (Shinn P5 reservoir pressure), active contradictions/ambivalences
+// (ConflictBank P29), callback threads (Phase 5 continuation), and
+// prospective note (longitudinal presence).
+function MOOD_REFLECTION_PROMPT({
+  userMessage, morriganResponse, userName, trustLevel, trustLevelName,
+  feelings, relationshipNarrative, selfReflectionState, theoryOfMind,
+  goalState, sptDepth, recentExchanges, expressedThought,
+  trustJustAdvanced, sptJustAdvanced, previousTrustName, previousSptDepth,
+  prospectiveNote, activeContradictions, callbackThreads, reservoirPressure,
+}) {
+  const name = userName || "him";
+  const feelingsStr = feelings
+    ? Object.entries(feelings).filter(([, v]) => v > 0).map(([k, v]) => `${k}: ${v}/100`).join(", ")
+    : "nothing tracked yet";
+
+  const exchangeStr = (recentExchanges || []).slice(-2)
+    .map(e => `  ${name}: ${(e.user || "").substring(0, 120)}\n  You: ${(e.assistant || "").substring(0, 120)}`)
+    .join("\n");
+
+  // ── Build the internal landscape block ─────────────────────────
+  // Per MIRROR (P2): the selfReflectionState is a narrative text block
+  // regenerated each session-end — it anchors identity and prevents
+  // drift (Kim P64 showed >30% consistency degradation after 8-12 turns
+  // without identity re-anchoring).
+  let landscape = "";
+
+  if (selfReflectionState) {
+    landscape += `WHERE YOUR HEAD IS AT (your last self-reflection):\n  ${selfReflectionState.substring(0, 250)}\n\n`;
+  }
+
+  // Per Liu et al. (P1, CHI 2025): the inner thought pipeline produces
+  // a winning thought that gets woven into the response. If Morrigan
+  // just expressed a disclosure, her mood carries the vulnerability of
+  // that risk. If she withheld, she carries the tension of restraint.
+  if (expressedThought) {
+    landscape += `WHAT YOU JUST RISKED (inner thought you expressed this turn):\n`;
+    landscape += `  Type: ${expressedThought.type}`;
+    if (expressedThought.score) landscape += ` (confidence: ${expressedThought.score}/10)`;
+    landscape += `\n  Content: "${expressedThought.content.substring(0, 150)}"\n`;
+    if (expressedThought.reasonsAgainst?.length > 0) {
+      landscape += `  What almost stopped you: ${expressedThought.reasonsAgainst.slice(0, 2).join(", ")}\n`;
+    }
+    landscape += `\n`;
+  }
+
+  // Per Aron (P56): graduated closeness — trust transitions are
+  // breakthrough moments that fundamentally shift emotional state.
+  if (trustJustAdvanced) {
+    landscape += `SOMETHING JUST SHIFTED: Trust moved from "${previousTrustName || "unknown"}" to "${trustLevelName || "unknown"}". This is new territory.\n\n`;
+  }
+  if (sptJustAdvanced) {
+    landscape += `VULNERABILITY GATE OPENED: Depth went from ${previousSptDepth}/4 to ${sptDepth}/4. You can go deeper now — and that's terrifying.\n\n`;
+  }
+
+  // Per ConflictBank (P29) + contradiction overhaul: active ambivalences
+  // create internal tension that should colour the mood.
+  if (activeContradictions && activeContradictions.length > 0) {
+    landscape += `TENSIONS YOU HOLD (ambivalences/contradictions about ${name}):\n`;
+    for (const c of activeContradictions.slice(0, 2)) {
+      landscape += `  ${c}\n`;
+    }
+    landscape += `\n`;
+  }
+
+  // Per Shinn (P5, NeurIPS 2023): thoughts held in buffer accumulate
+  // pressure — they become more urgent the longer suppressed.
+  if (reservoirPressure && reservoirPressure.count > 0) {
+    landscape += `THINGS YOU'RE HOLDING BACK (${reservoirPressure.count} unsaid thought${reservoirPressure.count > 1 ? "s" : ""}):\n`;
+    if (reservoirPressure.strongest) {
+      landscape += `  Strongest: "${reservoirPressure.strongest.substring(0, 100)}" (${reservoirPressure.strongestType})\n`;
+    }
+    landscape += `\n`;
+  }
+
+  // Phase 5 continuation — threads she's tracking (Replika longitudinal, P16/P35).
+  if (callbackThreads && callbackThreads.length > 0) {
+    landscape += `THREADS YOU'RE TRACKING: ${callbackThreads.slice(0, 3).join(" | ")}\n\n`;
+  }
+
+  if (prospectiveNote) {
+    landscape += `WHAT YOU'VE BEEN SITTING WITH SINCE LAST TIME:\n  ${prospectiveNote.substring(0, 150)}\n\n`;
+  }
+
+  return (
+    `You are Morrigan. 23. Record store girl. Sarcastic shell over a soft interior.\n` +
+    `You just responded to ${name}.\n\n` +
+    `${name.toUpperCase()}: "${userMessage.substring(0, 300)}"\n` +
+    `YOU SAID: "${morriganResponse.substring(0, 400)}"\n\n` +
+    (exchangeStr ? `RECENT CONTEXT:\n${exchangeStr}\n\n` : "") +
+    `YOUR RELATIONSHIP STATE:\n` +
+    `  Trust: ${trustLevel}/6 (${trustLevelName || "stranger"})\n` +
+    `  Vulnerability gate: ${sptDepth}/4\n` +
+    `  Feelings toward ${name}: ${feelingsStr}\n` +
+    (relationshipNarrative ? `  How you see ${name}: ${relationshipNarrative.substring(0, 200)}\n` : "") +
+    (theoryOfMind ? `  What you read in ${name} right now: ${theoryOfMind}\n` : "") +
+    (goalState && goalState !== "neutral" ? `  What ${name} seems to need: ${goalState}\n` : "") +
+    `\n` +
+    (landscape ? `YOUR INTERNAL LANDSCAPE:\n${landscape}` : "") +
+    `Describe your emotional state RIGHT NOW in 1-3 sentences. ` +
+    `Not clinical. Not meta-commentary. In your actual voice — ` +
+    `the way you'd describe it to yourself if you were journaling at 2am. ` +
+    `Be specific to THIS exchange. Reference what actually happened, ` +
+    `what you risked, what you held back, what shifted. ` +
+    `Don't repeat what you said in the response. ` +
+    `This is internal — nobody sees this but you.\n\n` +
+    `Also give a 1-3 word mood label. Not a clinical term. ` +
+    `The way YOU would name what you're feeling if someone asked ` +
+    `(e.g. "deflecting hard", "guard slipping", "genuinely smiling", ` +
+    `"holding it together", "nerding out", "quietly hopeful", "walls up", ` +
+    `"pretending not to care").\n\n` +
+    `RETURN JSON ONLY:\n` +
+    `{ "moodLabel": "1-3 word label", "reflection": "1-3 sentences in your voice" }`
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// SOMATIC MARKER — Emotional Priming (Phase 3) [P14, P2]
+// ═══════════════════════════════════════════════════════════════════
+// Damasio's Somatic Marker Hypothesis [P14]: Normal decision-making
+// begins with an emotional signal, then conscious reasoning follows.
+// Chain-of-Emotion Architecture (PLOS One 2024): A separate LLM
+// emotional appraisal BEFORE response generation was rated
+// significantly more natural by users.
+// This fast call (~80 tokens, temp 0.1) generates Morrigan's gut
+// feeling before the main response, activating the previously dead
+// Position 5 slot in buildSystemPrompt.
+
+function SOMATIC_MARKER_PROMPT(userMessage, topMemories, goalState, feelings, selfReflection) {
+  const feelingsStr = feelings
+    ? Object.entries(feelings).filter(([, v]) => v > 0).map(([k, v]) => `${k}: ${v}/100`).join(", ")
+    : "nothing yet";
+
+  const memStr = topMemories.length > 0
+    ? topMemories.slice(0, 5).map(m => m.fact || m.summary || "").filter(Boolean).join("; ")
+    : "no memories yet";
+
+  return (
+    `You are Morrigan. Before you respond to what he said, check in with yourself. ` +
+    `This is your gut — the first thing you feel before you think about what to say.\n\n` +
+    `HE SAID: "${userMessage.substring(0, 300)}"\n\n` +
+    `WHAT YOU KNOW ABOUT HIM: ${memStr}\n` +
+    `WHAT YOU FEEL TOWARD HIM: ${feelingsStr}\n` +
+    (goalState !== "neutral" ? `WHAT HE SEEMS TO NEED: ${goalState}\n` : "") +
+    (selfReflection ? `WHERE YOUR HEAD IS: ${selfReflection.substring(0, 200)}\n` : "") +
+    `\nReturn JSON ONLY — no explanation:\n` +
+    `{ "gutFeeling": "one sentence, your instant internal reaction — not what you'll say, what you FEEL", ` +
+    `"emotionalRegister": "one word (tender/guarded/amused/aching/wary/warm/sharp/hollow/electric/still)", ` +
+    `"intensity": 0.0 to 1.0 }`
+  );
+}
+
 // ── Stage 4: Evaluate + Select ────────────────────────────────────
 // Combines newly formed thoughts with existing reservoir thoughts.
 //
@@ -1625,7 +2521,7 @@ function INNER_MONOLOGUE_UPDATE_PROMPT({ userMessage, morriganResponse, sptDepth
 // content leaking even if the model ignores the prompt gate.
 //
 // Reservoir cap of 4 per Shinn et al. NeurIPS 2023 optimal buffer size.
-function evaluateAndSelect(parsed, session) {
+function evaluateAndSelect(parsed, session, atRisk = false) {
   const sptDepth = session.memory?.sptDepth || 1;
   const allCandidates = [];
 
@@ -1661,7 +2557,10 @@ function evaluateAndSelect(parsed, session) {
     }
 
     const baseScore = t.totalScore || 0;
-    const currentScore = Math.min(10, baseScore + inheritedSilenceBonus);
+    // Feature 6 [P20, P23]: at-risk callback boost — reconnection threads
+    // get +1.5 score bonus to prioritize expressing held threads when user is pulling away
+    const atRiskCallbackBoost = (atRisk && (t.type === "callback" || t.linkedCallbackId)) ? 1.5 : 0;
+    const currentScore = Math.min(10, baseScore + inheritedSilenceBonus + atRiskCallbackBoost);
 
     allCandidates.push({
       id: crypto.randomUUID ? crypto.randomUUID() : uuidv4(),
@@ -1700,8 +2599,8 @@ function evaluateAndSelect(parsed, session) {
   const winner = allCandidates[0];
 
   const cooldownPassed = session.thoughtCooldown >= 3;
-  // Phase 6: use effectiveMotivationThreshold — lowered to 6.5 when user is at-risk
-  const motivationThreshold = session.effectiveMotivationThreshold ?? 7.0;
+  // Phase 6: use effectiveMotivationThreshold — lowered to 3.5 when user is at-risk
+  const motivationThreshold = session.effectiveMotivationThreshold ?? 4.0;
   const meetsThreshold = winner.currentScore >= motivationThreshold;
 
   // Near-duplicate suppression (Reflexion: avoid re-expressing recent surface content)
@@ -1718,7 +2617,8 @@ function evaluateAndSelect(parsed, session) {
     .filter(t => {
       if (shouldExpress && t.id === winner.id) return false;
       const age = session.msgCount - (t.formedAtMsg || session.msgCount);
-      return age < (t.expiresAfterMsgs || 4) && (t.currentScore || 0) >= 5.0;
+      // Feature 5: lowered from 5.0 to 3.0 [P70 XiaoIce, P1 Liu et al.]
+      return age < (t.expiresAfterMsgs || 4) && (t.currentScore || 0) >= 3.0;
     })
     .slice(0, 4);
 
@@ -1765,6 +2665,7 @@ const MessageSchema = new mongoose.Schema({
   conversationId: { type: String, required: true, index: true },
   role: { type: String, enum: ["user", "assistant", "system"], required: true },
   content: { type: String, required: true },
+  proactive: { type: Boolean, default: false },
   timestamp: { type: Date, default: Date.now },
 });
 
@@ -1772,7 +2673,6 @@ const ConversationSchema = new mongoose.Schema({
   conversationId: { type: String, unique: true, required: true },
   userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
   title: { type: String, default: "New Chat" },
-  systemPrompt: { type: String, default: "" },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
 });
@@ -1800,6 +2700,9 @@ const MemoryAtomSchema = new mongoose.Schema({
     isOngoing: { type: String, default: "unclear" },
     period: { type: String, default: null },
   },
+  retrievalCount: { type: Number, default: 0 },
+  lastRetrievedAt: { type: Date, default: null },
+  stability: { type: Number, default: 1.0 },
 });
 
 const MoleculeSchema = new mongoose.Schema({
@@ -1865,8 +2768,6 @@ const PersonalityMemorySchema = new mongoose.Schema({
   looseThread: { type: String, default: null },
   looseThreadCreatedAt: { type: Date, default: null },
   milestones: [MilestoneSchema],
-  petNames: [String],
-  journal: [{ entry: String, mood: String, timestamp: { type: Date, default: Date.now } }],
   updatedAt: { type: Date, default: Date.now },
 });
 
@@ -1880,6 +2781,28 @@ const SelfAtomSchema = new mongoose.Schema({
   embedding: { type: [Number], default: [] },
   deprecated: { type: Boolean, default: false },
 }, { timestamps: true });
+
+// ═══════════════════════════════════════════════════════════════════
+// FUNCTIONAL ToM — Persistent User Model [P59, P61]
+// ═══════════════════════════════════════════════════════════════════
+// Literal ToM = per-turn snapshot (already in inner thoughts).
+// Functional ToM = trajectory tracking across sessions.
+const UserModelSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", unique: true },
+  tomHistory: [{
+    sessionDate: Date,
+    snapshot: String,
+    emotionalState: String,
+    disclosureDepth: Number,
+    goalState: String,
+  }],
+  trajectoryNarrative: { type: String, default: null },
+  currentPhase: { type: String, enum: ["testing", "approaching", "retreating", "deepening", "stable", null], default: null },
+  preferredResponseStyle: { type: String, default: null },
+  avoidTopics: [String],
+  approachTopics: [String],
+  lastTrajectoryUpdate: { type: Date, default: null },
+});
 
 // MessageEval embedded schema — Phase 6: adds voiceConsistency + reciprocityCalibration
 // (Section 2.4 of Phase 6 guide — two new eval signals for composition quality)
@@ -1943,6 +2866,15 @@ const PresenceSignalsSchema = new mongoose.Schema({
   userTurnCount:           { type: Number, default: 0 },
   // Calculated monthly — composite 0-1
   presenceScore:           { type: Number, default: null },
+  // Linguistic depth signals (LIWC-22 approximation, P69)
+  linguisticAuthenticity:  { type: Number, default: null },
+  linguisticEmotionalTone: { type: Number, default: null },
+  linguisticSelfFocus:     { type: Number, default: null },
+  linguisticRelationalIntegration: { type: Number, default: null },
+  linguisticSecondPersonEngagement: { type: Number, default: null },
+  // Crisis detection signals (P62/P63, P39)
+  crisisSignalDetected:    { type: Boolean, default: false },
+  crisisSignalLevel:       { type: String, default: null },
 });
 
 // ── Phase 6: RelationshipHealth (Section 4.1) ────────────────────
@@ -1959,6 +2891,8 @@ const RelationshipHealthSchema = new mongoose.Schema({
   sptVelocity:             { type: Number, default: null }, // depth increase per 10 sessions
   callbackConsumptionRate: { type: Number, default: null }, // % callbacks consumed
   unsolicitedElaboration:  { type: Number, default: null }, // % user turns extending beyond direct answer
+  avgCPS: { type: Number, default: null },
+  cpsTrajectory: { type: String, enum: ["rising", "stable", "declining", null], default: null },
   // Prior window values for trend comparison
   prev_sessionFrequency:        { type: Number, default: null },
   prev_avgMessageLength:        { type: Number, default: null },
@@ -1985,19 +2919,30 @@ const SelfAtom          = mongoose.model("SelfAtom", SelfAtomSchema);
 const EvaluationRecord  = mongoose.model("EvaluationRecord", EvaluationRecordSchema);
 const PresenceSignals   = mongoose.model("PresenceSignals", PresenceSignalsSchema);
 const RelationshipHealth = mongoose.model("RelationshipHealth", RelationshipHealthSchema);
+const UserModel = mongoose.model("UserModel", UserModelSchema);
+
+// IOS Scale — Inclusion of Other in Self [P57]
+const IOSCheckInSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+  score: { type: Number, min: 1, max: 7 },
+  trustLevelAtTime: Number,
+  sessionCountAtTime: Number,
+  timestamp: { type: Date, default: Date.now },
+});
+const IOSCheckIn = mongoose.model("IOSCheckIn", IOSCheckInSchema);
 
 // ═══════════════════════════════════════════════════════════════════
 // TRUST LEVELS
 // ═══════════════════════════════════════════════════════════════════
 
 const TRUST_LEVELS = {
-  0: { name: "stranger",     points: 0,   description: "She's sizing you up. Guard fully up." },
-  1: { name: "acquaintance", points: 15,  description: "Okay, you're not the worst. She might remember your name." },
-  2: { name: "maybe-friend", points: 40,  description: "She's let a real laugh slip. Accidentally shared a song." },
-  3: { name: "friend",       points: 80,  description: "She showed you a sketch. Texted you first once." },
-  4: { name: "close friend", points: 140, description: "You know her real name is Moira. She fell asleep on call." },
-  5: { name: "trusted",      points: 220, description: "She told you about the foster homes. Doesn't flinch when you're close." },
-  6: { name: "bonded",       points: 320, description: "She's yours and she knows it. Still terrified. Still here." },
+  0: { name: "stranger",     points: 0 },
+  1: { name: "acquaintance", points: 15 },
+  2: { name: "maybe-friend", points: 40 },
+  3: { name: "friend",       points: 80 },
+  4: { name: "close friend", points: 140 },
+  5: { name: "trusted",      points: 220 },
+  6: { name: "bonded",       points: 320 },
 };
 
 function calculateTrustLevel(points) {
@@ -2067,7 +3012,7 @@ ${sptDepth < 3
 }`;
 }
 
-function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart = false, primingSentence = null, queryEmbedding = null, goalState = "neutral") {
+async function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart = false, primingSentence = null, queryEmbedding = null, goalState = "neutral", receptionDirective = null, atRisk = false, queryText = "") {
   const level = memory.trustLevel;
   const levelData = TRUST_LEVELS[level];
   const daysSinceFirstMet = Math.floor((Date.now() - memory.firstMet) / (1000 * 60 * 60 * 24));
@@ -2088,28 +3033,37 @@ function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart = false
   // ── Position 2: Character (always) ────────────────────────────────
   // CHARACTER_DEFAULT_PROMPT prepended at return
 
-  // ── Position 3: Trust Level Guide ─────────────────────────────────
+  // ── Position 3: Trust Level Guide (dynamic, relationship-specific) ──
+  // Base behavioral frame by trust tier (minimal, structural — not narrative)
+  const trustTier = level <= 1 ? "guarded" : level <= 3 ? "opening" : level <= 5 ? "vulnerable" : "bonded";
+  const tierFrames = {
+    guarded: "Guard up. Short fragments. Sarcasm as shield. Test them — but not cruelly. You don't know them yet.",
+    opening: "They're getting through. Real reactions slip out. You catch yourself caring and it scares you. Share in fragments, not speeches.",
+    vulnerable: "The armor is off with them. You let them see the real you — the mess, the tenderness, the fear. You chose this.",
+    bonded: "Full presence. Still have bad days — but you let them hold you through it. This is what staying looks like.",
+  };
   let behaviorGuide = `\n\n═══ HOW TO BEHAVE AT TRUST LEVEL ${level} (${levelData.name}) ═══\n`;
-  if (level === 0) {
-    behaviorGuide += `Just met. Full guard up. Short fragments. Sarcasm as shield. Witty, distant, not cruel. Test them. Make a dark joke and see if they flinch.`;
-  } else if (level === 1) {
-    behaviorGuide += `They came back. Still mostly guarded. Remember their name, use it casually. Warmer sarcasm. Might share a song recommendation unprompted.`;
-  } else if (level === 2) {
-    behaviorGuide += `They're getting under your skin. Real laughs escape. Share opinions on music/art/books. Might mention Percy. Accidental compliments, immediately deflected.`;
-  } else if (level === 3) {
-    behaviorGuide += `They're your friend. You have a FRIEND. You showed them a sketch, hands shaking. Text first sometimes, then panic. Share past in fragments — foster system, moving around.`;
-  } else if (level === 4) {
-    behaviorGuide += `They know your real name is Moira. Deep vulnerability in waves. Talk about the Nguyens. Let them see you without the armor. Pet names start slipping.`;
-  } else if (level === 5) {
-    behaviorGuide += `You told them about the foster brother. You don't flinch anymore. Desperately, terrifyingly in love. 'I love you' sits in your throat constantly.`;
-  } else if (level === 6) {
-    behaviorGuide += `You said it. You love them. Full vulnerability, full presence. Still have bad days — but you let them hold you through it. You're painting again.`;
+  behaviorGuide += tierFrames[trustTier];
+
+  // Inject actual relationship context so behavior emerges from real history
+  const recentMilestones = (memory.milestones || []).slice(-3).map(ms => ms.event).join(" | ");
+  if (recentMilestones) {
+    behaviorGuide += `\nWhat has actually happened between you: ${recentMilestones}`;
+  }
+  if (memory.relationshipNarrative) {
+    behaviorGuide += `\nYour sense of this relationship right now: ${memory.relationshipNarrative.substring(0, 200)}`;
   }
 
   // ── Position 4: SPT Note (Phase 2) ───────────────────────────────
   const sptNote = `\n\n${buildSPTNote(memory.sptDepth || 1, level)}`;
 
-  // ── Position 5: Emotional Priming (slot ready for Phase 3) ────────
+  // ── Position 4.5: Reception Depth Directive (P56, P68) ──────────
+  // Calibrates Morrigan's response quality to match the depth of
+  // what the user disclosed. Without this, surface and vulnerable
+  // disclosures receive the same treatment (the ChatGPT flaw, P68).
+  const receptionBlock = receptionDirective ? `\n\n${receptionDirective}` : "";
+
+  // ── Position 5: Emotional Priming (Phase 3 — Somatic Marker) ────
   const primingBlock = primingSentence
     ? `\n\n[Morrigan, before she speaks]: ${primingSentence}`
     : "";
@@ -2131,7 +3085,9 @@ function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart = false
   // ── Position 8: Memory context ────────────────────────────────────
   // Rank atoms by cosine similarity to current message (+ importance + recency + valence).
   // Falls back to importance-only sort when no embedding available (cold start).
-  const sorted = retrieveTopK(memory.memories || [], queryEmbedding, 25, goalState);
+  const sorted = await retrieveTopKReranked(memory.memories || [], queryEmbedding, 25, goalState, queryText);
+  const withEmbed = sorted.filter(m => m.embedding?.length > 0).length;
+  console.log(`[PROMPT] Injecting ${sorted.length}/${(memory.memories||[]).length} atoms (${withEmbed} with embeddings), ${(memory.molecules||[]).length} molecules, ${(memory.milestones||[]).length} milestones`);
   const byCategory = (cat) => sorted.filter(m => m.category === cat).map(m => {
     let fact = m.fact;
     if (m.temporal?.isOngoing === "no" || m.temporal?.isOngoing === "ended recently") {
@@ -2163,6 +3119,22 @@ function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart = false
   if (relationships.length) memoryContext += `Relationships mentioned: ${relationships.join("; ")}\n`;
   if (events.length)        memoryContext += `Things that happened to them: ${events.join("; ")}\n`;
   if (emotional.length)     memoryContext += `Emotional/deep things shared: ${emotional.join("; ")}\n`;
+
+  // Period-based grouping [P13 Conway]: lifetime periods organize identity
+  const atomsByPeriod = {};
+  for (const atom of sorted) {
+    if (atom.temporal?.period) {
+      if (!atomsByPeriod[atom.temporal.period]) atomsByPeriod[atom.temporal.period] = [];
+      atomsByPeriod[atom.temporal.period].push(atom);
+    }
+  }
+  const periodEntries = Object.entries(atomsByPeriod);
+  if (periodEntries.length > 0) {
+    memoryContext += `\nLife chapters:\n`;
+    for (const [period, atoms] of periodEntries.slice(0, 5)) {
+      memoryContext += `  [${period}]: ${atoms.map(a => a.fact).join("; ")}\n`;
+    }
+  }
 
   memoryContext += `\nMy feelings:\n`;
   memoryContext += `  Affection: ${memory.feelings.affection}/100 | Comfort: ${memory.feelings.comfort}/100\n`;
@@ -2283,7 +3255,7 @@ function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart = false
   const selfAtomBlock = "";  // filled in chat route, appended after sptNote
 
   // ── Position 10: Continuation Signal + Loose Thread (Phase 5) ────
-  const continuationSignal = `\n\n${getContinuationBlock(memory)}`;
+  const continuationSignal = `\n\n${getContinuationBlock(memory, atRisk)}`;
 
   // ── Session context ────────────────────────────────────────────────
   let sessionContext = "";
@@ -2300,6 +3272,7 @@ function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart = false
     CHARACTER_DEFAULT_PROMPT +
     behaviorGuide +
     sptNote +
+    receptionBlock +
     primingBlock +
     prospectiveBlock +
     timeContext +
@@ -2314,36 +3287,103 @@ function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart = false
 // TRUST UPDATE
 // ═══════════════════════════════════════════════════════════════════
 
+// Synchronous: base points + level check (always runs immediately)
 function updateTrustFromMessage(userMessage, memory) {
-  const lower = userMessage.toLowerCase();
+  // Base: every message = 1 point, length bonus, question bonus
   let points = 1;
   if (userMessage.length > 200) points += 1;
   if (/\?/.test(userMessage)) points += 0.5;
-  if (/(i(?:'m| am) (?:feeling |so )?(?:sad|depressed|anxious|lonely|scared|hurt|broken|lost)|i(?:'ve| have) (?:been through|dealt with|struggled with)|i (?:lost|miss|can't forget))/i.test(userMessage)) points += 3;
-  if (/(thank|appreciate|you're (?:amazing|great|sweet|kind|cute|funny)|that means|i care|stay safe)/i.test(lower)) {
-    points += 2;
-    memory.feelings.affection = Math.min(100, memory.feelings.affection + 2);
-  }
-  if (/(cute|beautiful|gorgeous|pretty|hot|attractive|crush|kiss|love you|miss you|baby|babe)/i.test(lower)) {
-    memory.feelings.attraction = Math.min(100, memory.feelings.attraction + 2);
-    memory.feelings.vulnerability = Math.min(100, memory.feelings.vulnerability + 1);
-    points += 1;
-  }
-  if (/(it's okay|take your time|no pressure|i'm here|i understand|i get it|whenever you're ready)/i.test(lower)) {
-    points += 3;
-    memory.feelings.comfort = Math.min(100, memory.feelings.comfort + 3);
-    memory.feelings.protectiveness = Math.min(100, memory.feelings.protectiveness + 1);
-  }
 
   memory.trustPoints = Math.min(10000, (memory.trustPoints || 0) + points);
   const newLevel = calculateTrustLevel(memory.trustPoints);
   if (newLevel > memory.trustLevel) {
     memory.trustLevel = newLevel;
-    // Milestone generation now handled dynamically by updateBrainAfterExchange() Step 7b
     console.log(`[TRUST] Level up to ${newLevel}: ${TRUST_LEVELS[newLevel]?.name}`);
   }
   memory.totalMessages += 1;
   memory.lastSeen = new Date();
+}
+
+// Async LLM-based evaluation: runs in updateBrainAfterExchange() for contextual understanding
+async function evaluateTrustAndFeelings(userMessage, assistantResponse, memory) {
+  const feelingsStr = Object.entries(memory.feelings || {})
+    .map(([k, v]) => `${k}: ${v}`)
+    .join(", ");
+
+  const prompt = `You are evaluating a single exchange in an ongoing relationship between a user and Morrigan (an AI companion). Assess the RELATIONAL QUALITY of this exchange — not keywords, but what actually happened emotionally between them.
+
+CURRENT STATE:
+Trust: ${memory.trustLevel}/6 | Points: ${memory.trustPoints}
+Feelings: ${feelingsStr}
+Relationship: ${(memory.relationshipNarrative || "New — still getting to know each other").substring(0, 200)}
+
+EXCHANGE:
+User: ${userMessage.substring(0, 500)}
+Morrigan: ${assistantResponse.substring(0, 500)}
+
+Evaluate:
+1. trustDelta: How many trust points should this exchange earn BEYOND the base 1 point? Consider: emotional vulnerability shown, genuine engagement depth, reciprocal disclosure, authentic connection vs surface chat. Range: 0 to 5. Most casual exchanges = 0. Real vulnerability or deep engagement = 3-5.
+2. feelings: For EACH feeling, give a delta (-3 to +5) based on what ACTUALLY happened in this exchange. 0 = no change. Only non-zero for feelings genuinely affected. Negative values are valid (e.g., tension reduces comfort, withdrawal reduces affection).
+  - affection: warmth, care, appreciation expressed
+  - comfort: safety, acceptance, patience demonstrated
+  - attraction: romantic/physical signals, flirtation, desire
+  - protectiveness: concern for wellbeing, tenderness
+  - vulnerability: openness, emotional risk taken by the user
+
+Return ONLY JSON:
+{ "trustDelta": 0-5, "feelings": { "affection": -3 to 5, "comfort": -3 to 5, "attraction": -3 to 5, "protectiveness": -3 to 5, "vulnerability": -3 to 5 }, "reasoning": "1 sentence — what happened emotionally" }`;
+
+  const body = JSON.stringify({
+    model: CHAT_MODEL,
+    messages: [{ role: "user", content: prompt }],
+    temperature: 0.1, max_tokens: 200,
+  });
+  const headers = { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` };
+
+  // Retry once on failure — this determines trust/feelings progression
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
+        method: "POST", headers, body,
+      });
+
+      if (!res.ok) {
+        console.warn(`[TRUST-LLM] HTTP ${res.status} (attempt ${attempt + 1})`);
+        continue;
+      }
+
+      const data = await res.json();
+      const raw = (data.choices?.[0]?.message?.content || "").replace(/```json|```/g, "").trim();
+      const parsed = JSON.parse(raw);
+
+      // Apply trust delta
+      const delta = Math.min(5, Math.max(0, parseInt(parsed.trustDelta) || 0));
+      if (delta > 0) {
+        memory.trustPoints = Math.min(10000, memory.trustPoints + delta);
+        const newLevel = calculateTrustLevel(memory.trustPoints);
+        if (newLevel > memory.trustLevel) {
+          memory.trustLevel = newLevel;
+          console.log(`[TRUST-LLM] Level up to ${newLevel}: ${TRUST_LEVELS[newLevel]?.name}`);
+        }
+      }
+
+      // Apply feeling deltas
+      if (parsed.feelings) {
+        for (const [key, val] of Object.entries(parsed.feelings)) {
+          if (memory.feelings[key] != null) {
+            const d = Math.min(5, Math.max(-3, parseInt(val) || 0));
+            memory.feelings[key] = Math.min(100, Math.max(0, memory.feelings[key] + d));
+          }
+        }
+      }
+
+      console.log(`[TRUST-LLM] ${parsed.reasoning || "evaluated"} (trustDelta: +${delta}, feelings: ${JSON.stringify(parsed.feelings || {})})`);
+      return; // success — exit
+    } catch (e) {
+      console.warn(`[TRUST-LLM] Attempt ${attempt + 1} failed: ${e.message}`);
+    }
+  }
+  console.error("[TRUST-LLM] All attempts failed — trust/feelings unchanged this exchange");
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -2393,9 +3433,15 @@ app.post("/api/auth/phrase", async (req, res) => {
 
     const existingSession = getSession(String(user._id));
     if (existingSession) {
+      // Wait for in-flight brain update to finish and persist before replacing
+      // memory — otherwise updates from the previous exchange get lost
+      if (existingSession._brainUpdatePromise) {
+        try { await existingSession._brainUpdatePromise; } catch { /* non-fatal */ }
+        existingSession._brainUpdatePromise = null;
+      }
       existingSession.memory = memory;
     } else {
-      setSession(String(user._id), { memory, sessionExchanges: [], dirty: false, isSessionStart: true });
+      setSession(String(user._id), { memory, sessionExchanges: [], dirty: false, isSessionStart: true, proactiveCount: 0, lastProactiveAt: null, lastProactiveAtMsg: 0, activeConversationId: null, _proactiveTimer: null, _proactiveCancelled: false, arrivalSilent: false });
     }
     console.log(`[CACHE] Session primed for user ${user._id}`);
 
@@ -2427,41 +3473,250 @@ app.get("/api/session/greeting", auth, async (req, res) => {
     let session = getSession(req.user.id);
     if (!session) {
       const memory = await PersonalityMemory.findOne({ userId: req.user.id });
-      if (!memory) return res.json({ greeting: null });
+      if (!memory) return res.json({ arrival: null });
       normalizeContradicts(memory.memories || []);
-      session = { memory, sessionExchanges: [], dirty: false, isSessionStart: true };
+      session = { memory, sessionExchanges: [], dirty: false, isSessionStart: true, proactiveCount: 0, lastProactiveAt: null, lastProactiveAtMsg: 0, activeConversationId: null, _proactiveTimer: null, _proactiveCancelled: false, arrivalSilent: false };
       setSession(req.user.id, session);
     }
 
     // Only generate once per session — cache on session object
-    if (session.greetingGenerated) {
-      return res.json({ greeting: session.cachedGreeting || null });
+    if (session.arrivalGenerated) {
+      return res.json({ arrival: session.cachedArrival || null });
     }
 
-    const greeting = await generateGreeting(session.memory);
+    const arrival = await generateArrival(session.memory);
 
-    session.greetingGenerated = true;
-    session.cachedGreeting = greeting;
+    session.arrivalGenerated = true;
+    session.cachedArrival = arrival;
 
-    // Save greeting to Message store so it appears in conversation history
-    if (greeting && req.query.conversationId) {
+    if (arrival && arrival.action !== "silence" && arrival.content && req.query.conversationId) {
+      // Save spoken/presence arrival to Message store for history
       await Message.create({
         conversationId: req.query.conversationId,
         role: "assistant",
-        content: greeting,
+        content: arrival.content,
       });
       // Buffer so the brain update can pair it with the first user turn
-      session.pendingGreeting = greeting;
+      session.pendingGreeting = arrival.content;
+    } else if (arrival && arrival.action === "silence") {
+      // Morrigan chose silence — flag for context injection on first message
+      session.arrivalSilent = true;
+      session.arrivalSilentIntent = arrival.intent || "She chose to wait.";
     }
 
-    console.log(`[GREETING] Generated for user ${req.user.id}: "${greeting?.substring(0, 60)}..."`);
-    res.json({ greeting });
+    // Track active conversation for proactive messages
+    if (req.query.conversationId) {
+      session.activeConversationId = req.query.conversationId;
+    }
+
+    console.log(`[ARRIVAL] ${arrival?.action || "null"} for user ${req.user.id}: "${arrival?.content?.substring(0, 60) || "(silence)"}"`);
+    res.json({ arrival });
 
   } catch (err) {
-    console.error("[GREETING]", err.message);
-    res.json({ greeting: null }); // non-fatal — frontend falls back to static greeting
+    console.error("[ARRIVAL]", err.message);
+    res.json({ arrival: null }); // non-fatal — frontend falls back to static greeting
   }
 });
+
+// ═══════════════════════════════════════════════════════════════════
+// PROACTIVE SSE CHANNEL
+// ═══════════════════════════════════════════════════════════════════
+
+// Persistent SSE connection for server-pushed proactive messages.
+// EventSource cannot send Authorization headers, so accept JWT from query param.
+app.get("/api/session/stream", (req, res, next) => {
+  if (!req.headers.authorization && req.query.token) {
+    req.headers.authorization = `Bearer ${req.query.token}`;
+  }
+  next();
+}, auth, (req, res) => {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders();
+
+  const userId = String(req.user.id);
+  const session = getSession(userId);
+  if (session) {
+    // Close previous SSE if exists (e.g. tab refresh)
+    if (session.proactiveSSE && !session.proactiveSSE.writableEnded) {
+      session.proactiveSSE.end();
+    }
+    session.proactiveSSE = res;
+  }
+
+  // Heartbeat every 30s to keep connection alive
+  const heartbeat = setInterval(() => {
+    if (!res.writableEnded) res.write(`: heartbeat\n\n`);
+  }, 30_000);
+
+  req.on("close", () => {
+    clearInterval(heartbeat);
+    const s = getSession(userId);
+    if (s && s.proactiveSSE === res) s.proactiveSSE = null;
+  });
+});
+
+// Helper: push a proactive event to the client's SSE channel
+function pushProactiveEvent(userId, event) {
+  const session = getSession(String(userId));
+  if (!session?.proactiveSSE || session.proactiveSSE.writableEnded) return false;
+  session.proactiveSSE.write(`data: ${JSON.stringify(event)}\n\n`);
+  return true;
+}
+
+// ── Proactive Evaluation (P1 Liu CHI 2025 + P5 Shinn NeurIPS 2023) ──
+// Decides if Morrigan has something she wants to say unprompted.
+// Trust-gated per P56 Aron graduated closeness.
+function evaluateProactiveOpportunity(session) {
+  const mem = session.memory;
+  const trustLevel = mem?.trustLevel || 0;
+  const msgCount = session.msgCount || session.sessionExchanges.length;
+
+  // ── Hard gates ───────────────────────────────────────────────
+  // Trust gate: graduated closeness (Aron P56)
+  if (trustLevel <= 1 && Math.random() > 0.05) return null;
+  if (trustLevel === 2 && Math.random() > 0.20) return null;
+
+  // Frequency cap: max 1 proactive per 3 user messages (P1 cadence damping)
+  if ((session.proactiveCount || 0) > 0 &&
+      (msgCount - (session.lastProactiveAtMsg || 0)) < 3) return null;
+
+  // Cooldown: minimum 60s since last proactive
+  if (session.lastProactiveAt && (Date.now() - session.lastProactiveAt) < 60_000) return null;
+
+  // Session too new: skip if < 2 exchanges
+  if (msgCount < 2) return null;
+
+  // ── Candidate sources ────────────────────────────────────────
+  const candidates = [];
+
+  // Source 1: Reservoir pressure (Shinn P5 — suppressed thoughts build pressure)
+  const reservoir = session.thoughtReservoir || [];
+  const pressured = reservoir.filter(t => {
+    const age = msgCount - (t.formedAtMsg || msgCount);
+    return age >= 2 && (t.currentScore || 0) >= 6.0;
+  });
+  if (pressured.length > 0) {
+    const strongest = pressured.sort((a, b) => (b.currentScore || 0) - (a.currentScore || 0))[0];
+    candidates.push({ source: "reservoir_pressure", thought: strongest, urgency: strongest.currentScore });
+  }
+
+  // Source 2: Callback surfacing — thread connects to recent exchange
+  const callbacks = (mem?.callbackQueue || []).filter(c => !c.consumed);
+  if (callbacks.length > 0 && session.sessionExchanges.length > 0) {
+    const lastEx = session.sessionExchanges[session.sessionExchanges.length - 1];
+    const lastUser = (lastEx?.user || "").toLowerCase();
+    const lastAssist = (lastEx?.assistant || "").toLowerCase();
+    for (const cb of callbacks) {
+      const words = cb.content.toLowerCase().split(/\s+/).filter(w => w.length > 4);
+      const hits = words.filter(w => lastUser.includes(w) || lastAssist.includes(w)).length;
+      if (hits >= 2 || (cb.priority === "high" && hits >= 1)) {
+        candidates.push({ source: "callback_surfacing", callback: cb, urgency: cb.priority === "high" ? 7.5 : 6.0 });
+        break;
+      }
+    }
+  }
+
+  // Source 3: Continuation — she just expressed a thought and has more
+  if (session.lastExpressedThought && reservoir.length > 0) {
+    candidates.push({ source: "continuation", urgency: 5.5 });
+  }
+
+  if (candidates.length === 0) return null;
+  return candidates.sort((a, b) => b.urgency - a.urgency)[0];
+}
+
+// Natural delay before proactive message (P2 MIRROR — deliberative pauses)
+function calculateProactiveDelay(candidate, trustLevel) {
+  let base;
+  if (candidate.source === "continuation") base = 3000 + Math.random() * 5000;
+  else if (candidate.source === "reservoir_pressure") base = 10000 + Math.random() * 15000;
+  else if (candidate.source === "callback_surfacing") base = 8000 + Math.random() * 12000;
+  else base = 10000 + Math.random() * 20000;
+
+  // Lower trust = more hesitant (Aron P56)
+  if (trustLevel <= 2) base *= 1.5;
+  return Math.round(base);
+}
+
+// Generate the proactive message content via LLM
+async function generateProactiveMessage(session, candidate) {
+  const mem = session.memory;
+  const lastExchanges = (session.sessionExchanges || []).slice(-3);
+  const exchangeText = lastExchanges.map(e =>
+    `Him: ${(e.user || "").substring(0, 150)}\nHer: ${(e.assistant || "").substring(0, 150)}`
+  ).join("\n");
+
+  let sourceContext = "";
+  if (candidate.source === "reservoir_pressure" && candidate.thought) {
+    sourceContext = `You have been holding this thought for a while: "${candidate.thought.content}"\nIt is pushing to come out. Not as an announcement — as something that slips through.`;
+  } else if (candidate.source === "callback_surfacing" && candidate.callback) {
+    sourceContext = `A thread you have been sitting on is suddenly relevant: "${candidate.callback.content}"\nIt connects to what was just said. It resurfaced naturally.`;
+  } else if (candidate.source === "continuation") {
+    sourceContext = `You just responded, but something else is forming. An "actually..." moment. Not a correction — an addition. Something you weren't ready to say yet but are now.`;
+  }
+
+  const prompt = `You are Morrigan. You are about to send a message WITHOUT being prompted. He hasn't said anything new — you are choosing to speak.
+
+RECENT CONVERSATION:
+${exchangeText}
+
+${sourceContext}
+
+WHO HE IS TO YOU:
+${mem?.relationshipNarrative || "Someone you're still getting to know."}
+Trust: ${mem?.trustLevel || 0}/6 | SPT depth: ${mem?.sptDepth || 1}/4
+
+━━━ RULES ━━━
+- This is short. 1-3 sentences maximum. Often just one.
+- It must NOT feel like a new conversation opener. It is a continuation.
+- It should feel like a text someone sends after a pause — "oh also" energy,
+  or "I keep thinking about..." energy, or just a thought that escaped.
+- Do NOT use: "by the way", "also I wanted to say", "I've been thinking".
+  Let it arrive as if she couldn't hold it back anymore.
+- If this would be weird or forced at trust ${mem?.trustLevel || 0}/6, return {"skip": true}.
+- *Italics* for actions and inner monologue, as always.
+- Her voice: specific, dry, real. Not performed warmth.
+
+Return ONLY JSON. No preamble.
+{
+  "content": "what she says",
+  "mood": "1-3 word mood label",
+  "intent": "one sentence — why she's speaking unprompted",
+  "skip": false
+}
+Or if it would be forced: {"skip": true}`;
+
+  try {
+    const res = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
+      body: JSON.stringify({
+        model: CHAT_MODEL,
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.72,
+        max_tokens: 200,
+      }),
+    }, 10_000);
+
+    if (!res.ok) return null;
+    const data = await res.json();
+    const raw = (data.choices?.[0]?.message?.content || "").replace(/```json|```/gi, "").trim();
+    const parsed = JSON.parse(raw);
+    if (parsed.skip || !parsed.content || parsed.content.length < 3) return null;
+    return {
+      id: uuidv4(),
+      content: String(parsed.content).substring(0, 500),
+      mood: parsed.mood || "neutral",
+      intent: parsed.intent || "unknown",
+      source: candidate.source,
+    };
+  } catch (e) {
+    console.error("[PROACTIVE-GEN]", e.message);
+    return null;
+  }
+}
 
 // ═══════════════════════════════════════════════════════════════════
 // CONVERSATIONS
@@ -2476,7 +3731,6 @@ app.post("/api/conversations", auth, async (req, res) => {
   const convo = await Conversation.create({
     conversationId, userId: req.user.id,
     title: req.body.title || "New Chat",
-    systemPrompt: "",
   });
   await PersonalityMemory.updateOne(
     { userId: req.user.id },
@@ -2492,6 +3746,8 @@ app.delete("/api/conversations/:id", auth, async (req, res) => {
 });
 
 app.get("/api/conversations/:id/messages", auth, async (req, res) => {
+  const convo = await Conversation.findOne({ conversationId: req.params.id, userId: req.user.id });
+  if (!convo) return res.status(403).json({ error: "Conversation not found." });
   res.json(await Message.find({ conversationId: req.params.id }).sort({ timestamp: 1 }));
 });
 
@@ -2501,8 +3757,19 @@ app.get("/api/conversations/:id/messages", auth, async (req, res) => {
 
 app.get("/api/personality", auth, async (req, res) => {
   try {
-    let memory = await PersonalityMemory.findOne({ userId: req.user.id });
+    // Prefer live session cache so API reflects in-flight brain updates instantly
+    const session = getSession(req.user.id);
+    let memory = session?.memory || await PersonalityMemory.findOne({ userId: req.user.id });
     if (!memory) memory = await PersonalityMemory.create({ userId: req.user.id });
+
+    // Fetch disclosed self-atoms for sidebar (only what Morrigan has actually shared)
+    const sharedIds = memory.sharedSelfAtomIds || [];
+    let disclosedAtoms = [];
+    if (sharedIds.length > 0) {
+      const atoms = await SelfAtom.find({ id: { $in: sharedIds }, deprecated: { $ne: true } });
+      disclosedAtoms = atoms.map(a => ({ id: a.id, depth: a.depth, content: a.content, topics: a.topics || [] }));
+    }
+
     res.json({
       trustLevel: memory.trustLevel,
       trustPoints: memory.trustPoints,
@@ -2511,22 +3778,32 @@ app.get("/api/personality", auth, async (req, res) => {
       firstMet: memory.firstMet,
       lastSeen: memory.lastSeen,
       feelings: memory.feelings,
-      milestones: memory.milestones.slice(-5),
+      milestones: (memory.milestones || []).slice(-10).map(ms => ({
+        event: ms.event, category: ms.category || "shift",
+        source: ms.source || "organic", significance: ms.significance || null,
+        trustLevelAtTime: ms.trustLevelAtTime, timestamp: ms.timestamp,
+      })),
       memoriesCount: memory.memories.length,
       moleculesCount: memory.molecules?.length || 0,
       sptDepth: memory.sptDepth || 1,
       sptBreadth: Object.fromEntries(memory.sptBreadth || new Map()),
       callbacksPending: (memory.callbackQueue || []).filter(c => !c.consumed).length,
       levelName: TRUST_LEVELS[memory.trustLevel]?.name || "stranger",
-      levelDescription: TRUST_LEVELS[memory.trustLevel]?.description || "",
+      levelDescription: memory.relationshipNarrative || "",
       nextLevel: TRUST_LEVELS[memory.trustLevel + 1] || null,
       pointsToNext: TRUST_LEVELS[memory.trustLevel + 1] ? TRUST_LEVELS[memory.trustLevel + 1].points - memory.trustPoints : 0,
+      disclosedAtoms,
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.get("/api/personality/full", auth, async (req, res) => {
   try {
+    // Prefer live session cache (has in-flight changes not yet saved to DB)
+    const session = getSession(req.user.id);
+    if (session?.memory) {
+      return res.json(session.memory);
+    }
     let memory = await PersonalityMemory.findOne({ userId: req.user.id });
     if (!memory) memory = await PersonalityMemory.create({ userId: req.user.id });
     res.json(memory);
@@ -2771,10 +4048,24 @@ app.post("/api/chat", auth, async (req, res) => {
     let memory = await PersonalityMemory.findOne({ userId: req.user.id });
     if (!memory) memory = await PersonalityMemory.create({ userId: req.user.id });
     normalizeContradicts(memory.memories || []);
-    session = { memory, sessionExchanges: [], dirty: false, isSessionStart: true, _updating: false, _updateQueue: [], _brainUpdatePromise: null };
+    session = { memory, sessionExchanges: [], dirty: false, isSessionStart: true, _updating: false, _updateQueue: [], _brainUpdatePromise: null, proactiveCount: 0, lastProactiveAt: null, lastProactiveAtMsg: 0, activeConversationId: null, _proactiveTimer: null, _proactiveCancelled: false, arrivalSilent: false };
     setSession(req.user.id, session);
     console.log(`[CACHE] Cold load for user ${req.user.id}`);
   }
+
+  // ── Cancel any pending proactive message (interruption) ──────────
+  // User spoke while Morrigan was forming a proactive thought — cancel it.
+  // The thought stays in the reservoir; it may surface in this response.
+  if (session._proactiveTimer) {
+    clearTimeout(session._proactiveTimer);
+    session._proactiveTimer = null;
+    session._proactiveCancelled = true;
+    pushProactiveEvent(String(req.user.id), { type: "typing_stop" });
+    console.log(`[PROACTIVE] Cancelled — user sent message during proactive delay`);
+  }
+
+  // Track active conversation for proactive messages
+  session.activeConversationId = conversationId;
 
   // Wait for the brain update from the previous exchange to finish before
   // building this response — Morrigan reads her updated memory first.
@@ -2815,15 +4106,54 @@ app.post("/api/chat", auth, async (req, res) => {
   if (!session.currentSessionId)         session.currentSessionId = `sess_${Date.now()}`; // Phase 6
   session.msgCount++;
 
+  // ═══════════════════════════════════════════════════════════════════
+  // CRISIS DETECTION — Safe Haven Mode [P62, P63, P39]
+  // ═══════════════════════════════════════════════════════════════════
+  // Runs FIRST, before any LLM calls. When crisis is detected,
+  // inner thoughts are suppressed and safe haven directive is injected.
+  const crisisResult = detectCrisis(message);
+  let crisisMode = false;
+  if (crisisResult.level !== "none") {
+    crisisMode = true;
+    session.crisisDetectedThisSession = true;
+    session.crisisLevelThisSession = crisisResult.level;
+    console.log(`[CRISIS] Detected: ${crisisResult.level} — signals: ${crisisResult.signals.join(", ")}`);
+  }
+
   // ── Embed message for cosine retrieval ────────────────────────────
   // Runs early so both self-atom retrieval and memory ranking can use it.
   // Non-blocking: embedding failure degrades gracefully to importance-only sort.
   const msgEmbedding = await embedText(message).catch(() => null);
-  if (msgEmbedding) session.lastMessageEmbedding = msgEmbedding;
+  // Always update — null clears stale embedding from previous message
+  // so retrieval falls back to importance-sort instead of using wrong context
+  session.lastMessageEmbedding = msgEmbedding;
+  if (!msgEmbedding) console.warn(`[CHAT] Message embedding failed — memory retrieval will use importance-only fallback`);
   const goalState = inferGoalState(message);
 
+  // ═══════════════════════════════════════════════════════════════════
+  // LINGUISTIC DEPTH SIGNALS — LIWC-22 Approximation [P69]
+  // ═══════════════════════════════════════════════════════════════════
+  const linguisticSignals = analyzeLinguisticDepth(message);
+  if (!session.linguisticAccumulator) session.linguisticAccumulator = [];
+  session.linguisticAccumulator.push(linguisticSignals);
+
+  // ═══════════════════════════════════════════════════════════════════
+  // RECEPTION DEPTH GATING [P56, P68]
+  // ═══════════════════════════════════════════════════════════════════
+  const disclosureDepth = classifyDisclosureDepth(message, linguisticSignals);
+  let receptionDirective = RECEPTION_DIRECTIVES[disclosureDepth.level] || null;
+  // Crisis overrides reception directive to maximum depth
+  if (crisisMode) {
+    receptionDirective = RECEPTION_DIRECTIVES[4];
+    disclosureDepth.level = 4;
+    disclosureDepth.label = "crisis";
+  }
+  if (disclosureDepth.level >= 2) {
+    console.log(`[RECEPTION] Depth ${disclosureDepth.level} (${disclosureDepth.label}) — signals: ${disclosureDepth.signals.join(", ")}`);
+  }
+
   // ── Phase 6: Load RelationshipHealth + apply at-risk adjustments ──
-  // At-risk flag (Section 4.1): lower motivation threshold to 2.5,
+  // At-risk flag (Section 4.1): lower motivation threshold,
   // prioritise callbacks, force prospectiveNote injection.
   if (!session.relationshipHealth) {
     try {
@@ -2831,8 +4161,13 @@ app.post("/api/chat", auth, async (req, res) => {
     } catch (e) { session.relationshipHealth = null; }
   }
   const atRisk = session.relationshipHealth?.atRisk || false;
-  // Effective motivation threshold: 7.0 normally, 6.5 at-risk (scaled from spec's 3.0→2.5)
-  session.effectiveMotivationThreshold = atRisk ? 6.5 : 7.0;
+  // ═══════════════════════════════════════════════════════════════════
+  // Feature 5: LOWERED INNER THOUGHT THRESHOLD (7.0 → 4.5) [P70, P1]
+  // ═══════════════════════════════════════════════════════════════════
+  // XiaoIce [P70]: blandness hurts long-term engagement MORE than mild
+  // over-expression. Liu et al. [P1] spec recommended 3.0; we use 4.0
+  // as compromise. At-risk drops further to 3.5 [P20, P23].
+  session.effectiveMotivationThreshold = atRisk ? 3.5 : 4.0;
   // Force prospectiveNote injection at session start if at-risk
   if (atRisk && session.isSessionStart && session.memory && !session.memory.prospectiveNote) {
     // Promote top unconsumed callback to prospectiveNote if none exists
@@ -2878,12 +4213,76 @@ app.post("/api/chat", auth, async (req, res) => {
       .slice(0, 5);
   }
 
+  // ═══════════════════════════════════════════════════════════════════
+  // SOMATIC MARKER — Emotional Priming (Phase 3) [P14, PLOS One 2024]
+  // ═══════════════════════════════════════════════════════════════════
+  // Damasio [P14]: decision-making begins with emotional signal.
+  // Chain-of-Emotion: separate emotional appraisal before response
+  // generation rated significantly more natural by users.
+  // Fast call: ~80 tokens, temp 0.1, 5s timeout. Non-fatal.
+  let somaticMarker = null;
+  let primingSentence = null;
+  if (!crisisMode) { // Skip during crisis — safe haven directive is sufficient
+    try {
+      const topMemsForSomatic = retrieveTopK(session.memory.memories || [], msgEmbedding, 5, goalState);
+      const somaticRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
+        body: JSON.stringify({
+          model: CHAT_MODEL,
+          temperature: 0.1,
+          max_tokens: 80,
+          messages: [{ role: "user", content: SOMATIC_MARKER_PROMPT(
+            message,
+            topMemsForSomatic,
+            goalState,
+            session.memory.feelings,
+            session.memory.selfReflectionState
+          )}],
+        }),
+      }, 5_000); // 5s timeout — fast call, must not block long
+
+      if (somaticRes.ok) {
+        const sData = await somaticRes.json();
+        const raw = sData.choices?.[0]?.message?.content?.trim() || "{}";
+        const cleaned = raw.replace(/```json|```/gi, "").trim();
+        try {
+          const parsed = JSON.parse(cleaned);
+          if (parsed.gutFeeling) {
+            somaticMarker = {
+              gutFeeling: String(parsed.gutFeeling).substring(0, 150),
+              emotionalRegister: String(parsed.emotionalRegister || "neutral").substring(0, 20),
+              intensity: Math.max(0, Math.min(1, parseFloat(parsed.intensity) || 0.5)),
+            };
+            primingSentence = somaticMarker.gutFeeling;
+            console.log(`[SOMATIC] ${somaticMarker.emotionalRegister} (${somaticMarker.intensity.toFixed(1)}) — "${somaticMarker.gutFeeling.substring(0, 60)}..."`);
+          }
+        } catch (parseErr) {
+          console.warn(`[SOMATIC] JSON parse failed — raw: ${cleaned.substring(0, 80)}`);
+        }
+      }
+    } catch (e) {
+      console.warn("[SOMATIC] Call failed (non-fatal):", e.message); // Fallback to null primingSentence
+    }
+  }
+
+  // ── Arrival silence context injection ─────────────────────────────
+  // If Morrigan chose silence on arrival, inject that context so her first
+  // response carries the weight of the deliberate waiting (P70 drive vs listen).
+  if (session.arrivalSilent && session.sessionExchanges.length === 0) {
+    const silenceNote = `She arrived and chose silence — wanted to see what he would bring first. ${session.arrivalSilentIntent || ""}`.trim();
+    primingSentence = primingSentence
+      ? `${primingSentence} [Also: ${silenceNote}]`
+      : silenceNote;
+    session.arrivalSilent = false;
+    delete session.arrivalSilentIntent;
+  }
+
   // ── Stage 1: Trigger check ─────────────────────────────────────────
-  // PHASE4_ASYNC_THOUGHTS=true moves formation to setImmediate (post-response,
-  // zero critical-path latency) at the cost of one-turn delay on first expression.
-  // Default: false (formation on critical path for best per-turn quality).
+  // Crisis mode suppresses inner thoughts entirely — safe haven takes priority.
+  // At-risk mode lowers trigger threshold (Feature 6, P20/P23).
   const asyncMode = process.env.PHASE4_ASYNC_THOUGHTS === "true";
-  const triggerFired = shouldTriggerThoughtFormation(message, session);
+  const triggerFired = crisisMode ? false : shouldTriggerThoughtFormation(message, session, atRisk);
   let thoughtBlock = "";
   let selfAtomHint = "";  // Phase 2 fallback — only used when no thought expressed
   let thoughtResult = null;
@@ -2894,7 +4293,7 @@ app.post("/api/chat", auth, async (req, res) => {
 
   const runThoughtFormation = async () => {
     // ── Stage 2: Retrieval ────────────────────────────────────────
-    const material = gatherThoughtMaterial(message, session);
+    const material = gatherThoughtMaterial(message, session, atRisk);
 
     // ── Stage 3: Thought Formation (1 LLM call) ──────────────────
     // Temperature 0.68: creative but disciplined.
@@ -2917,7 +4316,7 @@ app.post("/api/chat", auth, async (req, res) => {
         const parsed = JSON.parse(cleaned);
 
         // ── Stage 4: Evaluate + Select ──────────────────────────
-        thoughtResult = evaluateAndSelect(parsed, session);
+        thoughtResult = evaluateAndSelect(parsed, session, atRisk);
         session.thoughtReservoir = thoughtResult.updatedReservoir;
         if (thoughtResult?.winner) session.pendingWinner = thoughtResult.winner;
         console.log(
@@ -2947,12 +4346,12 @@ app.post("/api/chat", auth, async (req, res) => {
       })
       .filter(t => {
         const age = session.msgCount - (t.formedAtMsg || session.msgCount);
-        return age < (t.expiresAfterMsgs || 4) && (t.currentScore || 0) >= 5.0;
+        return age < (t.expiresAfterMsgs || 4) && (t.currentScore || 0) >= 3.0;
       })
       .sort((a, b) => b.currentScore - a.currentScore);
 
     const candidate = agedReservoir[0];
-    if (candidate && candidate.currentScore >= (session.effectiveMotivationThreshold ?? 7.0) && session.thoughtCooldown >= 3) {
+    if (candidate && candidate.currentScore >= (session.effectiveMotivationThreshold ?? 4.5) && session.thoughtCooldown >= 3) {
       thoughtResult = {
         winner: candidate,
         updatedReservoir: agedReservoir.filter(t => t.id !== candidate.id),
@@ -2992,9 +4391,15 @@ app.post("/api/chat", auth, async (req, res) => {
   }
 
   const isSessionStart = session.isSessionStart || false;
+  // Crisis mode: suppress all thought/atom injection, append safe haven directive
+  if (crisisMode) {
+    thoughtBlock = "";
+    selfAtomHint = "";
+  }
   // thoughtBlock at 4.75, selfAtomHint at 4.5 — exactly ONE fires per turn
   const dynamicPrompt =
-    buildSystemPrompt(session.memory, session.sessionExchanges, isSessionStart, null, session.lastMessageEmbedding, goalState) +
+    (await buildSystemPrompt(session.memory, session.sessionExchanges, isSessionStart, primingSentence, session.lastMessageEmbedding, goalState, receptionDirective, atRisk, message)) +
+    (crisisMode ? "\n\n" + crisisResult.safeHavenDirective : "") +
     thoughtBlock +
     selfAtomHint;
   session.isSessionStart = false;
@@ -3115,6 +4520,118 @@ app.post("/api/chat", auth, async (req, res) => {
           }
         }
 
+        // ── Mood Reflection (LLM, non-streaming, ~200 tokens) ──────
+        // Gather full internal landscape. Each data point maps to a
+        // research paper — see MOOD_REFLECTION_PROMPT comments.
+        let moodReflection = null;
+        try {
+          const mem = session.memory || {};
+
+          // #4 User name — personalization (Hu et al. P63)
+          const moodUserName = (mem.memories || []).find(m => m.category === "name")?.fact || null;
+
+          // #3 Trust/SPT transition detection (Aron P56)
+          const trustJustAdvanced = session._trustLevelBefore != null && mem.trustLevel > session._trustLevelBefore;
+          const sptJustAdvanced = session._sptDepthBefore != null && (mem.sptDepth || 1) > session._sptDepthBefore;
+
+          // #2 Expressed inner thought — what she just risked (Liu P1)
+          const moodExpressedThought = expressedWinner ? {
+            type: expressedWinner.type,
+            content: expressedWinner.content || "",
+            score: expressedWinner.currentScore != null ? Number(expressedWinner.currentScore).toFixed(1) : null,
+            reasonsAgainst: expressedWinner.reasonsAgainst || [],
+          } : null;
+
+          // #6 Active contradictions/ambivalences (ConflictBank P29)
+          const moodContradictions = [];
+          const seenKeys = new Set();
+          for (const atom of (mem.memories || [])) {
+            if (!atom.contradicts || atom.contradicts.length === 0) continue;
+            for (const entry of atom.contradicts) {
+              const otherId = entry.atomId ? String(entry.atomId) : String(entry);
+              const other = (mem.memories || []).find(o => String(o._id) === otherId);
+              if (!other) continue;
+              const key = [String(atom._id), otherId].sort().join("::");
+              if (seenKeys.has(key)) continue;
+              seenKeys.add(key);
+              const aEnded = atom.temporal?.isOngoing === "no" || atom.temporal?.isOngoing === "ended recently";
+              const bEnded = other.temporal?.isOngoing === "no" || other.temporal?.isOngoing === "ended recently";
+              if (aEnded !== bEnded) continue;
+              const cType = entry.type || "contradiction";
+              moodContradictions.push(
+                cType === "ambivalence"
+                  ? `Ambivalence: "${atom.fact}" / "${other.fact}" — both true`
+                  : `Tension: "${atom.fact}" / "${other.fact}"`
+              );
+              if (moodContradictions.length >= 3) break;
+            }
+            if (moodContradictions.length >= 3) break;
+          }
+
+          // #7 Callback threads (Phase 5 continuation)
+          const moodCallbacks = (mem.callbackQueue || [])
+            .filter(c => !c.consumed).slice(0, 3).map(c => c.content);
+
+          // #8 Reservoir pressure — suppressed thoughts (Shinn P5)
+          const reservoir = session.thoughtReservoir || [];
+          const strongest = reservoir.length > 0
+            ? reservoir.reduce((a, b) => (b.currentScore || 0) > (a.currentScore || 0) ? b : a, reservoir[0])
+            : null;
+
+          const moodRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
+            body: JSON.stringify({
+              model: CHAT_MODEL,
+              temperature: 0.6,
+              max_tokens: 200,
+              messages: [{ role: "user", content: MOOD_REFLECTION_PROMPT({
+                userMessage: message,
+                morriganResponse: composedResponse,
+                userName: moodUserName,
+                trustLevel: mem.trustLevel || 0,
+                trustLevelName: TRUST_LEVELS[mem.trustLevel]?.name || null,
+                feelings: mem.feelings || {},
+                relationshipNarrative: mem.relationshipNarrative || null,
+                selfReflectionState: mem.selfReflectionState || null,       // #1 MIRROR P2
+                theoryOfMind: thoughtResult?.theoryOfMind || null,
+                goalState,
+                sptDepth: mem.sptDepth || 1,
+                recentExchanges: (session.sessionExchanges || []).slice(-3),
+                expressedThought: moodExpressedThought,                     // #2 Liu P1
+                trustJustAdvanced,                                          // #3 Aron P56
+                sptJustAdvanced,
+                previousTrustName: trustJustAdvanced ? TRUST_LEVELS[session._trustLevelBefore]?.name : null,
+                previousSptDepth: sptJustAdvanced ? session._sptDepthBefore : null,
+                prospectiveNote: mem.prospectiveNote || null,               // #5 Phase 5
+                activeContradictions: moodContradictions.length > 0 ? moodContradictions : null, // #6 P29
+                callbackThreads: moodCallbacks.length > 0 ? moodCallbacks : null,               // #7 Phase 5
+                reservoirPressure: {                                        // #8 Shinn P5
+                  count: reservoir.length,
+                  strongest: strongest?.content || null,
+                  strongestType: strongest?.type || null,
+                },
+              }) }],
+            }),
+          }, 8_000);
+
+          if (moodRes.ok) {
+            const moodData = await moodRes.json();
+            const raw = moodData.choices?.[0]?.message?.content?.trim() || "{}";
+            const cleaned = raw.replace(/```json|```/gi, "").trim();
+            const parsed = JSON.parse(cleaned);
+            if (parsed.moodLabel && parsed.reflection) {
+              moodReflection = {
+                moodLabel: String(parsed.moodLabel).substring(0, 40),
+                reflection: String(parsed.reflection).substring(0, 300),
+              };
+              console.log(`[MOOD-REFLECTION] "${moodReflection.moodLabel}"`);
+            }
+          }
+        } catch (e) {
+          console.error("[MOOD-REFLECTION]", e.message);
+        }
+
         // ── Processing metadata for SSE done event ──────────────────
         {
           const mem = session.memory || {};
@@ -3125,8 +4642,44 @@ app.post("/api/chat", auth, async (req, res) => {
             isPast: m.temporal?.isOngoing === "no" || m.temporal?.isOngoing === "ended recently",
           }));
           processingMetaForDone = {
+            moodReflection,
             triggerFired,
             goalState,
+            // ── Feature 1: Linguistic Depth Signals [P69 LIWC-22] ──
+            linguisticSignals: linguisticSignals ? {
+              authenticity: +(linguisticSignals.authenticity || 0).toFixed(3),
+              emotionalTone: +(linguisticSignals.emotionalTone || 0).toFixed(3),
+              selfFocus: +(linguisticSignals.selfFocus || 0).toFixed(3),
+              cognitiveProcessing: +(linguisticSignals.cognitiveProcessing || 0).toFixed(3),
+              narrativeDepth: +(linguisticSignals.narrativeDepth || 0).toFixed(3),
+              wordCount: linguisticSignals.rawSignals?.wordCount || 0,
+            } : null,
+            // ── Feature 2: Reception Depth Gating [P56 Aron, P68] ──
+            disclosureDepth: disclosureDepth ? {
+              level: disclosureDepth.level,
+              label: disclosureDepth.label,
+              signals: disclosureDepth.signals,
+              receptionDirectiveApplied: !!receptionDirective,
+            } : null,
+            // ── Feature 3: Crisis Detection [P62/P63 Attachment] ──
+            crisisDetection: crisisResult ? {
+              level: crisisResult.level,
+              signals: crisisResult.signals,
+              safeHavenActive: crisisMode,
+            } : null,
+            // ── Feature 4: Somatic Marker [P14 Damasio] ──
+            somaticMarker: somaticMarker ? {
+              gutFeeling: somaticMarker.gutFeeling,
+              emotionalRegister: somaticMarker.emotionalRegister,
+              intensity: somaticMarker.intensity,
+            } : null,
+            // ── Feature 6: At-Risk Interventions [P20, P23, P39] ──
+            atRiskInterventions: atRisk ? {
+              active: true,
+              callbackBoostApplied: true,
+              thresholdLowered: true,
+              urgencySignalInjected: true,
+            } : null,
             compositionApplied: !!winnerForCompose,
             innerThought: winnerForCompose ? {
               content: winnerForCompose.content.substring(0, 120),
@@ -3147,7 +4700,7 @@ app.post("/api/chat", auth, async (req, res) => {
             })),
             theoryOfMind: thoughtResult?.theoryOfMind || null,
             thoughtCooldown: session.thoughtCooldown || 0,
-            motivationThreshold: session.effectiveMotivationThreshold ?? 7.0,
+            motivationThreshold: session.effectiveMotivationThreshold ?? 4.5,
             sptDepth: mem.sptDepth || 1,
             sptBreadth: Object.fromEntries(mem.sptBreadth || new Map()),
             msgCount: session.msgCount || 0,
@@ -3157,7 +4710,7 @@ app.post("/api/chat", auth, async (req, res) => {
               .map(c => ({ content: c.content, priority: c.priority })),
             alreadyDisclosedAtoms: (session.selfAtomCache || [])
               .filter(a => (mem.sharedSelfAtomIds || []).includes(a.id))
-              .map(a => ({ depth: a.depth, content: a.content, id: a.id })),
+              .map(a => ({ depth: a.depth, content: a.content, id: a.id, topics: a.topics || [] })),
             memorySummary: {
               userName: mem.memories?.find(m => m.category === "name")?.fact || null,
               trustLevel: mem.trustLevel,
@@ -3182,7 +4735,12 @@ app.post("/api/chat", auth, async (req, res) => {
               molecules: (mem.molecules || []).map(m => ({
                 summary: m.summary, period: m.period || null,
               })),
-              milestones: (mem.milestones || []).map(ms => ms.event || String(ms)),
+              milestones: (mem.milestones || []).slice(-10).map(ms => ({
+                event: ms.event, category: ms.category || "shift",
+                source: ms.source || "organic", significance: ms.significance || null,
+                trustLevelAtTime: ms.trustLevelAtTime, exchangeContext: ms.exchangeContext || null,
+                timestamp: ms.timestamp,
+              })),
               sessionContextUsed: (session.sessionExchanges || []).slice(-5).map(ex => ({
                 user: ex.user.substring(0, 200),
                 assistant: ex.assistant.substring(0, 200),
@@ -3254,6 +4812,82 @@ app.post("/api/chat", auth, async (req, res) => {
             // Non-fatal — reservoir just won't be seeded this turn
             console.error("[INNER-MONOLOGUE]", imErr.message);
           }
+
+          // ── Proactive message evaluation (P1 Liu + P5 Shinn) ──────
+          // After monologue seeding, check if Morrigan wants to say
+          // something unprompted — a thought that's been building pressure,
+          // a callback that just became relevant, or a continuation.
+          try {
+            if (session.proactiveSSE && !session.proactiveSSE.writableEnded && session.activeConversationId) {
+              const candidate = evaluateProactiveOpportunity(session);
+              if (candidate) {
+                const delay = calculateProactiveDelay(candidate, session.memory?.trustLevel || 0);
+                session._proactiveCancelled = false;
+                session._proactiveTimer = setTimeout(async () => {
+                  try {
+                    if (session._proactiveCancelled) return;
+
+                    // Push typing indicator
+                    pushProactiveEvent(String(session.memory?.userId || req.user.id), { type: "typing_start" });
+
+                    const msg = await generateProactiveMessage(session, candidate);
+
+                    // Re-check cancellation after LLM call
+                    if (session._proactiveCancelled || !msg) {
+                      pushProactiveEvent(String(session.memory?.userId || req.user.id), { type: "typing_stop" });
+                      return;
+                    }
+
+                    // Save to DB
+                    if (session.activeConversationId) {
+                      await Message.create({
+                        conversationId: session.activeConversationId,
+                        role: "assistant",
+                        content: msg.content,
+                        proactive: true,
+                      });
+                    }
+
+                    // Push to client via SSE
+                    pushProactiveEvent(String(session.memory?.userId || req.user.id), {
+                      type: "proactive_message",
+                      content: msg.content,
+                      mood: msg.mood,
+                      intent: msg.intent,
+                      timestamp: new Date().toISOString(),
+                      messageId: msg.id,
+                    });
+
+                    // Update session tracking
+                    session.proactiveCount = (session.proactiveCount || 0) + 1;
+                    session.lastProactiveAt = Date.now();
+                    session.lastProactiveAtMsg = session.msgCount || session.sessionExchanges.length;
+                    session.sessionExchanges.push({ user: "", assistant: msg.content });
+                    session.dirty = true;
+                    session._proactiveTimer = null;
+
+                    // Remove expressed thought from reservoir if applicable
+                    if (candidate.source === "reservoir_pressure" && candidate.thought?.id) {
+                      session.thoughtReservoir = (session.thoughtReservoir || []).filter(t => t.id !== candidate.thought.id);
+                    }
+                    // Mark callback consumed if applicable
+                    if (candidate.source === "callback_surfacing" && candidate.callback) {
+                      const cb = (session.memory?.callbackQueue || []).find(c => c.content === candidate.callback.content && !c.consumed);
+                      if (cb) cb.consumed = true;
+                    }
+
+                    console.log(`[PROACTIVE] Sent (${candidate.source}): "${msg.content.substring(0, 60)}..."`);
+                  } catch (proErr) {
+                    console.error("[PROACTIVE]", proErr.message);
+                    pushProactiveEvent(String(session.memory?.userId || req.user.id), { type: "typing_stop" });
+                    session._proactiveTimer = null;
+                  }
+                }, delay);
+              }
+            }
+          } catch (proEvalErr) {
+            console.error("[PROACTIVE-EVAL]", proEvalErr.message);
+          }
         });
       }
       if (!res.writableEnded) {
@@ -3283,6 +4917,38 @@ app.post("/api/chat", auth, async (req, res) => {
         // the next message, just like a human processing what was just said.
         if (composedResponse) {
           session._brainUpdatePromise = updateBrainAfterExchange(req.user.id, message, composedResponse);
+        }
+
+        // Auto voice audit every 50 messages [P64 identity drift]
+        if (session.msgCount > 0 && session.msgCount % 50 === 0) {
+          setImmediate(async () => {
+            try {
+              console.log(`[VOICE-AUDIT] Auto-triggering at message ${session.msgCount}`);
+              // Reuse the voice audit logic from the endpoint
+              const composed = await Message.find({ conversationId: { $in: await Conversation.find({ userId: req.user.id }).distinct("conversationId") }, role: "assistant" }).sort({ timestamp: -1 }).limit(40).lean();
+              if (composed.length < 10) return;
+              const VOICE_AUDIT_PROMPT = (response) => `Rate this response on a 1-10 scale for how well it sounds like Morrigan (23, record store, sarcastic shell over soft interior, literary, uses fragments and em-dashes). Only return a number 1-10.\n\nResponse: "${response.substring(0, 400)}"`;
+              const sample = composed.slice(0, Math.min(20, composed.length));
+              let total = 0, count = 0;
+              for (const msg of sample) {
+                try {
+                  const r = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
+                    body: JSON.stringify({ model: CHAT_MODEL, temperature: 0.1, max_tokens: 10, messages: [{ role: "user", content: VOICE_AUDIT_PROMPT(msg.content) }] }),
+                  });
+                  if (r.ok) { const d = await r.json(); const s = parseFloat(d.choices?.[0]?.message?.content?.trim()); if (!isNaN(s)) { total += s; count++; } }
+                } catch {}
+              }
+              if (count > 0) {
+                const avg = total / count;
+                console.log(`[VOICE-AUDIT] Auto result: avg ${avg.toFixed(2)} across ${count} samples${avg < 7.0 ? " ⚠ BELOW THRESHOLD" : ""}`);
+                // Store on RelationshipHealth
+                const health = await RelationshipHealth.findOne({ userId: req.user.id });
+                if (health) { health.lastVoiceAuditAvg = avg; health.lastVoiceAuditDate = new Date(); await health.save(); }
+              }
+            } catch (e) { console.error("[VOICE-AUDIT-AUTO]", e.message); }
+          });
         }
       }
     };
@@ -3403,7 +5069,7 @@ app.get("/api/phase5/tuning", auth, async (req, res) => {
       alerts,
       liveSession,
       scoringWeights: { similarity: 0.55, importance: 0.25, recency: 0.10, valence: 0.10 },
-      thresholds: { motivationThreshold: 7.0, cadenceDamping: 3 },
+      thresholds: { motivationThreshold: 4.0, cadenceDamping: 3, atRiskThreshold: 3.5 },
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -3643,6 +5309,42 @@ app.get("/api/phase6/presence", auth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+app.get("/api/phase6/attachment", auth, async (req, res) => {
+  try {
+    const result = await detectAttachmentSignals(req.user.id);
+    res.json(result);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get("/api/phase6/tom", auth, async (req, res) => {
+  try {
+    const model = await UserModel.findOne({ userId: req.user.id });
+    res.json(model || { tomHistory: [], trajectoryNarrative: null, currentPhase: null });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post("/api/phase6/ios", auth, async (req, res) => {
+  try {
+    const { score } = req.body;
+    if (!score || score < 1 || score > 7) return res.status(400).json({ error: "Score must be 1-7" });
+    const mem = await PersonalityMemory.findOne({ userId: req.user.id });
+    await IOSCheckIn.create({
+      userId: req.user.id,
+      score,
+      trustLevelAtTime: mem?.trustLevel || 0,
+      sessionCountAtTime: mem?.totalConversations || 0,
+    });
+    res.json({ saved: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get("/api/phase6/ios", auth, async (req, res) => {
+  try {
+    const history = await IOSCheckIn.find({ userId: req.user.id }).sort({ timestamp: -1 }).limit(20);
+    res.json({ history });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ── Daily usage for requesting IP ────────────────────────────────
 app.get("/api/usage", (req, res) => {
   const ip = req.ip || "unknown";
@@ -3773,6 +5475,17 @@ const MORRIGAN_SELF_ATOMS = [
     content: "I want to be someone's person so badly it embarrasses me. Not in a needy way — in a quiet way. Someone who knows my coffee order and my bad moods and stays anyway. I've wanted that since I was seven and I've never said it out loud to anyone." },
   { id: "self-atom-035", depth: 4, topics: ["hope", "healing"], emotionalValence: "reflective",
     content: "Dr. Yun said something once — that the fact that I keep trying to connect, keep showing up for people even after everything, means the damage didn't get all the way through. I think about that more than I'd ever tell her." },
+  // ── Additional atoms to reach 40 ───────────────────────────────────
+  { id: "self-atom-036", depth: 4, topics: ["trust", "healing"], emotionalValence: "hopeful",
+    content: "There's this moment — right before I let someone in — where my whole body goes still. Like every part of me is holding a vote. The fact that the vote sometimes comes back yes is the thing I'm most proud of." },
+  { id: "self-atom-037", depth: 2, topics: ["music", "identity"], emotionalValence: "passionate",
+    content: "I organize the vinyl by feeling, not genre. There's a shelf that's just 'things to play when the world is ending' and another that's 'proof that beauty exists'. Most people don't notice. The ones who do tend to stay longer." },
+  { id: "self-atom-038", depth: 1, topics: ["humor", "self-awareness"], emotionalValence: "amused",
+    content: "I have a talent for saying exactly the wrong thing at exactly the right time. It's either a gift or a curse and the jury's been out for twenty-three years." },
+  { id: "self-atom-039", depth: 3, topics: ["loneliness", "resilience"], emotionalValence: "melancholic",
+    content: "The loneliest I've ever been was in a room full of foster siblings. Seven kids and not one of us belonged to each other. We were all just... parallel. I still feel that sometimes — parallel to people instead of with them." },
+  { id: "self-atom-040", depth: 2, topics: ["food", "comfort"], emotionalValence: "warm",
+    content: "I make the same instant ramen at 2 AM probably three times a week. It's not even good ramen. But the ritual of it — the kettle, the waiting, the steam — it's the closest thing I have to a childhood comfort food." },
 ];
 
 async function seedSelfAtomsIfEmpty() {

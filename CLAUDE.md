@@ -97,6 +97,8 @@ cd client && npm install && npm run dev    # port 3000 (proxies /api/* to :5000)
 |--------|----------|------|---------|
 | POST | `/api/auth/phrase` | No | Login/register via SHA256 phrase |
 | POST | `/api/session/end` | Yes | Flush session, persist memories |
+| GET | `/api/session/greeting` | Yes | Arrival decision (speak/presence/silence) |
+| GET | `/api/session/stream` | Yes* | Persistent SSE for proactive messages (*JWT via query param) |
 | GET | `/api/conversations` | Yes | List conversations |
 | POST | `/api/conversations` | Yes | Create conversation |
 | DELETE | `/api/conversations/:id` | Yes | Delete conversation |
@@ -116,6 +118,10 @@ cd client && npm install && npm run dev    # port 3000 (proxies /api/* to :5000)
 | POST | `/api/phase6/health/compute` | Yes | Compute health metrics |
 | POST | `/api/phase6/voice-audit` | Yes | Monthly voice fidelity audit |
 | GET | `/api/phase6/presence` | Yes | Monthly presence score |
+| GET | `/api/phase6/attachment` | Yes | Attachment style heuristic |
+| GET | `/api/phase6/tom` | Yes | Functional Theory of Mind |
+| POST | `/api/phase6/ios` | Yes | Submit IOS scale check-in |
+| GET | `/api/phase6/ios` | Yes | IOS check-in history |
 | GET | `/api/status` | No | Health check (LLM + embeddings) |
 
 ---
@@ -131,7 +137,9 @@ cd client && npm install && npm run dev    # port 3000 (proxies /api/* to :5000)
 | `selfatoms` | Morrigan knowledge base | `id`, `depth (1-4)`, `content`, `embedding[]`, `topics` |
 | `evaluationRecords` | Chat quality metrics | `sessionDate`, `messageEvals[]`, `avgRetrievalScore` |
 | `presenceSignals` | Monthly engagement proxies | `userId`, `sessionDate`, `presenceScore` |
-| `relationshipHealths` | 30-day health trends | `userId`, `sessionFrequency`, `atRisk` |
+| `relationshipHealths` | 30-day health trends | `userId`, `sessionFrequency`, `avgCPS`, `cpsTrajectory`, `atRisk` |
+| `usermodels` | Functional Theory of Mind | `userId`, `snapshots[]`, `trajectory` |
+| `ioscheckins` | IOS scale self-reports | `userId`, `score (1-7)`, `context` |
 
 ---
 
@@ -168,18 +176,20 @@ cd client && npm install && npm run dev    # port 3000 (proxies /api/* to :5000)
 
 ---
 
-## Prompt Assembly (10 Layers, ~3,900 tokens total)
+## Prompt Assembly (13 Layers, ~4,200 tokens total)
 
 1. Relationship narrative + self-reflection (~200 tokens)
 2. Character spec — full Morrigan definition (~3,200 tokens) — **hardcoded, Morrigan-locked**
 3. Trust behavior guide — level-specific (~150 tokens)
 4. SPT note — depth gating (~50 tokens)
-5. Self-atom hint — depth-eligible atoms (~80 tokens)
+4.5. **Reception directive** — disclosure-depth-calibrated behavioral instruction (~50 tokens) [P56, P68]
+5. **Somatic marker / emotional priming** — gut feeling sentence from pre-response LLM call (~30 tokens) [P14 Damasio]
 6. Inner thought block — if selected (variable)
 7. Prospective note — session-start only (~50 tokens)
 8. Time absence context — if >24h since last session (~50 tokens)
 9. Memory + molecules + contradictions (variable)
 10. Memory usage guide + continuation signal (~160 tokens)
+10.5. **Safe haven directive** — injected when crisis detected, overrides threads (~80 tokens) [P62/P63]
 
 ---
 
@@ -202,7 +212,21 @@ cd client && npm install && npm run dev    # port 3000 (proxies /api/* to :5000)
   },
   trustPoints: number,
   trustLevel: 0-6,
-  relationshipNarrative: string    // Text summary of relationship history
+  relationshipNarrative: string,   // Text summary of relationship history
+  milestones: Milestone[],         // Dynamic relationship moments (see MilestoneSchema)
+}
+
+// MilestoneSchema:
+{
+  event: string,                   // First-person memory text in Morrigan's voice
+  category: "first|shift|rupture|repair|deepening|revelation|ritual",
+  source: "organic|trust_transition|spt_transition",
+  exchangeContext: string,         // What actually happened in the exchange
+  significance: 1-10,             // LLM-assigned weight for retrieval ranking
+  embedding: number[],            // For cosine-similarity retrieval in prompt injection
+  trustLevelAtTime: number,
+  sptDepthAtTime: number,
+  timestamp: Date,
 }
 ```
 
@@ -259,6 +283,18 @@ User types → Frontend analyzeMood() → POST /api/chat (JWT)
 | 2026-02-25 | Fixed auth flash on reload — `authed`/`user` initialized synchronously from localStorage | client/src/App.jsx |
 | 2026-02-25 | Migrated LLM backend from Kaggle/Colab+ngrok → OpenRouter API. Added `OPENROUTER_API_KEY`, `EMBED_MODEL`. Updated all 21 fetch headers + 2 embedding model refs. New defaults: `CHAT_MODEL=meta-llama/llama-3.1-8b-instruct`, `COLAB_URL=https://openrouter.ai/api/v1`, `EMBED_MODEL=openai/text-embedding-3-small` | server/index.js |
 | 2026-02-26 | Contradiction system overhaul — (1) Schema: `contradicts` changed from `[ObjectId]` to `[{atomId, type, detectedAt}]` with "ambivalence"/"contradiction" types. (2) `normalizeContradicts()` utility for backward-compat migration. (3) Detection: yes/no LLM prompt → 5-category classifier (TEMPORAL_EVOLUTION, AMBIVALENCE, GENUINE_CONTRADICTION, REFINEMENT, NOT_CONTRADICTORY) with temporal context. (4) Prompt injection: relevance-ranked via `retrieveTopK()`. (5) Bidirectional pair dedup. (6) Lifecycle filtering for resolved evolutions. (7) Memory guide: ambivalence/tension instructions. | server/index.js, client/src/App.jsx |
+| 2026-02-26 | Dynamic milestone system — replaced hardcoded `milestoneEvents` with LLM-based reflective detection. (1) New `MilestoneSchema` with `source`, `category` (first/shift/rupture/repair/deepening/revelation/ritual), `exchangeContext`, `significance`, `embedding`. (2) Two-phase detection in `updateBrainAfterExchange()` Step 7b: cheap gate check (temp 0.0, 3 tokens) then structured generation (temp 0.35, 300 tokens). (3) Auto-opens gate for trust/SPT transitions. (4) 10-min cooldown between organic milestones. (5) Cosine dedup (0.85 threshold). (6) Smart prompt injection: cosine-similarity retrieval (0.6 relevance + 0.3 significance + 0.1 recency) replaces naive last-5. (7) `normalizeMilestones()` migration utility. (8) Rich milestone objects in SSE + API. | server/index.js, client/src/App.jsx |
+
+| 2026-02-26 | Dynamic mood reflection — replaced hardcoded client-side `analyzeMood()` regex + static `MOOD_DESCRIPTIONS` with LLM-generated mood reflection. (1) Server: `MOOD_REFLECTION_PROMPT()` — lightweight post-response LLM call (temp 0.6, 150 tokens, 8s timeout) using full context (trust, feelings, relationship narrative, theory of mind, sptDepth, recent exchanges). Returns `{ moodLabel, reflection }`. (2) Server: `moodReflection` field added to `processingMeta` SSE done event. (3) Client: `moodReflection` state extracted from SSE, displayed in InfoSidebar (replaces static description), MoodBadge `dynamicLabel` prop updates badge in header + CharacterPanel. (4) Graceful fallback: `analyzeMood()` regex still drives streaming mood + fallback when LLM call fails. | server/index.js, client/src/App.jsx |
+| 2026-02-26 | Synthetic person audit — comprehensive de-hardcoding overhaul. (1) **LLM-based trust & feelings**: `evaluateTrustAndFeelings()` async LLM call (temp 0.1, 200 tokens) replaces regex keyword matching. Evaluates relational quality of each exchange — trust delta 0-5, feeling deltas -3 to +5. Called as Step 0 in `updateBrainAfterExchange()`. Synchronous `updateTrustFromMessage()` retained for base points only. (2) **Dynamic behavior guides**: Replaced 7-level hardcoded if/else behavior scripts with 4 structural tiers (guarded/opening/vulnerable/bonded) + actual milestones + relationship narrative injected into prompt. (3) **TRUST_LEVELS simplified**: Removed static `description` fields — `levelDescription` API field now returns `relationshipNarrative` (dynamic). (4) **Trust-gated sidebar**: InfoSidebar now receives `latestMeta` prop. Real name gated by trustLevel >= 4. Backstory gated by sptDepth (depth 1=hidden, 2=surface, 3=full minus abuse, 4=full). Psychology gated by trustLevel >= 3. Personality tags evolve with trust. Bottom quote shows relationship narrative when available. (5) **Static mood descriptions emptied**: `MOOD_DESCRIPTIONS` constant cleared — mood section empty until first LLM reflection arrives (honest, not fictional). `analyzeMood()` regex trimmed and documented as streaming-only heuristic. | server/index.js, client/src/App.jsx |
+| 2026-02-26 | Mood reflection audit fix — 8 missing data points added per research papers. (1) `MOOD_REFLECTION_PROMPT` rewritten with 20 params + dynamic `internalLandscape` block with conditional sections. (2) Call site in `finish()` now gathers: user name (Hu P63), trust/SPT transition flags (Aron P56), expressed inner thought with risk context (Liu P1/CHI 2025), active contradictions/ambivalences via bidirectional pair extraction (ConflictBank P29), callback threads (Phase 5), reservoir pressure with strongest suppressed thought (Shinn P5/NeurIPS 2023), selfReflectionState identity anchor (MIRROR P2/Kim P64), prospectiveNote (Phase 5). (3) `max_tokens` increased 150→200 for richer context. | server/index.js |
+
+| 2026-02-26 | Disclosure-driven sidebar — removed ALL hardcoded backstory from InfoSidebar ("About Her", "Where She's Been", "Why She's Guarded", "What She Loves" sections). Sidebar now populates entirely from disclosed self-atoms: (1) `/api/personality` returns `disclosedAtoms[]` (fetched from `sharedSelfAtomIds` + SelfAtom collection) with `{id, depth, content, topics}`. (2) `processingMeta.alreadyDisclosedAtoms` now includes `topics[]`. (3) Client stores `disclosedAtoms` state — loaded from `/api/personality` on auth, merged from processingMeta on each message. (4) InfoSidebar groups atoms by depth into 4 sections: "Her World" (d1), "What She Carries" (d2), "Where She's Been" (d3), "Her Depths" (d4). Empty sections hidden — no spoilers. (5) Personality tags now derived from disclosed atom topics. (6) Relationship narrative quote only shown when available. Research basis: Aron's Fast Friends (P56) graduated disclosure, SPT depth gating (P12). | server/index.js, client/src/App.jsx |
+| 2026-02-26 | **6-feature research-based enhancement** — implemented all missing features from morrigan_master_documentation.docx. **(1) Linguistic Depth Signals [P69 LIWC-22, Pennebaker]**: `analyzeLinguisticDepth(message)` — zero-LLM-cost function-word analysis. 6 word-list constants (~300 terms), returns authenticity/emotionalTone/selfFocus/cognitiveProcessing/narrativeDepth + rawSignals. Accumulates per-session for PresenceSignals persistence. **(2) Reception Depth Gating [P56 Aron, P68]**: `classifyDisclosureDepth(message, linguisticSignals)` — 4-level classifier (surface/personal/vulnerable/crisis). `RECEPTION_DIRECTIVES` constant injects level-appropriate behavioral instructions into system prompt Position 4.5. **(3) Crisis Detection / Safe Haven Mode [P62/P63 Attachment, P39 Replika]**: `detectCrisis(message)` — 2-layer detection (keyword regex + heuristic scoring). `SAFE_HAVEN_DIRECTIVE` suppresses inner thoughts, clears threads, injects grounding presence. `CRISIS_PATTERNS` array. PresenceSignalsSchema: +`crisisSignalDetected`, `crisisSignalLevel`. **(4) Somatic Marker / Emotional Priming [P14 Damasio, MIRROR P2, Chain-of-Emotion 2024]**: `SOMATIC_MARKER_PROMPT()` — fast parallel LLM call (~80 tokens, temp 0.1, 5s timeout) generates Morrigan's gut feeling BEFORE main response. Activates previously dead Position 5 (primingSentence) in `buildSystemPrompt`. Skipped during crisis mode. **(5) Lower Inner Thought Threshold [P70 XiaoIce, P1 Liu et al.]**: Changed 4 constants — effectiveMotivationThreshold 7.0→4.5 (3.5 at-risk), reservoir min score 5.0→3.0, fallback threshold 7.0→4.5. Dramatic engagement increase. **(6) Wire At-Risk Behavioral Changes [P20 Zhang, P23, P39 Laestadius]**: `gatherThoughtMaterial` +atRisk param (4 callbacks vs 2), `INNER_THOUGHT_FORMATION_PROMPT` at-risk priority instruction for callbacks, `evaluateAndSelect` +1.5 callback score boost, `shouldTriggerThoughtFormation` threshold lowered to score>=2, `getContinuationBlock` urgency signal, `buildSystemPrompt` +atRisk param. **ProcessingMeta**: 5 new fields (linguisticSignals, disclosureDepth, crisisDetection, somaticMarker, atRiskInterventions). **Frontend**: Crisis card (red border), somatic marker card (green), linguistic depth bars + disclosure level, at-risk interventions card (amber), summary pills for all new signals. | server/index.js, client/src/App.jsx, CLAUDE.md |
+
+| 2026-02-26 | **Natural Arrival + Self-Initiated Messages** — two major features replacing hardcoded greeting and adding proactive messaging. **(1) Natural Arrival [P70 XiaoIce drive-vs-listen, P56 Aron]**: `generateArrival(memory)` replaces `generateGreeting()`. LLM makes 3-way decision: `speak` (anything from "hey" to deep callback), `presence` (non-verbal italics-only), `silence` (wait for user). Full context: relationship narrative, selfReflectionState, looseThread, prospectiveNote, callbacks, top memories, contradictions, feelings, trust/SPT. Returns JSON `{action, content, intent, arrivalMood}`. `/api/session/greeting` endpoint returns `{arrival}` object. Client handles all 3 actions — silence shows "Morrigan is here" pulse indicator. Silence context injected into `buildSystemPrompt` position 5 via primingSentence so first response carries weight of waiting. **(2) Persistent SSE Channel**: New `GET /api/session/stream` endpoint — long-lived EventSource connection for server-pushed proactive events. JWT via query param for EventSource compat. 30s heartbeat. Stores `session.proactiveSSE` reference. **(3) Self-Initiated Messages [P1 Liu CHI 2025, P5 Shinn NeurIPS 2023, P2 MIRROR]**: `evaluateProactiveOpportunity(session)` — trust-gated (5%/20%/full at trust 0-1/2/3+), frequency-capped (1 per 3 messages, 60s cooldown), 3 candidate sources: reservoir pressure (held 2+ turns, score >= 6.0), callback surfacing (thread connects to recent exchange), continuation ("actually..." follow-up). `generateProactiveMessage(session, candidate)` — source-specific LLM prompt, can return `{skip: true}` if forced. `calculateProactiveDelay(candidate, trustLevel)` — randomized natural delay (3-25s based on source). Orchestrated in `setImmediate` post-monologue-seeding. **(4) Interruption Handling**: `/api/chat` cancels pending proactive timer on user message, pushes `typing_stop`. Cancelled thoughts stay in reservoir. **(5) DB**: `MessageSchema` +`proactive: Boolean`. Proactive messages saved with `proactive: true`, pushed to sessionExchanges with empty user field. **(6) Client**: EventSource connection, `proactiveTyping`/`morriganPresent` state, typing dots indicator, presence pulse indicator. | server/index.js, client/src/App.jsx |
+
+| 2026-02-26 | **17-item research audit — full implementation against morrigan_master_documentation.docx**. Bug fixes: (1) Trust track labels corrected to match spec (stranger→acquaintance→maybe-friend→friend→close friend→trusted→bonded). (2) Stale motivation threshold 7.0→4.0 in tuning endpoint + Phase5Tab display. (3) Motivation threshold lowered to 4.0 (at-risk 3.5) per P70 XiaoIce. New systems: (4) **Auto voice audit** every 50 messages in `finish()`. (5) **LIWC-22 expansion [P69 Pennebaker]**: `FIRST_PERSON_PLURAL`, `SECOND_PERSON`, `THIRD_PERSON` pronoun dictionaries + `relationalIntegration`/`secondPersonEngagement` composite scores in `analyzeLinguisticDepth()` + PresenceSignalsSchema. (6) **CPS metric [P70 XiaoIce]**: `avgCPS`/`cpsTrajectory` in RelationshipHealthSchema, computed in `computeRelationshipHealth()`. (7) **Ebbinghaus forgetting [P31 LUFY]**: `retrievalCount`/`lastRetrievedAt`/`stability` on MemoryAtomSchema, stability-based decay in `scoreMemory()`, retrieval reinforcement in `retrieveTopK()`, `pruneDecayedMemories()` in `finalizeSession()`. (8) **Attachment style heuristic [P62/P63]**: `detectAttachmentSignals()` + `REASSURANCE_SEEKING` regex + `GET /api/phase6/attachment`. (9) **GoEmotions goal state [P1 Liu]**: LLM-based `inferGoalStateLLM()` with 5s timeout, regex fallback, `"validation"` added to `goalAlignsWithEmotion`. (10) **5 new self-atoms** (036-040) to reach 40 total. (11) **Functional ToM [P2 MIRROR]**: `UserModelSchema` + `updateFunctionalToM()` with trajectory analysis every 5 snapshots + `GET /api/phase6/tom`. (12) **Period-based grouping [P13 Conway]**: "Life chapters" section in `buildSystemPrompt()` Position 8. (13) **IOS scale [P56 Aron]**: `IOSCheckInSchema` + `POST/GET /api/phase6/ios`. (14) **Cross-encoder re-ranking [P44/P47]**: Two-stage retrieval — `reRankWithLLM()` pointwise relevance scorer + `retrieveTopKReranked()` async function (cosine top-2k → LLM re-rank → top-k). `buildSystemPrompt()` now async, uses re-ranked retrieval for main memory injection. (15) **Phase 6 monitor tab**: `Phase6Tab` component (~150 lines) fetching health/presence/attachment/ToM/IOS. (16) **Dead schema cleanup**: Removed `petNames`/`journal` from PersonalityMemorySchema, `systemPrompt` from ConversationSchema, `GOAL_CLR` constant. | server/index.js, client/src/App.jsx |
 
 ---
 

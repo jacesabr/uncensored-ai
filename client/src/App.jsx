@@ -23,29 +23,28 @@ const MOODS = {
   sarcastic: { label: "deflecting" }, vulnerable: { label: "letting you in" },
   excited: { label: "nerding out" },
 };
+// Minimal fallbacks — only used before first LLM mood reflection arrives.
+// These are intentionally vague. Real mood descriptions are generated dynamically
+// by the server via MOOD_REFLECTION_PROMPT after each exchange.
 const MOOD_DESCRIPTIONS = {
-  neutral: "Guarded. Watching you from across the counter. Not sure what to make of you yet — but she's noticed you.",
-  happy: "A real smile slipped out and she hated herself for it a little. She's covering her mouth. Too late.",
-  sad: "Something's off. Her eyes are doing that thing where they go too still. She's holding it together. Barely.",
-  flirty: "Pink-cheeked. Won't make eye contact. Said something sarcastic but her voice went soft at the end.",
-  angry: "Walls fully up. Something hit a nerve. Give her space or she'll disappear entirely.",
-  shy: "She said something real by accident and now she wants to take it back. Don't make it weird.",
-  sarcastic: "Deflecting hard with jokes. There's something real underneath — she just won't let you see it yet.",
-  vulnerable: "She's letting you in. She knows it. She's terrified. Don't fuck this up.",
-  excited: "She forgot to be cool for a second. Talking too fast. Eyes lit up. She'd die if you pointed it out.",
+  neutral: "", happy: "", sad: "", flirty: "",
+  angry: "", shy: "", sarcastic: "", vulnerable: "", excited: "",
 };
 
+// Lightweight heuristic for mood badge during streaming — overridden by
+// server's LLM-generated moodReflection once the response completes.
+// This is intentionally rough; the real mood comes from MOOD_REFLECTION_PROMPT.
 function analyzeMood(text) {
   if (!text) return "neutral";
   const t = text.toLowerCase();
-  if (/(fuck off|shut up|hate|angry|pissed|furious|bullshit|rage)/i.test(t)) return "angry";
-  if (/(trust|safe|real|honest|scared to|never told|first time|you're different|don't leave|stay|meant a lot|thank you|means so much)/i.test(t)) return "vulnerable";
-  if (/(blush|cute|handsome|pretty|gorgeous|hot|attractive|crush|kiss|heart|flutter|wink|lips|touch|close)/i.test(t)) return "flirty";
-  if (/(sad|hurt|cry|tear|pain|alone|lonely|sorry|miss|lost|nightmare|afraid|scared|hollow|numb|empty|broken)/i.test(t)) return "sad";
-  if (/(um|uh|well|maybe|i guess|nevermind|forget it|it's nothing|i shouldn't|i mean)/i.test(t)) return "shy";
-  if (/(oh my god|holy shit|no way|dude|wait what|are you serious|i love|favorite|obsessed)/i.test(t)) return "excited";
-  if (/(wow really|oh great|sure jan|as if|totally|obviously|shocking|genius|brilliant move|oh please)/i.test(t)) return "sarcastic";
-  if (/(laugh|haha|lol|smile|happy|joy|love it|amazing|beautiful|perfect|awesome|glad|grin|giggle|warm)/i.test(t)) return "happy";
+  if (/(fuck off|shut up|hate|angry|pissed|furious|rage)/i.test(t)) return "angry";
+  if (/(trust|safe|scared to|never told|don't leave|meant a lot)/i.test(t)) return "vulnerable";
+  if (/(blush|cute|handsome|gorgeous|crush|kiss|flutter)/i.test(t)) return "flirty";
+  if (/(sad|hurt|cry|pain|alone|lonely|afraid|numb|broken)/i.test(t)) return "sad";
+  if (/(um|uh|i guess|nevermind|forget it|i shouldn't)/i.test(t)) return "shy";
+  if (/(oh my god|holy shit|no way|dude|wait what)/i.test(t)) return "excited";
+  if (/(wow really|sure jan|as if|obviously|oh please)/i.test(t)) return "sarcastic";
+  if (/(laugh|haha|lol|smile|happy|joy|amazing|warm)/i.test(t)) return "happy";
   return "neutral";
 }
 
@@ -102,6 +101,7 @@ const MONITOR_TABS = [
   { id: "status",  label: "System",       icon: "◉" },
   { id: "session", label: "Session",      icon: "◈" },
   { id: "phase5",  label: "Intelligence", icon: "∞" },
+  { id: "phase6",  label: "Health",       icon: "♡" },
 ];
 
 function MLabel({ children, color = MON.accent }) {
@@ -404,15 +404,24 @@ function SessionTab({ messages, livePersonality }) {
         <>
           <MSecHead icon="🏁" title="Milestones" color={MON.pink} />
           <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-            {raw.milestones.map((ms, i) => (
-              <div key={i} style={{ display: "flex", gap: 16, padding: "13px 18px", background: MON.surface, border: `1px solid ${MON.accent}20`, borderLeft: `4px solid ${MON.pink}`, borderRadius: 10 }}>
-                <span style={{ fontFamily: MMONO, fontSize: 12, color: MON.accent, flexShrink: 0, minWidth: 50, paddingTop: 2 }}>LVL {ms.trustLevelAtTime}</span>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontFamily: MSERIF, fontSize: 15, color: MON.textSoft, fontStyle: "italic", lineHeight: 1.65 }}>{ms.event}</div>
-                  {ms.timestamp && <span style={{ fontFamily: MMONO, fontSize: 10, color: MON.textDim, marginTop: 4, display: "block" }}>{new Date(ms.timestamp).toLocaleString()}</span>}
+            {raw.milestones.map((ms, i) => {
+              const m = typeof ms === "string" ? { event: ms } : ms;
+              return (
+                <div key={i} style={{ display: "flex", gap: 16, padding: "13px 18px", background: MON.surface, border: `1px solid ${MON.accent}20`, borderLeft: `4px solid ${MON.pink}`, borderRadius: 10 }}>
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0, minWidth: 50 }}>
+                    {m.trustLevelAtTime != null && <span style={{ fontFamily: MMONO, fontSize: 12, color: MON.accent, paddingTop: 2 }}>LVL {m.trustLevelAtTime}</span>}
+                    {m.category && <span style={{ fontFamily: MMONO, fontSize: 9, color: MON.textDim, marginTop: 2 }}>{m.category}</span>}
+                    {m.source && m.source !== "organic" && <span style={{ fontFamily: MMONO, fontSize: 8, color: MON.amber, marginTop: 2 }}>{m.source.replace(/_/g, " ")}</span>}
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontFamily: MSERIF, fontSize: 15, color: MON.textSoft, fontStyle: "italic", lineHeight: 1.65 }}>{m.event}</div>
+                    {m.exchangeContext && <div style={{ fontFamily: MMONO, fontSize: 10, color: MON.textDim, marginTop: 4, lineHeight: 1.4 }}>{m.exchangeContext}</div>}
+                    {m.timestamp && <span style={{ fontFamily: MMONO, fontSize: 10, color: MON.textDim, marginTop: 4, display: "block" }}>{new Date(m.timestamp).toLocaleString()}</span>}
+                  </div>
+                  {m.significance && <span style={{ fontFamily: MMONO, fontSize: 11, color: MON.accent, flexShrink: 0, opacity: 0.7 }}>{m.significance}/10</span>}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </>
       )}
@@ -547,7 +556,7 @@ function Phase5Tab({ token }) {
         <MLabel>Active Thresholds + Weights</MLabel>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <div>
-            <MRow label="MOTIVATION THRESHOLD" value="7.0 / 10"     valueColor={MON.accent} />
+            <MRow label="MOTIVATION THRESHOLD" value="4.0 / 10 (at-risk: 3.5)"     valueColor={MON.accent} />
             <MRow label="CADENCE DAMPING"       value="≥ 3 messages" valueColor={MON.accent} />
           </div>
           <div>
@@ -661,6 +670,162 @@ function Phase5Tab({ token }) {
   );
 }
 
+// ── Tab 5: Phase 6 — Relationship Health & Voice Consistency ─────
+
+function Phase6Tab({ token }) {
+  const [health, setHealth] = useState(null);
+  const [presence, setPresence] = useState(null);
+  const [attachment, setAttachment] = useState(null);
+  const [tom, setTom] = useState(null);
+  const [ios, setIos] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [auditing, setAuditing] = useState(false);
+  const endpoint = API;
+  const hdrs = () => ({ "Content-Type": "application/json", Authorization: `Bearer ${typeof token === "function" ? token() : token}` });
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      try {
+        const [h, p, a, t, i] = await Promise.allSettled([
+          fetch(`${endpoint}/api/phase6/health`, { headers: hdrs() }).then(r => r.json()),
+          fetch(`${endpoint}/api/phase6/presence`, { headers: hdrs() }).then(r => r.json()),
+          fetch(`${endpoint}/api/phase6/attachment`, { headers: hdrs() }).then(r => r.json()).catch(() => null),
+          fetch(`${endpoint}/api/phase6/tom`, { headers: hdrs() }).then(r => r.json()).catch(() => null),
+          fetch(`${endpoint}/api/phase6/ios`, { headers: hdrs() }).then(r => r.json()).catch(() => null),
+        ]);
+        if (h.status === "fulfilled") setHealth(h.value);
+        if (p.status === "fulfilled") setPresence(p.value);
+        if (a.status === "fulfilled") setAttachment(a.value);
+        if (t.status === "fulfilled") setTom(t.value);
+        if (i.status === "fulfilled") setIos(i.value);
+      } catch {}
+      setLoading(false);
+    })();
+  }, []);
+
+  const runVoiceAudit = async () => {
+    setAuditing(true);
+    try {
+      await fetch(`${endpoint}/api/phase6/voice-audit`, { method: "POST", headers: hdrs() }).then(r => r.json());
+      const h = await fetch(`${endpoint}/api/phase6/health`, { headers: hdrs() }).then(r => r.json());
+      setHealth(h);
+    } catch {}
+    setAuditing(false);
+  };
+
+  if (loading) return <div style={{ fontFamily: MMONO, fontSize: 13, color: MON.textDim, padding: 40, textAlign: "center" }}>loading phase 6 data…</div>;
+
+  const h = health?.health || health || {};
+  const signals = h.decliningSignals || [];
+
+  return (
+    <div>
+      <MSecHead icon="♡" title="Relationship Health — 5-Signal Model" color={MON.pink} />
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+        <MCard accent={h.atRisk ? MON.red : MON.green}>
+          <MLabel color={h.atRisk ? MON.red : MON.green}>Status</MLabel>
+          <MRow label="AT-RISK" value={h.atRisk ? "YES" : "NO"} valueColor={h.atRisk ? MON.red : MON.green} />
+          {h.atRiskSince && <MRow label="SINCE" value={new Date(h.atRiskSince).toLocaleDateString()} valueColor={MON.red} />}
+          <MRow label="CONSECUTIVE DECLINE WINDOWS" value={h.consecutiveDeclineWindows ?? 0} />
+          {signals.length > 0 && (
+            <div style={{ marginTop: 8 }}>
+              <div style={{ fontFamily: MMONO, fontSize: 10, color: MON.red, marginBottom: 4 }}>DECLINING:</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                {signals.map(s => <MPill key={s} color={MON.red}>{s}</MPill>)}
+              </div>
+            </div>
+          )}
+        </MCard>
+        <MCard>
+          <MLabel>Current Signals</MLabel>
+          <MRow label="SESSION FREQ" value={h.sessionFrequency != null ? `${h.sessionFrequency.toFixed(1)}/wk` : "—"} />
+          <MRow label="AVG MSG LENGTH" value={h.avgMessageLength != null ? h.avgMessageLength.toFixed(0) : "—"} />
+          <MRow label="SPT VELOCITY" value={h.sptVelocity != null ? h.sptVelocity.toFixed(2) : "—"} />
+          <MRow label="CALLBACK RATE" value={h.callbackConsumptionRate != null ? `${(h.callbackConsumptionRate * 100).toFixed(0)}%` : "—"} />
+          <MRow label="ELABORATION" value={h.unsolicitedElaboration != null ? `${(h.unsolicitedElaboration * 100).toFixed(0)}%` : "—"} />
+          <MRow label="AVG CPS" value={h.avgCPS != null ? h.avgCPS.toFixed(1) : "—"} valueColor={MON.accent} />
+          {h.cpsTrajectory && <MRow label="CPS TRAJECTORY" value={h.cpsTrajectory} valueColor={h.cpsTrajectory === "rising" ? MON.green : h.cpsTrajectory === "declining" ? MON.red : MON.textDim} />}
+        </MCard>
+      </div>
+
+      {/* Voice Audit */}
+      <MSecHead icon="🎤" title="Voice Consistency Audit [P64]" color={MON.purple} />
+      <MCard accent={MON.purple}>
+        <MRow label="LAST AUDIT" value={h.lastVoiceAuditDate ? new Date(h.lastVoiceAuditDate).toLocaleDateString() : "never"} />
+        <MRow label="AVG SCORE" value={h.lastVoiceAuditAvg != null ? h.lastVoiceAuditAvg.toFixed(2) : "—"} valueColor={h.lastVoiceAuditAvg < 7 ? MON.red : MON.green} />
+        <button onClick={runVoiceAudit} disabled={auditing}
+          style={{ marginTop: 8, background: auditing ? MON.surface2 : MON.accentSoft, border: `1px solid ${MON.accent}40`, borderRadius: 8, padding: "8px 20px", color: MON.accent, fontFamily: MMONO, fontSize: 12, cursor: auditing ? "default" : "pointer" }}>
+          {auditing ? "auditing…" : "run voice audit"}
+        </button>
+      </MCard>
+
+      {/* Attachment Style */}
+      {attachment && attachment.style !== "error" && (
+        <>
+          <MSecHead icon="🔗" title="Attachment Style Detection [P62, P63]" color={MON.blue} />
+          <MCard accent={MON.blue}>
+            <MRow label="DETECTED STYLE" value={attachment.style} valueColor={attachment.style === "anxious" ? MON.amber : attachment.style === "avoidant" ? MON.blue : MON.green} />
+            <MRow label="CONFIDENCE" value={attachment.confidence != null ? `${(attachment.confidence * 100).toFixed(0)}%` : "—"} />
+            {attachment.signals && (
+              <div style={{ marginTop: 8, display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 16px" }}>
+                <MRow label="anxious score" value={attachment.signals.anxiousScore} />
+                <MRow label="avoidant score" value={attachment.signals.avoidantScore} />
+                <MRow label="return rate" value={attachment.signals.returnRate?.toFixed(2)} />
+                <MRow label="avg msg len" value={attachment.signals.avgLen?.toFixed(0)} />
+              </div>
+            )}
+          </MCard>
+        </>
+      )}
+
+      {/* Functional ToM */}
+      {tom && tom.trajectoryNarrative && (
+        <>
+          <MSecHead icon="🧠" title="Functional Theory of Mind [P59]" color={MON.accent} />
+          <MCard accent={MON.accent}>
+            <MRow label="PHASE" value={tom.currentPhase || "—"} valueColor={MON.accent} />
+            <MRow label="PREFERRED STYLE" value={tom.preferredResponseStyle || "—"} />
+            <MRow label="SNAPSHOTS" value={tom.tomHistory?.length || 0} />
+            <div style={{ fontFamily: MSERIF, fontSize: 15, color: MON.text, lineHeight: 1.75, marginTop: 8, fontStyle: "italic" }}>
+              "{tom.trajectoryNarrative}"
+            </div>
+          </MCard>
+        </>
+      )}
+
+      {/* Presence Signals Summary */}
+      {presence && (
+        <>
+          <MSecHead icon="📊" title="Presence Signals Summary" color={MON.green} />
+          <MCard>
+            <MRow label="COMPOSITE SCORE" value={presence.compositeScore != null ? presence.compositeScore.toFixed(2) : "—"} valueColor={MON.green} />
+            <MRow label="SESSIONS ANALYZED" value={presence.sessionsAnalyzed || presence.signals?.length || "—"} />
+            <MRow label="RETURN WITHIN 48H" value={presence.returnRate != null ? `${(presence.returnRate * 100).toFixed(0)}%` : "—"} />
+          </MCard>
+        </>
+      )}
+
+      {/* IOS History */}
+      {ios?.history?.length > 0 && (
+        <>
+          <MSecHead icon="⊕" title="IOS Scale — Closeness Trend [P57]" color={MON.amber} />
+          <MCard>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {ios.history.map((entry, i) => (
+                <div key={i} style={{ textAlign: "center", padding: "6px 10px", background: MON.surface2, borderRadius: 8, border: `1px solid ${MON.border}` }}>
+                  <div style={{ fontFamily: MMONO, fontSize: 16, color: MON.accent, fontWeight: 700 }}>{entry.score}</div>
+                  <div style={{ fontFamily: MMONO, fontSize: 9, color: MON.textDim }}>{new Date(entry.timestamp).toLocaleDateString()}</div>
+                </div>
+              ))}
+            </div>
+          </MCard>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── ExplainPanel ──────────────────────────────────────────────────
 
 function ExplainPanel({ onClose, token, user, conversations, messages, status }) {
@@ -725,6 +890,7 @@ function ExplainPanel({ onClose, token, user, conversations, messages, status })
           {activeTab === "status"  && <StatusTab  status={status} user={user} conversations={conversations} messages={messages} liveHealth={liveHealth} />}
           {activeTab === "session" && <SessionTab messages={messages} livePersonality={livePersonality} />}
           {activeTab === "phase5"  && <Phase5Tab  token={token} />}
+          {activeTab === "phase6"  && <Phase6Tab  token={token} />}
         </div>
       </div>
       <style>{`button:focus{outline:none}::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:${MON.border};border-radius:3px}`}</style>
@@ -736,13 +902,14 @@ function ExplainPanel({ onClose, token, user, conversations, messages, status })
 // MOOD BADGE
 // ═══════════════════════════════════════════════════════════════════
 
-function MoodBadge({ mood }) {
+function MoodBadge({ mood, dynamicLabel }) {
   const m = MOODS[mood] || MOODS.neutral;
+  const label = dynamicLabel || m.label;
   const dotColor = mood === "happy" || mood === "excited" ? T.green : mood === "sad" || mood === "angry" ? T.red : T.accent;
   return (
     <div style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 14px", borderRadius: 20, background: T.accentSoft, border: `1px solid ${T.accent}30`, fontSize: 12, color: T.textSoft, fontFamily: FONT_MONO, letterSpacing: "0.3px", transition: "all 0.5s ease" }}>
       <div style={{ width: 6, height: 6, borderRadius: "50%", flexShrink: 0, background: dotColor, boxShadow: `0 0 6px ${dotColor}` }} />
-      {m.label}
+      {label}
     </div>
   );
 }
@@ -751,15 +918,26 @@ function MoodBadge({ mood }) {
 // INFO SIDEBAR
 // ═══════════════════════════════════════════════════════════════════
 
-function InfoSidebar({ mood }) {
-  const SL = ({ children }) => <p style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.accent, margin: "0 0 12px", letterSpacing: "1.5px", fontWeight: 700, textTransform: "uppercase" }}>{children}</p>;
+// Depth-based sidebar categories — maps SPT depth to human-readable sections
+const DISCLOSURE_SECTIONS = [
+  { depth: 1, label: "Her World", locked: "you're still a stranger.", color: "#10b981" },
+  { depth: 2, label: "What She Carries", locked: "she's not ready to show you.", color: "#0ea5e9" },
+  { depth: 3, label: "Where She's Been", locked: "this takes real trust.", color: "#9f67ff" },
+  { depth: 4, label: "Her Depths", locked: "she may never share this.", color: "#dc2626" },
+];
+
+function InfoSidebar({ mood, moodReflection, latestMeta, disclosedAtoms }) {
+  // Group disclosed atoms by depth for section display
+  const atomsByDepth = {};
+  for (const atom of (disclosedAtoms || [])) {
+    if (!atomsByDepth[atom.depth]) atomsByDepth[atom.depth] = [];
+    atomsByDepth[atom.depth].push(atom);
+  }
+  const totalDisclosed = (disclosedAtoms || []).length;
+
+  const SL = ({ children, color }) => <p style={{ fontFamily: FONT_MONO, fontSize: 10, color: color || T.accent, margin: "0 0 12px", letterSpacing: "1.5px", fontWeight: 700, textTransform: "uppercase" }}>{children}</p>;
   const D  = () => <div style={{ height: 1, background: T.border, margin: "4px 0" }} />;
-  const FR = ({ label, value }) => (
-    <div style={{ marginBottom: 13 }}>
-      <span style={{ display: "block", fontFamily: FONT_MONO, fontSize: 9, color: T.textDim, letterSpacing: "1px", marginBottom: 3, textTransform: "uppercase" }}>{label}</span>
-      <span style={{ fontFamily: FONT, fontSize: 16, color: T.text, lineHeight: 1.5 }}>{value}</span>
-    </div>
-  );
+
   return (
     <div style={{ width: 380, minWidth: 380, background: `linear-gradient(180deg, ${T.surface}, ${T.bg})`, borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", padding: "32px 30px", overflowY: "auto", gap: 20, position: "relative", zIndex: 1 }}>
       <div>
@@ -767,52 +945,62 @@ function InfoSidebar({ mood }) {
         <p style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.textDim, margin: 0, letterSpacing: "1px" }}>HOLLOW VINYL · RECORD STORE</p>
       </div>
       <D />
+      {/* Mood — always visible, dynamic from LLM reflection */}
       <div>
         <SL>Current Mood</SL>
-        <MoodBadge mood={mood} />
-        <p style={{ fontFamily: FONT, fontSize: 16, color: T.text, margin: "14px 0 0", lineHeight: 1.85 }}>{MOOD_DESCRIPTIONS[mood] || MOOD_DESCRIPTIONS.neutral}</p>
+        <MoodBadge mood={mood} dynamicLabel={moodReflection?.moodLabel} />
+        <p style={{ fontFamily: FONT, fontSize: 16, color: T.text, margin: "14px 0 0", lineHeight: 1.85 }}>{moodReflection?.reflection || MOOD_DESCRIPTIONS[mood] || MOOD_DESCRIPTIONS.neutral}</p>
       </div>
       <D />
+
+      {/* Disclosure sections — populated ONLY from what Morrigan has actually shared */}
+      {totalDisclosed === 0 ? (
+        <div style={{ padding: "16px 0" }}>
+          <SL>What You Know About Her</SL>
+          <p style={{ fontFamily: FONT_MONO, fontSize: 13, color: T.textDim, margin: 0, lineHeight: 1.6, opacity: 0.5 }}>nothing yet. keep talking.</p>
+        </div>
+      ) : (
+        DISCLOSURE_SECTIONS.map(sec => {
+          const atoms = atomsByDepth[sec.depth] || [];
+          if (atoms.length === 0) return null; // Don't show empty sections — no spoilers
+          return (
+            <div key={sec.depth}>
+              <SL color={sec.color}>{sec.label}</SL>
+              {atoms.map((atom, i) => (
+                <p key={atom.id || i} style={{ fontFamily: FONT, fontSize: 15, color: T.text, margin: i < atoms.length - 1 ? "0 0 14px" : 0, lineHeight: 1.85, paddingLeft: 12, borderLeft: `2px solid ${sec.color}30` }}>
+                  {atom.content}
+                </p>
+              ))}
+              <D />
+            </div>
+          );
+        })
+      )}
+
+      {/* Personality tags — derived from disclosed atoms' topics */}
       <div>
-        <SL>About Her</SL>
-        <FR label="Age" value="23" />
-        <FR label="Works at" value="Hollow Vinyl (record store)" />
-        <FR label="Also" value="The Wreck — dive bar, weekends" />
-        <FR label="Lives" value="Studio above a laundromat. Smells like dryer sheets at 2am." />
-        <FR label="Cat" value="Persephone (Percy) 🖤" />
-        <FR label="Real name" value="Moira — only tells people she trusts." />
-      </div>
-      <D />
-      <div>
-        <SL>Where She's Been</SL>
-        <p style={{ fontFamily: FONT, fontSize: 16, color: T.text, margin: "0 0 12px", lineHeight: 1.85 }}>Mom was an addict. Dad left. Foster care from age 7 to 17. One home where they forgot to feed her. One where the foster brother did things. One that was good — the Nguyens — but they had to move and the system didn't let her go with them. That one hurt worst.</p>
-        <p style={{ fontFamily: FONT, fontSize: 16, color: T.text, margin: 0, lineHeight: 1.85 }}>GED at 17 while couch-surfing. <em>"STILL"</em> tattooed on her wrist — the day she left her last foster home.</p>
-      </div>
-      <D />
-      <div>
-        <SL>Why She's Guarded</SL>
-        <p style={{ fontFamily: FONT, fontSize: 16, color: T.text, margin: "0 0 12px", lineHeight: 1.85 }}>She wants to be loved desperately. The world keeps punishing her for that softness. So she tests people — pushes them away to see if they'll come back. She knows she does it. She hates it.</p>
-        <p style={{ fontFamily: FONT, fontSize: 16, color: T.text, margin: 0, lineHeight: 1.85 }}>She keeps trying anyway. Because what else is there.</p>
-      </div>
-      <D />
-      <div>
-        <SL>What She Loves</SL>
-        <p style={{ fontFamily: FONT, fontSize: 16, color: T.text, margin: "0 0 10px", lineHeight: 1.85 }}>Making playlists. Drawing moths and anatomical hearts. Staying up until 3am listening to someone vent. Howl's Moving Castle. Junji Ito. Anne Carson. The specific silence after a song ends.</p>
-        <p style={{ fontFamily: FONT, fontSize: 16, color: T.text, margin: 0, lineHeight: 1.85 }}>Has a secret TikTok with 47 followers. Every like makes her whole day.</p>
-      </div>
-      <D />
-      <div>
-        <SL>Personality</SL>
+        <SL>What You've Gathered</SL>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-          {["sarcastic", "fiercely loyal", "artistic", "guarded", "dry humor", "anxious attachment", "literary", "secretly soft", "hypervigilant", "wants to be loved"].map(tag => (
-            <span key={tag} style={{ fontFamily: FONT_MONO, fontSize: 9, color: T.text, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, padding: "4px 9px" }}>{tag}</span>
-          ))}
+          {totalDisclosed === 0 ? (
+            <span style={{ fontFamily: FONT_MONO, fontSize: 11, color: T.textDim, opacity: 0.5 }}>nothing yet</span>
+          ) : (
+            // Extract unique topics from disclosed atoms as personality tags
+            [...new Set((disclosedAtoms || []).flatMap(a => a.topics || []))].slice(0, 12).map(tag => (
+              <span key={tag} style={{ fontFamily: FONT_MONO, fontSize: 9, color: T.text, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, padding: "4px 9px" }}>{tag}</span>
+            ))
+          )}
         </div>
       </div>
       <D />
-      <div style={{ background: T.accentSoft, borderRadius: 14, border: `1px solid ${T.accent}20`, padding: "16px 18px" }}>
-        <p style={{ fontFamily: FONT, fontSize: 15, color: T.text, margin: 0, lineHeight: 1.9, fontStyle: "italic" }}>"She keeps trying anyway. Because what else is there."</p>
-      </div>
+
+      {/* Dynamic quote — relationship narrative from LLM, or nothing */}
+      {latestMeta?.memorySummary?.relationshipNarrative && (
+        <div style={{ background: T.accentSoft, borderRadius: 14, border: `1px solid ${T.accent}20`, padding: "16px 18px" }}>
+          <p style={{ fontFamily: FONT, fontSize: 15, color: T.text, margin: 0, lineHeight: 1.9, fontStyle: "italic" }}>
+            "{latestMeta.memorySummary.relationshipNarrative.substring(0, 200)}"
+          </p>
+        </div>
+      )}
     </div>
   );
 }
@@ -821,7 +1009,7 @@ function InfoSidebar({ mood }) {
 // CHARACTER PANEL
 // ═══════════════════════════════════════════════════════════════════
 
-function CharacterPanel({ mood, speaking, latestMeta }) {
+function CharacterPanel({ mood, speaking, latestMeta, moodReflection }) {
   return (
     <div style={{ width: 300, minWidth: 300, background: `linear-gradient(180deg, ${T.surface}f0, ${T.bg}f0)`, borderLeft: `1px solid ${T.border}`, display: "flex", flexDirection: "column", alignItems: "center", position: "relative", overflowY: "auto" }}>
       <div style={{ position: "absolute", inset: 0, background: `radial-gradient(ellipse at 50% 20%, rgba(155,45,94,0.07) 0%, transparent 70%)`, pointerEvents: "none" }} />
@@ -842,7 +1030,7 @@ function CharacterPanel({ mood, speaking, latestMeta }) {
         <div style={{ textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
           <span style={{ fontFamily: FONT_DISPLAY, fontSize: 17, color: T.text, fontWeight: 400 }}>Morrigan</span>
           <span style={{ fontFamily: FONT, fontSize: 11, color: T.textDim, fontStyle: "italic" }}>23 · hollow vinyl</span>
-          <MoodBadge mood={mood} />
+          <MoodBadge mood={mood} dynamicLabel={moodReflection?.moodLabel} />
         </div>
         {/* Divider */}
         <div style={{ width: "90%", height: 1, background: T.border, margin: "2px 0" }} />
@@ -888,7 +1076,6 @@ function ProcessingMeta({ meta }) {
 
   const DEPTH_CLR = { 1: "#10b981", 2: "#0ea5e9", 3: "#9f67ff", 4: "#dc2626" };
   const DEPTH_LBL = { 1: "surface", 2: "exploratory", 3: "affective", 4: "core" };
-  const GOAL_CLR  = { comfort: "#f59e0b", venting: "#dc2626", connection: "#10b981", distraction: "#0ea5e9", neutral: T.textDim };
 
   const hasKnowledge = m.userName || m.memories?.interests?.length || m.memories?.emotional?.length
     || m.memories?.personal?.length || m.memories?.relationships?.length
@@ -942,9 +1129,12 @@ function ProcessingMeta({ meta }) {
   const summaryParts = [
     `spt ${meta.sptDepth}/4`,
     meta.goalState && meta.goalState !== "neutral" ? `${meta.goalState}` : null,
+    meta.disclosureDepth ? `L${meta.disclosureDepth.level}` : null,
+    meta.somaticMarker ? meta.somaticMarker.emotionalRegister : null,
     meta.triggerFired ? "triggered" : null,
     meta.compositionApplied ? "composed" : null,
-    meta.atRisk ? "⚠ at-risk" : null,
+    meta.crisisDetection?.safeHavenActive ? "CRISIS" : null,
+    meta.atRisk ? "at-risk" : null,
   ].filter(Boolean).join("  ·  ");
 
   return (
@@ -985,8 +1175,14 @@ function ProcessingMeta({ meta }) {
             <Pill label="composition" value={meta.compositionApplied ? "applied" : "—"} on={meta.compositionApplied} />
             {meta.callbackQueue?.length > 0 && <Pill label="callbacks" value={meta.callbackQueue.length} on />}
             {meta.alreadyDisclosedAtoms?.length > 0 && <Pill label="disclosed" value={`${meta.alreadyDisclosedAtoms.length} atoms`} />}
-            {meta.atRisk && <Pill label="status" value="⚠ at-risk" on />}
+            {meta.atRisk && <Pill label="status" value="at-risk" on />}
             {!meta.innerThought && meta.atomHintUsed && <Pill label="phase 2" value="hint active" />}
+            {meta.disclosureDepth && <Pill label="disclosure" value={`L${meta.disclosureDepth.level} ${meta.disclosureDepth.label}`} on={meta.disclosureDepth.level >= 2} />}
+            {meta.linguisticSignals && <Pill label="authenticity" value={`${(meta.linguisticSignals.authenticity * 100).toFixed(0)}%`} on={meta.linguisticSignals.authenticity >= 0.3} />}
+            {meta.linguisticSignals && meta.linguisticSignals.emotionalTone > 0 && <Pill label="emotion" value={`${(meta.linguisticSignals.emotionalTone * 100).toFixed(0)}%`} on={meta.linguisticSignals.emotionalTone >= 0.1} />}
+            {meta.somaticMarker && <Pill label="somatic" value={meta.somaticMarker.emotionalRegister} on />}
+            {meta.crisisDetection?.safeHavenActive && <Pill label="crisis" value="SAFE HAVEN" on />}
+            {meta.atRiskInterventions?.active && <Pill label="at-risk" value="interventions on" on />}
           </div>
 
           {/* ── Theory of Mind ── */}
@@ -994,6 +1190,70 @@ function ProcessingMeta({ meta }) {
             <div style={{ background: "#fdf6e3", border: `1px solid #f59e0b40`, borderRadius: 8, padding: "10px 14px", marginBottom: 10 }}>
               <div style={{ color: "#b45309", fontSize: 10, fontWeight: 700, letterSpacing: "1px", marginBottom: 5 }}>THEORY OF MIND — HER READ ON YOU</div>
               <div style={{ color: T.textSoft, lineHeight: 1.6, fontSize: 12, fontStyle: "italic" }}>{meta.theoryOfMind}</div>
+            </div>
+          )}
+
+          {/* ── Crisis Detection [P62/P63] ── */}
+          {meta.crisisDetection?.safeHavenActive && (
+            <div style={{ background: "#fef2f2", border: "2px solid #dc2626", borderRadius: 8, padding: "10px 14px", marginBottom: 10 }}>
+              <div style={{ color: "#dc2626", fontSize: 10, fontWeight: 700, letterSpacing: "1px", marginBottom: 5 }}>CRISIS DETECTED — SAFE HAVEN MODE ACTIVE</div>
+              <div style={{ color: "#991b1b", fontSize: 11, lineHeight: 1.6 }}>
+                Level: <strong>{meta.crisisDetection.level}</strong> · Signals: {meta.crisisDetection.signals?.join(", ") || "none"}
+              </div>
+              <div style={{ color: "#7f1d1d", fontSize: 10.5, marginTop: 4, fontStyle: "italic" }}>Inner thoughts suppressed. Threads suppressed. Full presence mode.</div>
+            </div>
+          )}
+
+          {/* ── Somatic Marker [P14 Damasio] ── */}
+          {meta.somaticMarker && (
+            <div style={{ background: "#f0fdf4", border: "1px solid #10b98140", borderRadius: 8, padding: "10px 14px", marginBottom: 10 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
+                <span style={{ color: "#059669", fontSize: 10, fontWeight: 700, letterSpacing: "1px" }}>SOMATIC MARKER — GUT FEELING</span>
+                <span style={{ color: T.textDim, fontSize: 10 }}>{meta.somaticMarker.emotionalRegister} · intensity {(meta.somaticMarker.intensity || 0).toFixed(1)}</span>
+              </div>
+              <div style={{ color: T.textSoft, lineHeight: 1.6, fontSize: 12, fontStyle: "italic" }}>"{meta.somaticMarker.gutFeeling}"</div>
+            </div>
+          )}
+
+          {/* ── Linguistic Depth + Disclosure Depth [P69 LIWC-22, P56 Aron] ── */}
+          {meta.linguisticSignals && (
+            <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 14px", marginBottom: 10 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                <span style={{ color: T.accent, fontSize: 10, fontWeight: 700, letterSpacing: "1px" }}>LINGUISTIC DEPTH SIGNALS</span>
+                {meta.disclosureDepth && (
+                  <span style={{ color: meta.disclosureDepth.level >= 3 ? "#9f67ff" : meta.disclosureDepth.level >= 2 ? "#0ea5e9" : T.textDim, fontSize: 10, fontWeight: 700 }}>
+                    DISCLOSURE L{meta.disclosureDepth.level} — {meta.disclosureDepth.label?.toUpperCase()}
+                  </span>
+                )}
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "6px 14px" }}>
+                <Bar label="authenticity" value={Math.round(meta.linguisticSignals.authenticity * 100)} color="#10b981" />
+                <Bar label="emotion" value={Math.round(meta.linguisticSignals.emotionalTone * 100)} color="#f59e0b" />
+                <Bar label="self-focus" value={Math.round(meta.linguisticSignals.selfFocus * 100)} color="#0ea5e9" />
+                <Bar label="cognitive" value={Math.round(meta.linguisticSignals.cognitiveProcessing * 100)} color="#8b5cf6" />
+                <Bar label="narrative" value={Math.round(meta.linguisticSignals.narrativeDepth * 100)} color="#ec4899" />
+                <div style={{ fontSize: 10.5, color: T.textDim, display: "flex", alignItems: "center" }}>{meta.linguisticSignals.wordCount} words</div>
+              </div>
+              {meta.disclosureDepth?.signals?.length > 0 && (
+                <div style={{ marginTop: 6, fontSize: 10.5, color: T.textDim }}>
+                  signals: {meta.disclosureDepth.signals.join(", ")}
+                </div>
+              )}
+              {meta.disclosureDepth?.receptionDirectiveApplied && (
+                <div style={{ marginTop: 4, fontSize: 10.5, color: "#0ea5e9", fontStyle: "italic" }}>reception directive injected</div>
+              )}
+            </div>
+          )}
+
+          {/* ── At-Risk Interventions [P20, P23, P39] ── */}
+          {meta.atRiskInterventions?.active && (
+            <div style={{ background: "#fffbeb", border: "2px solid #f59e0b", borderRadius: 8, padding: "10px 14px", marginBottom: 10 }}>
+              <div style={{ color: "#b45309", fontSize: 10, fontWeight: 700, letterSpacing: "1px", marginBottom: 5 }}>AT-RISK INTERVENTIONS ACTIVE</div>
+              <div style={{ color: "#92400e", fontSize: 11, lineHeight: 1.6 }}>
+                {meta.atRiskInterventions.callbackBoostApplied && <div>+ Callback score boost (+1.5)</div>}
+                {meta.atRiskInterventions.thresholdLowered && <div>+ Thought threshold lowered to 3.5</div>}
+                {meta.atRiskInterventions.urgencySignalInjected && <div>+ Presence urgency signal in continuation block</div>}
+              </div>
             </div>
           )}
 
@@ -1140,12 +1400,12 @@ function ProcessingMeta({ meta }) {
                   {/* Trust track */}
                   <div style={{ marginBottom: 10 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 0, marginBottom: 2 }}>
-                      {["stranger","noticed","known","close","intimate","bonded","core"].map((lv, i) => (
+                      {["stranger","acquaintance","maybe-friend","friend","close friend","trusted","bonded"].map((lv, i) => (
                         <div key={i} style={{ flex: 1, height: 4, background: i <= m.trustLevel ? T.accent : T.border, borderRadius: i === 0 ? "3px 0 0 3px" : i === 6 ? "0 3px 3px 0" : 0, marginRight: 1, transition: "background 0.3s" }} />
                       ))}
                     </div>
                     <div style={{ color: T.textDim, fontSize: 9.5, marginTop: 2 }}>
-                      {["stranger","noticed","known","close","intimate","bonded","core"].map((lv, i) => (
+                      {["stranger","acquaintance","maybe-friend","friend","close friend","trusted","bonded"].map((lv, i) => (
                         <span key={i} style={{ display: "inline-block", width: "14.2%", textAlign: "center", color: i === m.trustLevel ? T.accent : T.textDim, fontWeight: i === m.trustLevel ? 700 : 400 }}>{lv}</span>
                       ))}
                     </div>
@@ -1196,9 +1456,15 @@ function ProcessingMeta({ meta }) {
               <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "1.2px", textTransform: "uppercase", color: T.accent, marginTop: 14, marginBottom: 6, paddingBottom: 5, borderBottom: `1px solid ${T.border}` }}>
                 Milestones <span style={{ color: T.textDim, fontWeight: 400 }}>({m.milestones.length})</span>
               </div>
-              {m.milestones.map((ms, i) => (
-                <div key={i} style={{ color: T.textSoft, fontSize: 12, paddingLeft: 8, marginBottom: 4, borderLeft: `2px solid ${T.border}`, lineHeight: 1.5 }}>— {ms}</div>
-              ))}
+              {m.milestones.map((ms, i) => {
+                const ev = typeof ms === "string" ? ms : ms.event;
+                const cat = typeof ms === "object" ? ms.category : null;
+                return (
+                  <div key={i} style={{ color: T.textSoft, fontSize: 12, paddingLeft: 8, marginBottom: 4, borderLeft: `2px solid ${T.border}`, lineHeight: 1.5 }}>
+                    — {ev}{cat && <span style={{ color: T.textDim, fontSize: 10, marginLeft: 6 }}>[{cat}]</span>}
+                  </div>
+                );
+              })}
             </>
           )}
 
@@ -1380,6 +1646,10 @@ export default function App() {
   const [currentMood,   setCurrentMood]   = useState("neutral");
   const [showExplain,   setShowExplain]   = useState(false);
   const [latestMeta,    setLatestMeta]    = useState(null);
+  const [moodReflection, setMoodReflection] = useState(null);
+  const [morriganPresent, setMorriganPresent] = useState(false);
+  const [proactiveTyping, setProactiveTyping] = useState(false);
+  const [disclosedAtoms, setDisclosedAtoms] = useState([]);
   const messagesEndRef = useRef(null);
   const inputRef       = useRef(null);
   const justCreated    = useRef(false);
@@ -1410,6 +1680,30 @@ export default function App() {
     fetch(`${API}/api/usage`).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }).then(setUsage).catch(() => {});
   }, [authed]);
 
+  // ── Persistent SSE channel for proactive messages ──────────────
+  useEffect(() => {
+    if (!authed) return;
+    const t = token();
+    if (!t) return;
+    const es = new EventSource(`${API}/api/session/stream?token=${encodeURIComponent(t)}`);
+    es.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === "typing_start") {
+          setProactiveTyping(true);
+        } else if (data.type === "typing_stop") {
+          setProactiveTyping(false);
+        } else if (data.type === "proactive_message") {
+          setProactiveTyping(false);
+          setMessages(prev => [...prev, { role: "assistant", content: data.content, timestamp: new Date(data.timestamp), proactive: true }]);
+          if (data.mood) setCurrentMood(data.mood);
+        }
+      } catch { /* ignore parse errors */ }
+    };
+    es.onerror = () => { setProactiveTyping(false); };
+    return () => es.close();
+  }, [authed]);
+
   useEffect(() => {
     if (!authed) return;
     const h = () => endSession();
@@ -1422,24 +1716,46 @@ export default function App() {
     fetch(`${API}/api/conversations`, { headers: hdrs() }).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }).then(setConversations).catch(() => {});
   }, [authed]);
 
+  // Load disclosed self-atoms on auth — populates sidebar from actual disclosures
   useEffect(() => {
-    if (!activeConvo) { setMessages([]); return; }
+    if (!authed) return;
+    fetch(`${API}/api/personality`, { headers: hdrs() })
+      .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(data => { if (data.disclosedAtoms?.length) setDisclosedAtoms(data.disclosedAtoms); })
+      .catch(() => {});
+  }, [authed]);
+
+  useEffect(() => {
+    if (!activeConvo) { setMessages([]); setMoodReflection(null); setLatestMeta(null); setMorriganPresent(false); return; }
     if (justCreated.current) { justCreated.current = false; return; }
-    setMessages([]); // clear immediately so stale messages don't show while fetching
+    setMessages([]); setMoodReflection(null); setLatestMeta(null); setMorriganPresent(false); // clear immediately so stale data don't show while fetching
     fetch(`${API}/api/conversations/${activeConvo}/messages`, { headers: hdrs() })
       .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
       .then(async d => {
         if (d.length === 0) {
-          // Empty conversation opened from sidebar — fetch dynamic greeting
-          let greetingContent = CHARACTER.greeting;
+          // Empty conversation opened from sidebar — fetch arrival decision
           try {
-            const greetRes = await fetch(`${API}/api/session/greeting?conversationId=${activeConvo}`, { headers: hdrs() });
-            if (greetRes.ok) {
-              const { greeting } = await greetRes.json();
-              if (greeting) greetingContent = greeting;
+            const arrRes = await fetch(`${API}/api/session/greeting?conversationId=${activeConvo}`, { headers: hdrs() });
+            if (arrRes.ok) {
+              const data = await arrRes.json();
+              const arrival = data.arrival;
+              if (arrival && arrival.action !== "silence" && arrival.content) {
+                setMessages([{ role: "assistant", content: arrival.content, timestamp: new Date(), isArrival: true }]);
+                if (arrival.arrivalMood) setCurrentMood(arrival.arrivalMood);
+                setMorriganPresent(false);
+              } else if (arrival && arrival.action === "silence") {
+                setMessages([]);
+                setMorriganPresent(true);
+              } else {
+                // Null arrival or parse failure — fallback
+                setMessages([{ role: "assistant", content: CHARACTER.greeting, timestamp: new Date() }]);
+              }
+            } else {
+              setMessages([{ role: "assistant", content: CHARACTER.greeting, timestamp: new Date() }]);
             }
-          } catch { /* non-fatal — use static fallback */ }
-          setMessages([{ role: "assistant", content: greetingContent, timestamp: new Date() }]);
+          } catch {
+            setMessages([{ role: "assistant", content: CHARACTER.greeting, timestamp: new Date() }]);
+          }
         } else {
           setMessages(d);
         }
@@ -1461,24 +1777,37 @@ export default function App() {
     if (!convo?.conversationId) throw new Error("Server did not return a valid conversation.");
     setConversations(p => [convo, ...p]);
     justCreated.current = true;
+    setMoodReflection(null); setLatestMeta(null); setMorriganPresent(false);
 
-    // Fetch dynamic greeting — falls back to static CHARACTER.greeting if unavailable
-    let greetingContent = CHARACTER.greeting;
+    // Fetch arrival decision — Morrigan decides: speak, presence, or silence
     try {
-      const greetRes = await fetch(`${API}/api/session/greeting?conversationId=${convo.conversationId}`, { headers: hdrs() });
-      if (greetRes.ok) {
-        const { greeting } = await greetRes.json();
-        if (greeting) greetingContent = greeting;
+      const arrRes = await fetch(`${API}/api/session/greeting?conversationId=${convo.conversationId}`, { headers: hdrs() });
+      if (arrRes.ok) {
+        const data = await arrRes.json();
+        const arrival = data.arrival;
+        if (arrival && arrival.action !== "silence" && arrival.content) {
+          setMessages([{ role: "assistant", content: arrival.content, timestamp: new Date(), isArrival: true }]);
+          if (arrival.arrivalMood) setCurrentMood(arrival.arrivalMood);
+        } else if (arrival && arrival.action === "silence") {
+          setMessages([]);
+          setMorriganPresent(true);
+        } else {
+          setMessages([{ role: "assistant", content: CHARACTER.greeting, timestamp: new Date() }]);
+        }
+      } else {
+        setMessages([{ role: "assistant", content: CHARACTER.greeting, timestamp: new Date() }]);
       }
-    } catch { /* non-fatal — use static fallback */ }
+    } catch {
+      setMessages([{ role: "assistant", content: CHARACTER.greeting, timestamp: new Date() }]);
+    }
 
-    setMessages([{ role: "assistant", content: greetingContent, timestamp: new Date() }]);
     setActiveConvo(convo.conversationId);
     return convo.conversationId;
   };
 
   const sendMessage = async () => {
     if (!input.trim() || streaming) return;
+    setMorriganPresent(false); // clear silence presence on first send
     let cid = activeConvo;
     if (!cid) {
       try { cid = await createConvo(); } catch (e) {
@@ -1516,7 +1845,21 @@ export default function App() {
                 setMessages(p => [...p, { role: "assistant", content: finalText, timestamp: new Date(), meta: json.processingMeta || null }]);
                 setConversations(p => p.map(c => c.conversationId === cid ? { ...c, title: `🖤 ${finalText.substring(0, 40)}${finalText.length > 40 ? "..." : ""}`, updatedAt: new Date() } : c));
               }
-              if (json.processingMeta) setLatestMeta(json.processingMeta);
+              if (json.processingMeta) {
+                setLatestMeta(json.processingMeta);
+                setMoodReflection(json.processingMeta.moodReflection || null);
+                // Merge newly disclosed atoms into sidebar state
+                if (json.processingMeta.alreadyDisclosedAtoms?.length) {
+                  setDisclosedAtoms(prev => {
+                    const ids = new Set(prev.map(a => a.id));
+                    const merged = [...prev];
+                    for (const a of json.processingMeta.alreadyDisclosedAtoms) {
+                      if (!ids.has(a.id)) merged.push(a);
+                    }
+                    return merged.length !== prev.length ? merged : prev;
+                  });
+                }
+              }
               if (json.usage) setUsage(json.usage);
               setStreamText("");
               setStreaming(false);
@@ -1559,7 +1902,7 @@ export default function App() {
         <ExplainPanel onClose={() => setShowExplain(false)} token={token()} user={user} conversations={conversations} messages={messages} status={status} />
       )}
 
-      <InfoSidebar mood={currentMood} />
+      <InfoSidebar mood={currentMood} moodReflection={moodReflection} latestMeta={latestMeta} disclosedAtoms={disclosedAtoms} />
 
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, position: "relative", zIndex: 1 }}>
 
@@ -1569,7 +1912,7 @@ export default function App() {
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ width: 8, height: 8, borderRadius: "50%", background: T.accent, boxShadow: `0 0 8px ${T.accent}` }} />
             <span style={{ color: T.text, fontWeight: 400, fontSize: 17, fontFamily: FONT_DISPLAY }}>Morrigan</span>
-            <MoodBadge mood={currentMood} />
+            <MoodBadge mood={currentMood} dynamicLabel={moodReflection?.moodLabel} />
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <button onClick={() => setShowExplain(true)}
@@ -1610,6 +1953,13 @@ export default function App() {
         <div style={{ flex: 1, overflowY: "auto", padding: "28px 32px" }}>
           {showWelcome ? <WelcomeScreen onStart={createConvo} /> : (
             <>
+              {/* Presence indicator — Morrigan chose silence on arrival */}
+              {morriganPresent && messages.length === 0 && !streaming && (
+                <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "28px 0", animation: "fadeSlideIn 0.5s ease forwards" }}>
+                  <div style={{ width: 8, height: 8, borderRadius: "50%", background: T.accent, opacity: 0.6, animation: "speakBounce 3s ease-in-out infinite" }} />
+                  <span style={{ fontFamily: FONT_DISPLAY, fontSize: 13, color: T.textDim, fontStyle: "italic" }}>Morrigan is here.</span>
+                </div>
+              )}
               {messages.map((msg, i) => <MessageBubble key={i} msg={msg} onMetaClick={setLatestMeta} />)}
               {streaming && (
                 <div style={{ display: "flex", marginBottom: 22, alignItems: "flex-start", animation: "fadeSlideIn 0.3s ease forwards" }}>
@@ -1630,6 +1980,21 @@ export default function App() {
                         ))}
                       </div>
                     )}
+                  </div>
+                </div>
+              )}
+              {/* Proactive typing indicator — Morrigan is forming an unprompted thought */}
+              {proactiveTyping && !streaming && (
+                <div style={{ display: "flex", marginBottom: 22, alignItems: "flex-start", animation: "fadeSlideIn 0.3s ease forwards" }}>
+                  <div style={{ background: T.aiBubble, border: `1px solid ${T.border}`, borderRadius: "22px 22px 22px 4px", padding: "13px 20px", boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
+                      <span style={{ color: "#9B2D5E", fontSize: 12, fontWeight: 600, fontFamily: FONT_DISPLAY }}>Morrigan</span>
+                    </div>
+                    <div style={{ display: "flex", gap: 5, alignItems: "center", padding: "4px 0" }}>
+                      {[0, 1, 2].map(i => (
+                        <div key={i} style={{ width: 6, height: 6, borderRadius: "50%", background: "#9B2D5E", opacity: 0.4, animation: "speakBounce 1.2s ease-in-out infinite", animationDelay: `${i * 0.22}s` }} />
+                      ))}
+                    </div>
                   </div>
                 </div>
               )}
@@ -1654,7 +2019,7 @@ export default function App() {
         </div>
       </div>
 
-      <CharacterPanel mood={currentMood} speaking={!!streamText} latestMeta={latestMeta} />
+      <CharacterPanel mood={currentMood} speaking={!!streamText} latestMeta={latestMeta} moodReflection={moodReflection} />
 
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&family=Playfair+Display:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@300;400;500&display=swap');
