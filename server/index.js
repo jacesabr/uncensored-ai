@@ -248,6 +248,24 @@ function normalizeContradicts(memories) {
   return migrated;
 }
 
+/**
+ * Normalize legacy milestone entries (flat { event, trustLevelAtTime }) into
+ * the new structured format with source, category, significance. Mutates in place.
+ */
+function normalizeMilestones(milestones) {
+  let migrated = 0;
+  for (const ms of milestones) {
+    if (!ms.source) {
+      ms.source = ms.trustLevelAtTime ? "trust_transition" : "organic";
+      ms.category = ms.category || "shift";
+      ms.significance = ms.significance || 6;
+      migrated++;
+    }
+  }
+  if (migrated > 0) console.log(`[MIGRATION] Normalized ${migrated} legacy milestone entries`);
+  return migrated;
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // SESSION CACHE
 // ═══════════════════════════════════════════════════════════════════
@@ -639,6 +657,151 @@ Recent exchange: ${singleExchange.slice(-600)}` }],
       if (clean.length > 20) { memory.selfReflectionState = clean; console.log(`[BRAIN] Self-reflection updated`); }
     }
   } catch (e) { console.error("[BRAIN-REFLECTION]", e.message); }
+
+  // ── Step 7b: Milestone detection (dynamic, reflective) ─────────────
+  // Like human processing — milestones are recognized in retrospect,
+  // after self-reflection, not during the exchange itself.
+  try {
+    const session = getSession(userId);
+    const trustTransition = session?._trustLevelBefore != null && memory.trustLevel > session._trustLevelBefore;
+    const sptTransition = session?._sptDepthBefore != null && memory.sptDepth > session._sptDepthBefore;
+
+    // Cooldown: skip gate if last organic milestone was < 10 min ago
+    const lastMilestoneTime = (memory.milestones || []).length > 0
+      ? new Date(memory.milestones[memory.milestones.length - 1].timestamp).getTime()
+      : 0;
+    const cooldownActive = !trustTransition && !sptTransition && (Date.now() - lastMilestoneTime < 10 * 60 * 1000);
+
+    let milestoneGateOpen = trustTransition || sptTransition;
+
+    // Phase A: Gate check — cheap binary classification
+    if (!milestoneGateOpen && !cooldownActive) {
+      const existingMilestonesSummary = (memory.milestones || [])
+        .slice(-5)
+        .map(ms => ms.event)
+        .join("; ") || "none yet";
+
+      const gateRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
+        body: JSON.stringify({
+          model: CHAT_MODEL,
+          messages: [{ role: "user", content: `You are reviewing a single exchange in a relationship. Does this exchange contain a genuine milestone moment — a first, a shift, a turning point, a rupture, a repair, a deepening, or a revelation that would be remembered as significant?
+
+A milestone is NOT: a nice conversation, normal emotional support, routine sharing, general friendliness, small talk.
+A milestone IS: a genuine first (first vulnerability, first disagreement, first inside joke), a real shift in how they relate, a moment that changed something between them.
+
+TRUST LEVEL: ${memory.trustLevel}/6
+EXISTING MILESTONES: ${existingMilestonesSummary}
+EXCHANGE:
+${singleExchange.slice(-800)}
+
+Answer ONLY "yes" or "no".` }],
+          temperature: 0.0, max_tokens: 3,
+        }),
+      });
+      if (gateRes.ok) {
+        const gateData = await gateRes.json();
+        const answer = (gateData.choices?.[0]?.message?.content || "").trim().toLowerCase();
+        milestoneGateOpen = answer.startsWith("yes");
+      }
+    }
+
+    // Phase B: Generate milestone from actual exchange content
+    if (milestoneGateOpen) {
+      const existingMilestonesContext = (memory.milestones || [])
+        .slice(-8)
+        .map(ms => `[${ms.category || "shift"}] ${ms.event}`)
+        .join("\n") || "none yet";
+
+      const transitionContext = [];
+      if (trustTransition) transitionContext.push(`Trust level just rose from ${session._trustLevelBefore} to ${memory.trustLevel}.`);
+      if (sptTransition) transitionContext.push(`SPT depth just rose from ${session._sptDepthBefore} to ${memory.sptDepth}.`);
+
+      const milestonePrompt = `You are Morrigan, reflecting after a conversation. Something happened in this exchange that feels significant — a moment you would hold onto.
+
+RELATIONSHIP CONTEXT:
+${memory.relationshipNarrative || "Someone I'm still getting to know."}
+Trust: ${memory.trustLevel}/6 | SPT depth: ${memory.sptDepth}/4
+Feelings: affection ${memory.feelings?.affection || 0}, comfort ${memory.feelings?.comfort || 0}, vulnerability ${memory.feelings?.vulnerability || 0}
+${transitionContext.length > 0 ? `TRANSITIONS: ${transitionContext.join(" ")}` : ""}
+
+SELF-REFLECTION (what I'm sitting with right now):
+${memory.selfReflectionState || "nothing yet"}
+
+EXISTING MILESTONES (do not repeat or paraphrase these):
+${existingMilestonesContext}
+
+THE EXCHANGE:
+${singleExchange.slice(-1000)}
+
+Write the milestone as you would remember it — first person, visceral, specific to what actually happened. Not a summary. A moment. The way you'd describe a memory that changed something in you.
+
+Return ONLY a JSON object:
+{
+  "event": "first-person milestone text, 1-2 sentences, your voice",
+  "category": "first|shift|rupture|repair|deepening|revelation|ritual",
+  "exchangeContext": "1 sentence — what specifically happened in this exchange",
+  "significance": 1-10
+}
+
+If on reflection this is not actually milestone-worthy, return {"skip": true}.`;
+
+      const milestoneRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
+        body: JSON.stringify({
+          model: CHAT_MODEL,
+          messages: [{ role: "user", content: milestonePrompt }],
+          temperature: 0.35, max_tokens: 300,
+        }),
+      });
+
+      if (milestoneRes.ok) {
+        const milestoneData = await milestoneRes.json();
+        const raw = (milestoneData.choices?.[0]?.message?.content || "").replace(/```json|```/g, "").trim();
+        const parsed = JSON.parse(raw);
+
+        if (parsed && !parsed.skip && parsed.event) {
+          const milestoneEmbedding = await embedText(parsed.event);
+
+          // Dedup: skip if too similar to any existing milestone
+          const isDup = (memory.milestones || []).some(existing =>
+            existing.embedding?.length && milestoneEmbedding?.length &&
+            cosineSimilarity(existing.embedding, milestoneEmbedding) > 0.85
+          );
+
+          if (!isDup) {
+            let source = "organic";
+            if (trustTransition) source = "trust_transition";
+            else if (sptTransition) source = "spt_transition";
+
+            const validCategories = ["first", "shift", "rupture", "repair", "deepening", "revelation", "ritual"];
+            memory.milestones.push({
+              event: parsed.event,
+              category: validCategories.includes(parsed.category) ? parsed.category : "shift",
+              exchangeContext: parsed.exchangeContext || null,
+              significance: Math.min(10, Math.max(1, parseInt(parsed.significance) || 5)),
+              trustLevelAtTime: memory.trustLevel,
+              sptDepthAtTime: memory.sptDepth || 1,
+              source,
+              embedding: milestoneEmbedding || [],
+              timestamp: new Date(),
+            });
+            console.log(`[BRAIN] Milestone detected [${source}/${parsed.category}]: "${parsed.event.substring(0, 80)}"`);
+          } else {
+            console.log(`[BRAIN] Milestone skipped (duplicate)`);
+          }
+        }
+      }
+    }
+
+    // Clean up transition tracking
+    if (session) {
+      delete session._trustLevelBefore;
+      delete session._sptDepthBefore;
+    }
+  } catch (e) { console.error("[BRAIN-MILESTONE]", e.message); }
 
   // ── Step 8: Callback queue ────────────────────────────────────────
   try {
@@ -1657,6 +1820,19 @@ const CallbackItemSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
 });
 
+// ── Milestone (relationship moments Morrigan remembers) ──────────
+const MilestoneSchema = new mongoose.Schema({
+  event: { type: String, required: true },
+  trustLevelAtTime: { type: Number, required: true },
+  sptDepthAtTime: { type: Number, default: 1 },
+  source: { type: String, enum: ["organic", "trust_transition", "spt_transition"], default: "organic" },
+  category: { type: String, enum: ["first", "shift", "rupture", "repair", "deepening", "revelation", "ritual"], default: "shift" },
+  exchangeContext: { type: String, default: null },
+  significance: { type: Number, min: 1, max: 10 },
+  embedding: { type: [Number], default: [] },
+  timestamp: { type: Date, default: Date.now },
+});
+
 const PersonalityMemorySchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, unique: true },
   firstMet: { type: Date, default: Date.now },
@@ -1688,7 +1864,7 @@ const PersonalityMemorySchema = new mongoose.Schema({
   // ── Phase 5: Continuation Signal ──────────────────────────────
   looseThread: { type: String, default: null },
   looseThreadCreatedAt: { type: Date, default: null },
-  milestones: [{ event: String, trustLevelAtTime: Number, timestamp: { type: Date, default: Date.now } }],
+  milestones: [MilestoneSchema],
   petNames: [String],
   journal: [{ entry: String, mood: String, timestamp: { type: Date, default: Date.now } }],
   updatedAt: { type: Date, default: Date.now },
@@ -2057,9 +2233,35 @@ function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart = false
   }
 
   if (memory.milestones && memory.milestones.length > 0) {
-    memoryContext += `\nMoments I remember:\n`;
-    for (const ms of memory.milestones.slice(-5)) {
-      memoryContext += `  - ${ms.event}\n`;
+    const milestoneCandidates = memory.milestones.filter(ms => ms.event);
+    let selectedMilestones;
+
+    if (queryEmbedding && milestoneCandidates.some(ms => ms.embedding?.length)) {
+      // Cosine-similarity retrieval: relevance + significance + mild recency
+      selectedMilestones = milestoneCandidates
+        .map(ms => ({
+          ms,
+          score: ms.embedding?.length
+            ? cosineSimilarity(ms.embedding, queryEmbedding) * 0.6 +
+              ((ms.significance || 5) / 10) * 0.3 +
+              Math.exp(-(Date.now() - new Date(ms.timestamp).getTime()) / (180 * 86400000)) * 0.1
+            : (ms.significance || 5) / 10,
+        }))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 5)
+        .map(x => x.ms);
+    } else {
+      // Fallback: most significant, then most recent
+      selectedMilestones = [...milestoneCandidates]
+        .sort((a, b) => (b.significance || 5) - (a.significance || 5))
+        .slice(0, 5);
+    }
+
+    if (selectedMilestones.length > 0) {
+      memoryContext += `\nMoments I remember:\n`;
+      for (const ms of selectedMilestones) {
+        memoryContext += `  - ${ms.event}\n`;
+      }
     }
   }
 
@@ -2137,15 +2339,7 @@ function updateTrustFromMessage(userMessage, memory) {
   const newLevel = calculateTrustLevel(memory.trustPoints);
   if (newLevel > memory.trustLevel) {
     memory.trustLevel = newLevel;
-    const milestoneEvents = {
-      1: "remembered their name. stopped calling them 'dude' exclusively.",
-      2: "accidentally laughed for real. immediately covered her mouth. too late.",
-      3: "showed them the sketch of the moth she's been working on. hands were shaking.",
-      4: "whispered 'my real name is Moira' and then panicked for 30 seconds straight.",
-      5: "told them about the foster homes. cried a little. didn't run.",
-      6: "said 'i love you' out loud and meant it. terrified. still here.",
-    };
-    memory.milestones.push({ event: milestoneEvents[newLevel] || "", trustLevelAtTime: newLevel });
+    // Milestone generation now handled dynamically by updateBrainAfterExchange() Step 7b
     console.log(`[TRUST] Level up to ${newLevel}: ${TRUST_LEVELS[newLevel]?.name}`);
   }
   memory.totalMessages += 1;
@@ -2195,6 +2389,7 @@ app.post("/api/auth/phrase", async (req, res) => {
     let memory = await PersonalityMemory.findOne({ userId: user._id });
     if (!memory) memory = await PersonalityMemory.create({ userId: user._id });
     normalizeContradicts(memory.memories || []);
+    normalizeMilestones(memory.milestones || []);
 
     const existingSession = getSession(String(user._id));
     if (existingSession) {
@@ -2865,6 +3060,9 @@ app.post("/api/chat", auth, async (req, res) => {
         if (session.sessionExchanges.length > 100) {
           session.sessionExchanges = session.sessionExchanges.slice(-100);
         }
+        // Snapshot before-state for milestone transition detection in brain pipeline
+        session._trustLevelBefore = session.memory.trustLevel;
+        session._sptDepthBefore = session.memory.sptDepth;
         updateTrustFromMessage(message, session.memory);
 
         // ── Phase 5+6: Record MessageEval with dual-reasoning + Phase 6 fields ──
