@@ -29,23 +29,11 @@ const app = express();
 // trusts all proxies and allows IP spoofing via forged headers.
 app.set("trust proxy", 1);
 
-// ── CORS ──
-const _allowedOrigin = process.env.CLIENT_URL || "*";
-if (_allowedOrigin === "*") {
-  console.warn("[WARN] CLIENT_URL not set — allowing all origins (dev mode)");
-} else {
-  console.log(`[CORS] Allowing origin: ${_allowedOrigin}`);
-}
-
-// Manual preflight handler — runs before everything, guarantees headers on OPTIONS
+// ── CORS — open wildcard; JWT Bearer tokens secure all protected routes ──
 app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  if (_allowedOrigin === "*" || origin === _allowedOrigin) {
-    res.setHeader("Access-Control-Allow-Origin", origin || "*");
-  }
+  res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
-  res.setHeader("Access-Control-Allow-Credentials", "true");
   if (req.method === "OPTIONS") return res.status(204).end();
   next();
 });
