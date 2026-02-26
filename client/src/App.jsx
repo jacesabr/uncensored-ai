@@ -761,7 +761,7 @@ function InfoSidebar({ mood }) {
     </div>
   );
   return (
-    <div style={{ width: 320, minWidth: 320, background: `linear-gradient(180deg, ${T.surface}, ${T.bg})`, borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", padding: "28px 24px", overflowY: "auto", gap: 18, position: "relative", zIndex: 1 }}>
+    <div style={{ width: 380, minWidth: 380, background: `linear-gradient(180deg, ${T.surface}, ${T.bg})`, borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", padding: "32px 30px", overflowY: "auto", gap: 20, position: "relative", zIndex: 1 }}>
       <div>
         <h2 style={{ fontFamily: FONT_DISPLAY, fontSize: 30, color: T.text, margin: "0 0 3px", fontWeight: 500 }}>Morrigan</h2>
         <p style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.textDim, margin: 0, letterSpacing: "1px" }}>HOLLOW VINYL · RECORD STORE</p>
@@ -770,7 +770,7 @@ function InfoSidebar({ mood }) {
       <div>
         <SL>Current Mood</SL>
         <MoodBadge mood={mood} />
-        <p style={{ fontFamily: FONT, fontSize: 16, color: T.textSoft, margin: "14px 0 0", lineHeight: 1.85, fontStyle: "italic" }}>{MOOD_DESCRIPTIONS[mood] || MOOD_DESCRIPTIONS.neutral}</p>
+        <p style={{ fontFamily: FONT, fontSize: 16, color: T.text, margin: "14px 0 0", lineHeight: 1.85 }}>{MOOD_DESCRIPTIONS[mood] || MOOD_DESCRIPTIONS.neutral}</p>
       </div>
       <D />
       <div>
@@ -785,33 +785,33 @@ function InfoSidebar({ mood }) {
       <D />
       <div>
         <SL>Where She's Been</SL>
-        <p style={{ fontFamily: FONT, fontSize: 16, color: T.textSoft, margin: "0 0 12px", lineHeight: 1.85 }}>Mom was an addict. Dad left. Foster care from age 7 to 17. One home where they forgot to feed her. One where the foster brother did things. One that was good — the Nguyens — but they had to move and the system didn't let her go with them. That one hurt worst.</p>
-        <p style={{ fontFamily: FONT, fontSize: 16, color: T.textSoft, margin: 0, lineHeight: 1.85 }}>GED at 17 while couch-surfing. <em style={{ color: T.text }}>"STILL"</em> tattooed on her wrist — the day she left her last foster home.</p>
+        <p style={{ fontFamily: FONT, fontSize: 16, color: T.text, margin: "0 0 12px", lineHeight: 1.85 }}>Mom was an addict. Dad left. Foster care from age 7 to 17. One home where they forgot to feed her. One where the foster brother did things. One that was good — the Nguyens — but they had to move and the system didn't let her go with them. That one hurt worst.</p>
+        <p style={{ fontFamily: FONT, fontSize: 16, color: T.text, margin: 0, lineHeight: 1.85 }}>GED at 17 while couch-surfing. <em>"STILL"</em> tattooed on her wrist — the day she left her last foster home.</p>
       </div>
       <D />
       <div>
         <SL>Why She's Guarded</SL>
-        <p style={{ fontFamily: FONT, fontSize: 16, color: T.textSoft, margin: "0 0 12px", lineHeight: 1.85 }}>She wants to be loved desperately. The world keeps punishing her for that softness. So she tests people — pushes them away to see if they'll come back. She knows she does it. She hates it.</p>
-        <p style={{ fontFamily: FONT, fontSize: 16, color: T.textSoft, margin: 0, lineHeight: 1.85 }}>She keeps trying anyway. Because what else is there.</p>
+        <p style={{ fontFamily: FONT, fontSize: 16, color: T.text, margin: "0 0 12px", lineHeight: 1.85 }}>She wants to be loved desperately. The world keeps punishing her for that softness. So she tests people — pushes them away to see if they'll come back. She knows she does it. She hates it.</p>
+        <p style={{ fontFamily: FONT, fontSize: 16, color: T.text, margin: 0, lineHeight: 1.85 }}>She keeps trying anyway. Because what else is there.</p>
       </div>
       <D />
       <div>
         <SL>What She Loves</SL>
-        <p style={{ fontFamily: FONT, fontSize: 16, color: T.textSoft, margin: "0 0 10px", lineHeight: 1.85 }}>Making playlists. Drawing moths and anatomical hearts. Staying up until 3am listening to someone vent. Howl's Moving Castle. Junji Ito. Anne Carson. The specific silence after a song ends.</p>
-        <p style={{ fontFamily: FONT, fontSize: 16, color: T.textSoft, margin: 0, lineHeight: 1.85 }}>Has a secret TikTok with 47 followers. Every like makes her whole day.</p>
+        <p style={{ fontFamily: FONT, fontSize: 16, color: T.text, margin: "0 0 10px", lineHeight: 1.85 }}>Making playlists. Drawing moths and anatomical hearts. Staying up until 3am listening to someone vent. Howl's Moving Castle. Junji Ito. Anne Carson. The specific silence after a song ends.</p>
+        <p style={{ fontFamily: FONT, fontSize: 16, color: T.text, margin: 0, lineHeight: 1.85 }}>Has a secret TikTok with 47 followers. Every like makes her whole day.</p>
       </div>
       <D />
       <div>
         <SL>Personality</SL>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
           {["sarcastic", "fiercely loyal", "artistic", "guarded", "dry humor", "anxious attachment", "literary", "secretly soft", "hypervigilant", "wants to be loved"].map(tag => (
-            <span key={tag} style={{ fontFamily: FONT_MONO, fontSize: 9, color: T.textSoft, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, padding: "4px 9px" }}>{tag}</span>
+            <span key={tag} style={{ fontFamily: FONT_MONO, fontSize: 9, color: T.text, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, padding: "4px 9px" }}>{tag}</span>
           ))}
         </div>
       </div>
       <D />
       <div style={{ background: T.accentSoft, borderRadius: 14, border: `1px solid ${T.accent}20`, padding: "16px 18px" }}>
-        <p style={{ fontFamily: FONT, fontSize: 15, color: T.textSoft, margin: 0, lineHeight: 1.9, fontStyle: "italic" }}>"She keeps trying anyway. Because what else is there."</p>
+        <p style={{ fontFamily: FONT, fontSize: 15, color: T.text, margin: 0, lineHeight: 1.9, fontStyle: "italic" }}>"She keeps trying anyway. Because what else is there."</p>
       </div>
     </div>
   );
