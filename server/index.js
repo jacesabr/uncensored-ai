@@ -1442,7 +1442,7 @@ async function finalizeSession(userId) {
       const daysSinceCompute = health?.lastComputed
         ? (Date.now() - health.lastComputed.getTime()) / 86400000
         : 999;
-      if (daysSinceCompute >= 28) await computeRelationshipHealth(userId);
+      if (daysSinceCompute >= 2) await computeRelationshipHealth(userId);
     } catch (e) { console.error("[FINALIZE-PHASE6]", e.message); }
   });
 
@@ -1742,26 +1742,26 @@ async function markReturnSignal(userId) {
 async function computeRelationshipHealth(userId) {
   try {
     const now = new Date();
-    const window30 = new Date(now - 30 * 24 * 60 * 60 * 1000);
-    const window60 = new Date(now - 60 * 24 * 60 * 60 * 1000);
+    const window2d = new Date(now - 2 * 24 * 60 * 60 * 1000);   // current 48h window
+    const window4d = new Date(now - 4 * 24 * 60 * 60 * 1000);   // prior 48h window
 
-    // Current 30-day window
-    const recentSignals = await PresenceSignals.find({ userId, sessionDate: { $gte: window30 } });
-    // Prior 30-day window
-    const priorSignals  = await PresenceSignals.find({ userId, sessionDate: { $gte: window60, $lt: window30 } });
+    // Current 48h window
+    const recentSignals = await PresenceSignals.find({ userId, sessionDate: { $gte: window2d } });
+    // Prior 48h window
+    const priorSignals  = await PresenceSignals.find({ userId, sessionDate: { $gte: window4d, $lt: window2d } });
 
     const memory = await PersonalityMemory.findOne({ userId });
-    const recentEvals = await EvaluationRecord.find({ userId, sessionDate: { $gte: window30 } });
-    const priorEvals  = await EvaluationRecord.find({ userId, sessionDate: { $gte: window60, $lt: window30 } });
+    const recentEvals = await EvaluationRecord.find({ userId, sessionDate: { $gte: window2d } });
+    const priorEvals  = await EvaluationRecord.find({ userId, sessionDate: { $gte: window4d, $lt: window2d } });
 
     function avgField(arr, fn) {
       const vals = arr.map(fn).filter(v => v != null && !isNaN(v));
       return vals.length ? vals.reduce((a,b) => a+b, 0) / vals.length : null;
     }
 
-    // Sessions per week
-    const sessionFreq = recentSignals.length / 4.3;
-    const prevSessionFreq = priorSignals.length / 4.3;
+    // Sessions per 48h window (normalized to weekly rate: ×3.5)
+    const sessionFreq = recentSignals.length * 3.5;
+    const prevSessionFreq = priorSignals.length * 3.5;
 
     // CPS — Conversation-turns Per Session [P70 Xiaoice]
     const cpsValues = recentSignals.map(s => s.userTurnCount).filter(v => v != null && v > 0);
@@ -5275,7 +5275,7 @@ app.get("/api/phase6/health", auth, async (req, res) => {
     let health = await RelationshipHealth.findOne({ userId: req.user.id });
     const recentSignals = await PresenceSignals.find({
       userId: req.user.id,
-      sessionDate: { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) },
+      sessionDate: { $gte: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000) },
     }).sort({ sessionDate: -1 }).limit(20);
 
     res.json({
@@ -5731,4 +5731,22 @@ app.listen(PORT, async () => {
   console.log(`   Phase 4 active — Inner Thoughts (reservoir, ToM, async monologue, behavioral directives)\n`);
   // Run atom seeding in background — non-blocking
   seedSelfAtomsIfEmpty().catch(err => console.error("[SEED] Unhandled:", err.message));
+
+  // Auto-compute relationship health for all users every 48 hours
+  const HEALTH_INTERVAL = 48 * 60 * 60 * 1000; // 48h
+  setInterval(async () => {
+    try {
+      const users = await User.find({}, '_id');
+      console.log(`[PHASE6-CRON] Computing relationship health for ${users.length} user(s)...`);
+      for (const u of users) {
+        await computeRelationshipHealth(u._id.toString()).catch(e =>
+          console.error(`[PHASE6-CRON] User ${u._id}:`, e.message)
+        );
+      }
+      console.log(`[PHASE6-CRON] Done.`);
+    } catch (e) {
+      console.error("[PHASE6-CRON] Failed:", e.message);
+    }
+  }, HEALTH_INTERVAL);
+  console.log(`   Relationship health auto-compute: every 48h`);
 });
