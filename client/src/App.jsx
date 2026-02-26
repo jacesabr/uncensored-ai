@@ -949,7 +949,7 @@ function InfoSidebar({ mood, moodReflection, latestMeta, disclosedAtoms }) {
       <div>
         <SL>Current Mood</SL>
         <MoodBadge mood={mood} dynamicLabel={moodReflection?.moodLabel} />
-        <p style={{ fontFamily: FONT, fontSize: 16, color: T.text, margin: "14px 0 0", lineHeight: 1.85 }}>{moodReflection?.reflection || MOOD_DESCRIPTIONS[mood] || MOOD_DESCRIPTIONS.neutral}</p>
+        <p style={{ fontFamily: FONT, fontSize: 16, color: T.text, margin: "14px 0 0", lineHeight: 1.85, overflowWrap: "break-word", wordBreak: "break-word" }}>{moodReflection?.reflection || MOOD_DESCRIPTIONS[mood] || MOOD_DESCRIPTIONS.neutral}</p>
       </div>
       <D />
 

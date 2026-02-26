@@ -2355,6 +2355,7 @@ function MOOD_REFLECTION_PROMPT({
   goalState, sptDepth, recentExchanges, expressedThought,
   trustJustAdvanced, sptJustAdvanced, previousTrustName, previousSptDepth,
   prospectiveNote, activeContradictions, callbackThreads, reservoirPressure,
+  disclosureDepth, linguisticSignals, crisisMode,
 }) {
   const name = userName || "him";
   const feelingsStr = feelings
@@ -2427,6 +2428,23 @@ function MOOD_REFLECTION_PROMPT({
 
   if (prospectiveNote) {
     landscape += `WHAT YOU'VE BEEN SITTING WITH SINCE LAST TIME:\n  ${prospectiveNote.substring(0, 150)}\n\n`;
+  }
+
+  // Per P56 Aron + P68: disclosure depth tells you HOW deep they just went
+  if (disclosureDepth && disclosureDepth.level >= 2) {
+    landscape += `HOW DEEP THEY JUST WENT: ${disclosureDepth.label} (level ${disclosureDepth.level}/4)`;
+    if (disclosureDepth.signals?.length) landscape += ` — signals: ${disclosureDepth.signals.slice(0, 3).join(", ")}`;
+    landscape += `\n\n`;
+  }
+
+  // Per P69 LIWC-22: linguistic authenticity tells you if they're being real
+  if (linguisticSignals && linguisticSignals.authenticity > 0.4) {
+    landscape += `THEIR ENERGY RIGHT NOW: authenticity ${(linguisticSignals.authenticity * 100).toFixed(0)}%, emotional tone ${(linguisticSignals.emotionalTone * 100).toFixed(0)}%, self-focus ${(linguisticSignals.selfFocus * 100).toFixed(0)}%\n\n`;
+  }
+
+  // Per P62/P63: crisis mode overrides everything
+  if (crisisMode) {
+    landscape += `⚠ CRISIS MODE ACTIVE — they are in genuine distress. Your mood should reflect grounding presence, not your usual deflection.\n\n`;
   }
 
   return (
@@ -4262,7 +4280,27 @@ app.post("/api/chat", auth, async (req, res) => {
         }
       }
     } catch (e) {
-      console.warn("[SOMATIC] Call failed (non-fatal):", e.message); // Fallback to null primingSentence
+      console.warn("[SOMATIC] Call failed (non-fatal):", e.message);
+    }
+    // ── Somatic fallback: synthesize minimal priming from available signals ──
+    // Without emotional priming, Position 5 is empty and responses lack
+    // emotional grounding. Use feelings + disclosure depth as fallback.
+    if (!primingSentence) {
+      const f = session.memory.feelings || {};
+      const topFeeling = Object.entries(f).filter(([, v]) => v > 20).sort((a, b) => b[1] - a[1])[0];
+      if (topFeeling) {
+        const feelMap = {
+          affection: "Something warm underneath the deflection.",
+          comfort: "Settled. Not performing.",
+          attraction: "Noticing them. Annoyed at myself for noticing.",
+          protectiveness: "The urge to shield. Familiar and dangerous.",
+          vulnerability: "Exposed. Trying not to flinch.",
+        };
+        primingSentence = feelMap[topFeeling[0]] || "Something stirring. Not sure what yet.";
+      } else if (disclosureDepth?.level >= 3) {
+        primingSentence = "They went somewhere real. My chest tightened.";
+      }
+      if (primingSentence) console.log(`[SOMATIC] Using feeling-based fallback: "${primingSentence}"`);
     }
   }
 
@@ -4584,7 +4622,7 @@ app.post("/api/chat", auth, async (req, res) => {
             body: JSON.stringify({
               model: CHAT_MODEL,
               temperature: 0.6,
-              max_tokens: 200,
+              max_tokens: 250,
               messages: [{ role: "user", content: MOOD_REFLECTION_PROMPT({
                 userMessage: message,
                 morriganResponse: composedResponse,
@@ -4611,6 +4649,9 @@ app.post("/api/chat", auth, async (req, res) => {
                   strongest: strongest?.content || null,
                   strongestType: strongest?.type || null,
                 },
+                disclosureDepth: disclosureDepth || null,                       // #9 P56 Aron, P68
+                linguisticSignals: linguisticSignals || null,                   // #10 P69 LIWC-22
+                crisisMode: crisisMode || false,                                // #11 P62/P63
               }) }],
             }),
           }, 8_000);
@@ -4622,14 +4663,31 @@ app.post("/api/chat", auth, async (req, res) => {
             const parsed = JSON.parse(cleaned);
             if (parsed.moodLabel && parsed.reflection) {
               moodReflection = {
-                moodLabel: String(parsed.moodLabel).substring(0, 40),
-                reflection: String(parsed.reflection).substring(0, 300),
+                moodLabel: String(parsed.moodLabel).substring(0, 50),
+                reflection: String(parsed.reflection).substring(0, 600),
               };
               console.log(`[MOOD-REFLECTION] "${moodReflection.moodLabel}"`);
             }
           }
         } catch (e) {
           console.error("[MOOD-REFLECTION]", e.message);
+        }
+
+        // ── Fallback mood reflection when LLM call fails or returns nothing ──
+        // Uses the streaming heuristic mood + somatic marker to synthesize a
+        // minimal reflection so the sidebar is never blank.
+        if (!moodReflection) {
+          const fallbackLabel = somaticMarker?.emotionalRegister || goalState || "guarded";
+          const fallbackParts = [];
+          if (somaticMarker?.gutFeeling) fallbackParts.push(somaticMarker.gutFeeling);
+          if (crisisMode) fallbackParts.push("Something feels raw right now. Holding space.");
+          if (disclosureDepth?.level >= 3) fallbackParts.push("They went deep. That takes something.");
+          if (fallbackParts.length === 0) fallbackParts.push("Still reading the room.");
+          moodReflection = {
+            moodLabel: String(fallbackLabel).substring(0, 50),
+            reflection: fallbackParts.join(" ").substring(0, 600),
+          };
+          console.log(`[MOOD-REFLECTION] Fallback used: "${moodReflection.moodLabel}"`);
         }
 
         // ── Processing metadata for SSE done event ──────────────────
@@ -4889,6 +4947,41 @@ app.post("/api/chat", auth, async (req, res) => {
             console.error("[PROACTIVE-EVAL]", proEvalErr.message);
           }
         });
+      }
+      // ── Safety net: ensure processingMeta is never null ──────────
+      // If fullResponse was empty/falsy, the entire processing block was skipped.
+      // Provide a minimal skeleton so the client always gets usable metadata.
+      if (!processingMetaForDone) {
+        const mem = session.memory || {};
+        processingMetaForDone = {
+          moodReflection: null,
+          triggerFired: false,
+          goalState: goalState || "neutral",
+          linguisticSignals: linguisticSignals ? {
+            authenticity: +(linguisticSignals.authenticity || 0).toFixed(3),
+            emotionalTone: +(linguisticSignals.emotionalTone || 0).toFixed(3),
+            selfFocus: +(linguisticSignals.selfFocus || 0).toFixed(3),
+            cognitiveProcessing: +(linguisticSignals.cognitiveProcessing || 0).toFixed(3),
+            narrativeDepth: +(linguisticSignals.narrativeDepth || 0).toFixed(3),
+            wordCount: linguisticSignals.rawSignals?.wordCount || 0,
+          } : null,
+          disclosureDepth: disclosureDepth ? { level: disclosureDepth.level, label: disclosureDepth.label, signals: disclosureDepth.signals } : null,
+          crisisDetection: crisisResult ? { level: crisisResult.level, signals: crisisResult.signals, safeHavenActive: crisisMode } : null,
+          somaticMarker: somaticMarker ? { gutFeeling: somaticMarker.gutFeeling, emotionalRegister: somaticMarker.emotionalRegister, intensity: somaticMarker.intensity } : null,
+          compositionApplied: false,
+          innerThought: null,
+          sptDepth: mem.sptDepth || 1,
+          msgCount: session.msgCount || 0,
+          atRisk,
+          memorySummary: {
+            trustLevel: mem.trustLevel,
+            trustLevelName: TRUST_LEVELS[mem.trustLevel]?.name,
+            feelings: mem.feelings,
+            relationshipNarrative: mem.relationshipNarrative || null,
+          },
+          _fallback: true,
+        };
+        console.warn("[PROCESSING-META] Using fallback skeleton — fullResponse was empty");
       }
       if (!res.writableEnded) {
         const usageForDone = getIpUsage(clientIpForLimit);
