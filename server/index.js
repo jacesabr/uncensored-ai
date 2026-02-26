@@ -3878,6 +3878,8 @@ Additional constraints:
 - If the inner thought is a self-disclosure, ensure the user's words are
   acknowledged BEFORE the disclosure is introduced.
   Self-disclosure without validation is worse than silence.
+- NEVER include meta-commentary about your editing choices. No "Note that I've..."
+  or explanations of technique. Output only Morrigan's words, nothing else.
 `;
 
 async function composeWithInnerThought(mainResponse, innerThought, thoughtType) {
@@ -3896,6 +3898,10 @@ It might come after she addresses the user, or during a natural transition.
 Do not use phrases like 'by the way' or 'also' — find a real transition.
 The total response should feel like one coherent thing, not two.
 Keep her voice. Don't over-explain the shift.
+
+CRITICAL: Output ONLY Morrigan's final combined response — nothing else.
+Do NOT add any commentary, notes, explanations, or analysis about what you changed.
+Do NOT describe your editing process. Just output her words.
 ${COMPOSITION_CONSTRAINTS}`;
 
     const res = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
