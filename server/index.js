@@ -3539,6 +3539,14 @@ async function seedSelfAtomsIfEmpty() {
   }
 }
 
+// Serve React client in production (single-service deployment)
+const path = require("path");
+const clientDist = path.join(__dirname, "../client/dist");
+app.use(express.static(clientDist));
+app.get(/^(?!\/api).*/, (req, res) => {
+  res.sendFile(path.join(clientDist, "index.html"));
+});
+
 app.listen(PORT, async () => {
   console.log(`\n⚡ MORRIGAN AI — port ${PORT}`);
   console.log(`   Kaggle: ${COLAB_URL}`);

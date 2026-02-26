@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from "react";
 import morriganImg from "./morgan.png";
 
-const _rawApi = import.meta.env.VITE_API_URL || "http://localhost:5000";
-const API = _rawApi.startsWith("http") ? _rawApi : `https://${_rawApi}`;
+const API = import.meta.env.DEV
+  ? (import.meta.env.VITE_API_URL || "http://localhost:5000")
+  : "";
 
 const T = {
   bg: "#f6f7fb", surface: "#ffffff", surface2: "#f0f0f5", surface3: "#e8e8f0",
