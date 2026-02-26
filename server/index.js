@@ -6,6 +6,13 @@ const fetch = require("node-fetch");
 const { v4: uuidv4 } = require("uuid");
 require("dotenv").config();
 
+process.on("unhandledRejection", (reason) => {
+  console.error("[CRASH] Unhandled promise rejection:", reason);
+});
+process.on("uncaughtException", (err) => {
+  console.error("[CRASH] Uncaught exception:", err.message, err.stack);
+});
+
 // ── Fail-fast on missing critical env vars ─────────────────────────
 const _missingVars = [];
 if (!process.env.MONGO_URI)          _missingVars.push("MONGO_URI");
