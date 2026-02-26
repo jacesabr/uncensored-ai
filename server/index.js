@@ -37,14 +37,19 @@ if (_allowedOrigin === "*") {
 } else {
   console.log(`[CORS] Allowing origin: ${_allowedOrigin}`);
 }
-const _corsOptions = {
-  origin: _allowedOrigin,
-  credentials: _allowedOrigin !== "*",
-  methods: ["GET", "POST", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
-};
-app.use(cors(_corsOptions));
-app.options("*", cors(_corsOptions));
+
+// Manual preflight handler — runs before everything, guarantees headers on OPTIONS
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (_allowedOrigin === "*" || origin === _allowedOrigin) {
+    res.setHeader("Access-Control-Allow-Origin", origin || "*");
+  }
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+  if (req.method === "OPTIONS") return res.status(204).end();
+  next();
+});
 app.use(express.json({ limit: "1mb" }));
 const CHAT_MODEL = process.env.CHAT_MODEL || "meta-llama/llama-3.1-8b-instruct";
 // All fetch calls append /v1/... — so this base must NOT include /v1
