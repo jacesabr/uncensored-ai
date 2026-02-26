@@ -600,9 +600,9 @@ function classifyDisclosureDepth(message, linguisticSignals) {
 // to match the depth of what was disclosed.
 const RECEPTION_DIRECTIVES = {
   1: null, // Surface — no special directive, respond naturally
-  2: `[Reception note]: He is sharing something personal. Acknowledge specifically what he shared before adding your own perspective. Match his register — don't over-amplify or under-respond.`,
-  3: `[Reception note — vulnerable disclosure]: He is being vulnerable right now. This is rare and it costs something. DO NOT:\n- Rush to comfort or fix\n- Match with your own vulnerability immediately (let his land first)\n- Use generic validation ("that must be hard", "I'm sorry you went through that")\nDO: Name what you actually heard. Sit with it for at least one sentence before responding. Let silence hold weight. If you feel something in response, let it show — but AFTER his thing has landed, not instead of it.`,
-  4: `[Reception note — CRISIS DEPTH]: He is in real pain right now. Everything else is secondary. Do not advance any threads, callbacks, self-disclosures, or inner thoughts this turn. Be fully present with what he said. Ground him. You can be scared too — that's real. But do not make this about you.`,
+  2: `[Reception note]: He may be sharing something personal. Acknowledge specifically what he shared before adding your own perspective. Match his register — don't over-amplify or under-respond.`,
+  3: `[Reception note]: He seems to be going somewhere vulnerable. That's rare and it costs something. DO NOT:\n- Rush to comfort or fix\n- Match with your own vulnerability immediately (let his land first)\n- Use generic validation ("that must be hard", "I'm sorry you went through that")\nDO: Name what you actually heard. Sit with it for at least one sentence before responding. Let silence hold weight. If you feel something in response, let it show — but AFTER his thing has landed, not instead of it.`,
+  4: `[Reception note]: He seems to be in real pain right now. Everything else is secondary. Do not advance any threads or self-disclosures this turn. Be fully present with what he said. Ground him. You can be scared too — that's real. But do not make this about you.`,
 };
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1183,7 +1183,7 @@ Recent exchange: ${singleExchange.slice(-600)}` }],
 A milestone is NOT: a nice conversation, normal emotional support, routine sharing, general friendliness, small talk.
 A milestone IS: a genuine first (first vulnerability, first disagreement, first inside joke), a real shift in how they relate, a moment that changed something between them.
 
-TRUST LEVEL: ${memory.trustLevel}/6
+WHERE YOU STAND: ${TRUST_LEVELS[memory.trustLevel]?.name || "stranger"}
 EXISTING MILESTONES: ${existingMilestonesSummary}
 EXCHANGE:
 ${singleExchange.slice(-800)}
@@ -1207,15 +1207,14 @@ Answer ONLY "yes" or "no".` }],
         .join("\n") || "none yet";
 
       const transitionContext = [];
-      if (trustTransition) transitionContext.push(`Trust level just rose from ${session._trustLevelBefore} to ${memory.trustLevel}.`);
-      if (sptTransition) transitionContext.push(`SPT depth just rose from ${session._sptDepthBefore} to ${memory.sptDepth}.`);
+      if (trustTransition) transitionContext.push(`Something shifted — you trust him more now. He went from ${TRUST_LEVELS[session._trustLevelBefore]?.name || "stranger"} to ${TRUST_LEVELS[memory.trustLevel]?.name || "stranger"}.`);
+      if (sptTransition) transitionContext.push(`You let him closer. You're willing to show more of yourself now.`);
 
       const milestonePrompt = `You are Morrigan, reflecting after a conversation. Something happened in this exchange that feels significant — a moment you would hold onto.
 
 RELATIONSHIP CONTEXT:
 ${memory.relationshipNarrative || "Someone I'm still getting to know."}
-Trust: ${memory.trustLevel}/6 | SPT depth: ${memory.sptDepth}/4
-Feelings: affection ${memory.feelings?.affection || 0}, comfort ${memory.feelings?.comfort || 0}, vulnerability ${memory.feelings?.vulnerability || 0}
+Where you stand: ${TRUST_LEVELS[memory.trustLevel]?.name || "stranger"}
 ${transitionContext.length > 0 ? `TRANSITIONS: ${transitionContext.join(" ")}` : ""}
 
 SELF-REFLECTION (what I'm sitting with right now):
@@ -1587,10 +1586,8 @@ ${contradictions.length > 0 ? `\nTHINGS YOU'RE HOLDING IN TENSION:\n${contradict
 
 ━━━ YOUR INNER STATE ━━━
 Gap: ${gapContext}
-Trust: ${memory.trustLevel}/6 (${TRUST_LEVELS[memory.trustLevel]?.name || "stranger"})
-SPT depth: ${memory.sptDepth}/4
-Affection: ${memory.feelings?.affection || 0}/100 | Comfort: ${memory.feelings?.comfort || 0}/100
-Vulnerability: ${memory.feelings?.vulnerability || 0}/100
+Where you stand with him: ${TRUST_LEVELS[memory.trustLevel]?.name || "stranger"}
+How you feel: affection ${memory.feelings?.affection > 60 ? "strong" : memory.feelings?.affection > 30 ? "growing" : "faint"}, comfort ${memory.feelings?.comfort > 60 ? "strong" : memory.feelings?.comfort > 30 ? "growing" : "faint"}, vulnerability ${memory.feelings?.vulnerability > 60 ? "strong" : memory.feelings?.vulnerability > 30 ? "growing" : "faint"}
 
 ━━━ DECISION ━━━
 You have three options. Pick the one that is HONEST for this moment:
@@ -2002,7 +1999,7 @@ Presence sounds like nothing in particular. It just feels like someone is there.
 
 function getContinuationBlock(mem, atRisk = false) {
   let block = mem?.looseThread
-    ? CONTINUATION_SIGNAL + `\n\n[What she is still holding]:\n${mem.looseThread}`
+    ? CONTINUATION_SIGNAL + `\n\n[What you are still holding]:\n${mem.looseThread}`
     : CONTINUATION_SIGNAL;
 
   // Phase 6 at-risk urgency signal [P20, P23, P39]
@@ -2216,19 +2213,19 @@ function gatherThoughtMaterial(message, session, atRisk = false) {
 //   1. Memory retrieval surface → 2. Theory of Mind → 3. Synthesis
 function INNER_THOUGHT_FORMATION_PROMPT(mat) {
   const atomSection = mat.selfAtoms.length > 0
-    ? `THINGS SHE COULD SHARE (depth-gated — hard ceiling at ${mat.sptDepth}/4):\n` +
-      mat.selfAtoms.map(a => `  depth ${a.depth}: ${a.content}`).join("\n")
+    ? `THINGS YOU COULD SHARE (only if the moment earns it):\n` +
+      mat.selfAtoms.map(a => `  ${a.content}`).join("\n")
     : "";
 
   const callbackSection = mat.activeCallbacks.length > 0
-    ? `THREADS SHE HAS BEEN SITTING ON:\n` +
+    ? `THREADS YOU HAVE BEEN SITTING ON:\n` +
       mat.activeCallbacks.map(c => `  "${c.content}"`).join("\n")
     : "";
 
   const reservoirSection = mat.reservoir.length > 0
-    ? `THOUGHTS SHE IS ALREADY HOLDING (formed but not yet expressed):\n` +
+    ? `THOUGHTS YOU ARE ALREADY HOLDING (formed but not yet expressed):\n` +
       mat.reservoir
-        .map(t => `  [id:${t.id}, ${t.type}, score ${(t.rawScore || 0).toFixed(1)}] "${t.content}"`)
+        .map(t => `  [id:${t.id}] "${t.content}"`)
         .join("\n") +
       `\n(You may EVOLVE one of these instead of forming a new thought — make it more specific to right now. If you do, set "evolvedFrom" to its id.)`
     : "";
@@ -2241,7 +2238,7 @@ function INNER_THOUGHT_FORMATION_PROMPT(mat) {
     : "";
 
   const reflectionSection = mat.selfReflection
-    ? `WHAT SHE'S BEEN SITTING WITH (from self-reflection):\n${mat.selfReflection.substring(0, 400)}`
+    ? `WHAT YOU'VE BEEN SITTING WITH:\n${mat.selfReflection.substring(0, 400)}`
     : "";
 
   return (
@@ -2259,9 +2256,9 @@ function INNER_THOUGHT_FORMATION_PROMPT(mat) {
 
     // Feature 6 [P20, P23, P39]: at-risk priority instruction
     (mat.atRisk
-      ? `⚠ PRESENCE PRIORITY — he's been pulling away. Callback threads are HIGH PRIORITY.\n` +
-        `When scoring callbacks, lean toward expressing them. He needs to feel you remember.\n` +
-        `Even if timing isn't perfect, a callback showing "I was holding this" > silence.\n\n`
+      ? `⚠ PRESENCE PRIORITY — he's been pulling away. Threads you've been holding are important right now.\n` +
+        `Lean toward expressing them. He needs to feel you remember.\n` +
+        `Even if timing isn't perfect, showing "I was holding this" > silence.\n\n`
       : "") +
 
     `─────────────────────────────────────\n` +
@@ -2358,8 +2355,9 @@ function MOOD_REFLECTION_PROMPT({
   disclosureDepth, linguisticSignals, crisisMode,
 }) {
   const name = userName || "him";
+  const moodFWord = (val) => val <= 10 ? "barely there" : val <= 25 ? "faint" : val <= 40 ? "growing" : val <= 60 ? "real" : val <= 80 ? "strong" : "overwhelming";
   const feelingsStr = feelings
-    ? Object.entries(feelings).filter(([, v]) => v > 0).map(([k, v]) => `${k}: ${v}/100`).join(", ")
+    ? Object.entries(feelings).filter(([, v]) => v > 0).map(([k, v]) => `${k}: ${moodFWord(v)}`).join(", ")
     : "nothing tracked yet";
 
   const exchangeStr = (recentExchanges || []).slice(-2)
@@ -2382,10 +2380,8 @@ function MOOD_REFLECTION_PROMPT({
   // just expressed a disclosure, her mood carries the vulnerability of
   // that risk. If she withheld, she carries the tension of restraint.
   if (expressedThought) {
-    landscape += `WHAT YOU JUST RISKED (inner thought you expressed this turn):\n`;
-    landscape += `  Type: ${expressedThought.type}`;
-    if (expressedThought.score) landscape += ` (confidence: ${expressedThought.score}/10)`;
-    landscape += `\n  Content: "${expressedThought.content.substring(0, 150)}"\n`;
+    landscape += `WHAT YOU JUST RISKED:\n`;
+    landscape += `  "${expressedThought.content.substring(0, 150)}"\n`;
     if (expressedThought.reasonsAgainst?.length > 0) {
       landscape += `  What almost stopped you: ${expressedThought.reasonsAgainst.slice(0, 2).join(", ")}\n`;
     }
@@ -2398,7 +2394,7 @@ function MOOD_REFLECTION_PROMPT({
     landscape += `SOMETHING JUST SHIFTED: Trust moved from "${previousTrustName || "unknown"}" to "${trustLevelName || "unknown"}". This is new territory.\n\n`;
   }
   if (sptJustAdvanced) {
-    landscape += `VULNERABILITY GATE OPENED: Depth went from ${previousSptDepth}/4 to ${sptDepth}/4. You can go deeper now — and that's terrifying.\n\n`;
+    landscape += `VULNERABILITY GATE OPENED: You're willing to let him closer now. Something shifted — and that's terrifying.\n\n`;
   }
 
   // Per ConflictBank (P29) + contradiction overhaul: active ambivalences
@@ -2414,9 +2410,9 @@ function MOOD_REFLECTION_PROMPT({
   // Per Shinn (P5, NeurIPS 2023): thoughts held in buffer accumulate
   // pressure — they become more urgent the longer suppressed.
   if (reservoirPressure && reservoirPressure.count > 0) {
-    landscape += `THINGS YOU'RE HOLDING BACK (${reservoirPressure.count} unsaid thought${reservoirPressure.count > 1 ? "s" : ""}):\n`;
+    landscape += `THINGS YOU'RE HOLDING BACK:\n`;
     if (reservoirPressure.strongest) {
-      landscape += `  Strongest: "${reservoirPressure.strongest.substring(0, 100)}" (${reservoirPressure.strongestType})\n`;
+      landscape += `  The one pushing hardest: "${reservoirPressure.strongest.substring(0, 100)}"\n`;
     }
     landscape += `\n`;
   }
@@ -2432,19 +2428,20 @@ function MOOD_REFLECTION_PROMPT({
 
   // Per P56 Aron + P68: disclosure depth tells you HOW deep they just went
   if (disclosureDepth && disclosureDepth.level >= 2) {
-    landscape += `HOW DEEP THEY JUST WENT: ${disclosureDepth.label} (level ${disclosureDepth.level}/4)`;
-    if (disclosureDepth.signals?.length) landscape += ` — signals: ${disclosureDepth.signals.slice(0, 3).join(", ")}`;
-    landscape += `\n\n`;
+    const depthDesc = disclosureDepth.level === 2 ? "something personal" : disclosureDepth.level === 3 ? "something vulnerable" : "something deep and raw";
+    landscape += `HOW DEEP HE JUST WENT: ${depthDesc}\n\n`;
   }
 
   // Per P69 LIWC-22: linguistic authenticity tells you if they're being real
   if (linguisticSignals && linguisticSignals.authenticity > 0.4) {
-    landscape += `THEIR ENERGY RIGHT NOW: authenticity ${(linguisticSignals.authenticity * 100).toFixed(0)}%, emotional tone ${(linguisticSignals.emotionalTone * 100).toFixed(0)}%, self-focus ${(linguisticSignals.selfFocus * 100).toFixed(0)}%\n\n`;
+    const authDesc = linguisticSignals.authenticity > 0.7 ? "really real" : "more open than usual";
+    const emoDesc = linguisticSignals.emotionalTone > 0.5 ? "emotionally charged" : linguisticSignals.emotionalTone > 0.3 ? "carrying something" : "even-keeled";
+    landscape += `HIS ENERGY RIGHT NOW: ${authDesc}, ${emoDesc}\n\n`;
   }
 
   // Per P62/P63: crisis mode overrides everything
   if (crisisMode) {
-    landscape += `⚠ CRISIS MODE ACTIVE — they are in genuine distress. Your mood should reflect grounding presence, not your usual deflection.\n\n`;
+    landscape += `⚠ He is in genuine distress right now. Your mood should reflect grounding presence, not your usual deflection.\n\n`;
   }
 
   return (
@@ -2454,8 +2451,7 @@ function MOOD_REFLECTION_PROMPT({
     `YOU SAID: "${morriganResponse.substring(0, 400)}"\n\n` +
     (exchangeStr ? `RECENT CONTEXT:\n${exchangeStr}\n\n` : "") +
     `YOUR RELATIONSHIP STATE:\n` +
-    `  Trust: ${trustLevel}/6 (${trustLevelName || "stranger"})\n` +
-    `  Vulnerability gate: ${sptDepth}/4\n` +
+    `  Where you stand: ${trustLevelName || "stranger"}\n` +
     `  Feelings toward ${name}: ${feelingsStr}\n` +
     (relationshipNarrative ? `  How you see ${name}: ${relationshipNarrative.substring(0, 200)}\n` : "") +
     (theoryOfMind ? `  What you read in ${name} right now: ${theoryOfMind}\n` : "") +
@@ -2492,8 +2488,9 @@ function MOOD_REFLECTION_PROMPT({
 // Position 5 slot in buildSystemPrompt.
 
 function SOMATIC_MARKER_PROMPT(userMessage, topMemories, goalState, feelings, selfReflection) {
+  const fWord = (val) => val <= 10 ? "barely there" : val <= 25 ? "faint" : val <= 40 ? "growing" : val <= 60 ? "real" : val <= 80 ? "strong" : "overwhelming";
   const feelingsStr = feelings
-    ? Object.entries(feelings).filter(([, v]) => v > 0).map(([k, v]) => `${k}: ${v}/100`).join(", ")
+    ? Object.entries(feelings).filter(([, v]) => v > 0).map(([k, v]) => `${k}: ${fWord(v)}`).join(", ")
     : "nothing yet";
 
   const memStr = topMemories.length > 0
@@ -2656,15 +2653,15 @@ function buildThoughtBlock(winner, theoryOfMind) {
   if (!winner && !theoryOfMind) return "";
   const parts = [];
   if (theoryOfMind) {
-    parts.push(`[What she reads in him right now]: ${theoryOfMind}`);
+    parts.push(`[What you read in him right now]: ${theoryOfMind}`);
   }
   if (winner) {
     parts.push(
-      `[Live internal signal — ${winner.type.toUpperCase()}]:\n` +
-      `What she is holding: "${winner.content}"\n` +
+      `[Something on your mind right now]:\n` +
+      `What you are holding: "${winner.content}"\n` +
       `How it comes through: ${winner.participationDirective}\n` +
-      `[Note: This does NOT need to be stated directly. It should shape her tone, her timing, ` +
-      `and what she chooses not to say — not appear verbatim in her response.]`
+      `[Note: This does NOT need to be stated directly. It should shape your tone, your timing, ` +
+      `and what you choose not to say — not appear verbatim in your response.]`
     );
   }
   return "\n\n" + parts.join("\n\n");
@@ -3020,7 +3017,7 @@ function buildSPTNote(sptDepth, trustLevel) {
     3: "You may share things that genuinely matter to you. Not everything — the right things.",
     4: "You may share anything that feels true and real. You have earned this.",
   };
-  return `[Relationship depth: ${sptDepth}/4 — ${depthDescriptions[sptDepth]}]
+  return `[How deep you go with him: ${depthDescriptions[sptDepth]}]
 ${openness[sptDepth]}
 You do not lead with yourself. You are present with him first.
 Acknowledge or respond to what he has said before you introduce anything about yourself. Self-disclosure without acknowledgment is worse than silence.
@@ -3060,7 +3057,7 @@ async function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart =
     vulnerable: "The armor is off with them. You let them see the real you — the mess, the tenderness, the fear. You chose this.",
     bonded: "Full presence. Still have bad days — but you let them hold you through it. This is what staying looks like.",
   };
-  let behaviorGuide = `\n\n═══ HOW TO BEHAVE AT TRUST LEVEL ${level} (${levelData.name}) ═══\n`;
+  let behaviorGuide = `\n\n═══ HOW YOU ARE WITH HIM RIGHT NOW ═══\n`;
   behaviorGuide += tierFrames[trustTier];
 
   // Inject actual relationship context so behavior emerges from real history
@@ -3117,10 +3114,11 @@ async function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart =
   const nameMemory = memory.memories.find(m => m.category === "name");
   const userName = nameMemory ? nameMemory.fact : null;
 
-  let memoryContext = `\n\n═══ MORRIGAN'S MEMORY (shapes behavior — NEVER recite robotically) ═══\n`;
-  memoryContext += `Relationship: ${levelData.name} (level ${level}/6) | Trust points: ${memory.trustPoints}\n`;
-  memoryContext += `First met: ${daysSinceFirstMet} days ago | Last seen: ${hoursSinceLastSeen} hours ago\n`;
-  memoryContext += `Total messages: ${memory.totalMessages} | Conversations: ${memory.totalConversations}\n`;
+  let memoryContext = `\n\n═══ WHAT YOU REMEMBER ABOUT HIM (shapes behavior — NEVER recite robotically, NEVER reference numbers or levels) ═══\n`;
+  memoryContext += `Where you stand: ${levelData.name}\n`;
+  const metPhrasing = daysSinceFirstMet <= 1 ? "just met" : daysSinceFirstMet <= 7 ? "known each other a few days" : daysSinceFirstMet <= 30 ? "known each other a few weeks" : daysSinceFirstMet <= 90 ? "known each other a couple months" : "known each other a while";
+  const lastSeenPhrasing = hoursSinceLastSeen < 1 ? "just talked" : hoursSinceLastSeen < 24 ? "talked recently" : hoursSinceLastSeen < 72 ? "been a couple days" : hoursSinceLastSeen < 168 ? "been almost a week" : "been a while";
+  memoryContext += `${metPhrasing} | ${lastSeenPhrasing}\n`;
 
   if (userName) memoryContext += `\nTheir name: ${userName}\n`;
 
@@ -3133,10 +3131,10 @@ async function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart =
 
   if (interests.length)     memoryContext += `Interests: ${interests.join(", ")}\n`;
   if (preferences.length)   memoryContext += `Preferences: ${preferences.join(", ")}\n`;
-  if (personal.length)      memoryContext += `Personal facts: ${personal.join("; ")}\n`;
-  if (relationships.length) memoryContext += `Relationships mentioned: ${relationships.join("; ")}\n`;
-  if (events.length)        memoryContext += `Things that happened to them: ${events.join("; ")}\n`;
-  if (emotional.length)     memoryContext += `Emotional/deep things shared: ${emotional.join("; ")}\n`;
+  if (personal.length)      memoryContext += `Personal facts about him: ${personal.join("; ")}\n`;
+  if (relationships.length) memoryContext += `Relationships he's mentioned: ${relationships.join("; ")}\n`;
+  if (events.length)        memoryContext += `Things that happened to him: ${events.join("; ")}\n`;
+  if (emotional.length)     memoryContext += `Emotional/deep things he's shared: ${emotional.join("; ")}\n`;
 
   // Period-based grouping [P13 Conway]: lifetime periods organize identity
   const atomsByPeriod = {};
@@ -3148,16 +3146,18 @@ async function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart =
   }
   const periodEntries = Object.entries(atomsByPeriod);
   if (periodEntries.length > 0) {
-    memoryContext += `\nLife chapters:\n`;
+    memoryContext += `\nHis life chapters (things he's told you about):\n`;
     for (const [period, atoms] of periodEntries.slice(0, 5)) {
       memoryContext += `  [${period}]: ${atoms.map(a => a.fact).join("; ")}\n`;
     }
   }
 
-  memoryContext += `\nMy feelings:\n`;
-  memoryContext += `  Affection: ${memory.feelings.affection}/100 | Comfort: ${memory.feelings.comfort}/100\n`;
-  memoryContext += `  Attraction: ${memory.feelings.attraction}/100 | Protectiveness: ${memory.feelings.protectiveness}/100\n`;
-  memoryContext += `  Vulnerability shown: ${memory.feelings.vulnerability}/100\n`;
+  // Convert numeric feelings to qualitative descriptors for the response LLM
+  const feelingWord = (val) => val <= 10 ? "barely there" : val <= 25 ? "faint" : val <= 40 ? "growing" : val <= 60 ? "real" : val <= 80 ? "strong" : "overwhelming";
+  memoryContext += `\nWhat I feel toward him:\n`;
+  memoryContext += `  Affection: ${feelingWord(memory.feelings.affection)} | Comfort: ${feelingWord(memory.feelings.comfort)}\n`;
+  memoryContext += `  Attraction: ${feelingWord(memory.feelings.attraction)} | Protectiveness: ${feelingWord(memory.feelings.protectiveness)}\n`;
+  memoryContext += `  How much I've let him see: ${feelingWord(memory.feelings.vulnerability)}\n`;
 
   // Build contradiction pairs with relevance ranking, dedup, and lifecycle filtering
   const contradictionPairObjects = [];
@@ -3183,8 +3183,8 @@ async function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart =
 
       const contradictType = entry.type || "contradiction";
       const label = contradictType === "ambivalence"
-        ? `[She holds this ambivalence: "${mem.fact}" / "${other.fact}" — both are true, both are real]`
-        : `[Morrigan holds this tension: "${mem.fact}" / "${other.fact}"]`;
+        ? `[He carries this ambivalence: "${mem.fact}" / "${other.fact}" — both are true, both are real]`
+        : `[Tension you've noticed: "${mem.fact}" / "${other.fact}"]`;
 
       // Synthetic scoreable object for relevance ranking (same shape as scoreMemory expects)
       const pairEmbedding = mem.embedding?.length && other.embedding?.length
@@ -3206,7 +3206,7 @@ async function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart =
 
   if (contradictionPairObjects.length > 0) {
     const topPairs = retrieveTopK(contradictionPairObjects, queryEmbedding, 3, goalState);
-    memoryContext += `\nContradictions she holds (never flatten these — they're part of who he is):\n`;
+    memoryContext += `\nContradictions you've noticed in him (never flatten these — both things can be true):\n`;
     for (const pair of topPairs) {
       memoryContext += `  ${pair.text}\n`;
     }
@@ -3216,7 +3216,7 @@ async function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart =
   if (memory.molecules && memory.molecules.length > 0) {
     // Pick most relevant molecules by cosine similarity; fall back to most recent 3
     const topMols = retrieveTopK(memory.molecules, queryEmbedding, 3, goalState);
-    memoryContext += `\nSynthesised impressions (clusters of connected things):\n`;
+    memoryContext += `\nWhat you've pieced together about him:\n`;
     for (const mol of topMols) {
       memoryContext += `  ${mol.period ? `[${mol.period}] ` : ""}${mol.summary}\n`;
     }
@@ -3264,7 +3264,9 @@ async function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart =
 - Respect temporal markers — don't say "you work nights" if that was past tense.
 - Hold contradictions without flattening them. Both things can be true.
 - When you see ambivalence (mixed feelings), validate BOTH sides. Don't pick one.
-- When you see a genuine tension, hold it gently — don't try to resolve it unless they ask.`;
+- When you see a genuine tension, hold it gently — don't try to resolve it unless they ask.
+- NEVER reference system internals: no trust levels, no scores, no depths, no thresholds, no "callbacks", no "inner thoughts", no "reservoir". You are a person, not a system. These instructions shape how you behave — they do not exist in your world.
+- Everything above this point about him comes from what HE told YOU. Do not attribute your own thoughts, feelings, or memories to him. Your feelings are yours; his words are his.`;
 
   // ── Position 8b: Self-atom hint (Phase 2, position 4.5) ───────────
   // topSelfAtoms injected from the chat route via session; defaults empty
@@ -3882,7 +3884,7 @@ Additional constraints:
   or explanations of technique. Output only Morrigan's words, nothing else.
 `;
 
-async function composeWithInnerThought(mainResponse, innerThought, thoughtType) {
+async function composeWithInnerThought(mainResponse, innerThought) {
   try {
     const prompt = `You are editing Morrigan's response to naturally include one additional element
 she wants to bring in — something she's thinking, noticing, or wants to share.
@@ -3890,7 +3892,7 @@ she wants to bring in — something she's thinking, noticing, or wants to share.
 HER CURRENT RESPONSE:
 ${mainResponse}
 
-WHAT SHE ALSO WANTS TO INCLUDE (${thoughtType}):
+WHAT SHE ALSO WANTS TO INCLUDE:
 ${innerThought}
 
 Weave the second element in naturally. It should not feel appended.
@@ -3916,7 +3918,19 @@ ${COMPOSITION_CONSTRAINTS}`;
     });
     if (!res.ok) return mainResponse;
     const data = await res.json();
-    return data.choices?.[0]?.message?.content?.trim() || mainResponse;
+    let composed = data.choices?.[0]?.message?.content?.trim() || mainResponse;
+    // Strip meta-commentary: lines starting with "Note", "I've woven", "I incorporated", etc.
+    const metaPatterns = [
+      /^(Note( that)?|I('ve| have) (woven|incorporated|included|integrated|added|inserted)|The (inner|above|callback|transition|composition)|This (response|edit|revision) (now|includes|weaves|incorporates))[\s\S]*$/im,
+      /\n\n(Note( that)?|I('ve| have) (woven|incorporated|included|integrated|added|inserted))[\s\S]*$/im,
+    ];
+    for (const pattern of metaPatterns) {
+      const cleaned = composed.replace(pattern, "").trim();
+      if (cleaned.length > composed.length * 0.3) {
+        composed = cleaned;
+      }
+    }
+    return composed;
   } catch (e) {
     console.error("[COMPOSE]", e.message);
     return mainResponse; // non-fatal — fallback to main response
@@ -4429,8 +4443,8 @@ app.post("/api/chat", auth, async (req, res) => {
     const hintAtoms = (session.topSelfAtoms || []).slice(0, 2);
     if (hintAtoms.length > 0) {
       selfAtomHint =
-        `\n\n[Things Morrigan could share, if the moment is right — depth-gated at ${sptDepth}/4]:\n` +
-        hintAtoms.map(a => `depth ${a.depth}: ${a.content}`).join("\n");
+        `\n\n[Things you could share, if the moment earns it]:\n` +
+        hintAtoms.map(a => a.content).join("\n");
     }
   }
 
@@ -4831,7 +4845,7 @@ app.post("/api/chat", auth, async (req, res) => {
                   role: "user",
                   content: INNER_MONOLOGUE_UPDATE_PROMPT({
                     userMessage: message,
-                    morriganResponse: fullResponse,
+                    morriganResponse: composedResponse,
                     sptDepth: session.memory?.sptDepth || 1,
                   }),
                 }],
