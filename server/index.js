@@ -40,7 +40,7 @@ process.on("uncaughtException", (err) => {
 const _missingVars = [];
 if (!process.env.MONGO_URI)          _missingVars.push("MONGO_URI");
 if (!process.env.JWT_SECRET)         _missingVars.push("JWT_SECRET");
-if (!process.env.OPENROUTER_API_KEY) _missingVars.push("OPENROUTER_API_KEY");
+if (!process.env.VENICE_API_KEY)     _missingVars.push("VENICE_API_KEY");
 if (_missingVars.length) {
   console.error(`[FATAL] Missing required environment variables: ${_missingVars.join(", ")}`);
   console.error("[FATAL] Create a .env file with these variables before starting the server.");
@@ -69,11 +69,11 @@ app.use((req, res, next) => {
 });
 app.use(express.json({ limit: "1mb" }));
 
-const CHAT_MODEL = process.env.CHAT_MODEL || "meta-llama/llama-3.1-8b-instruct";
+const CHAT_MODEL = process.env.CHAT_MODEL || "venice-uncensored";
 // All fetch calls append /v1/... — so this base must NOT include /v1
-const COLAB_URL = process.env.COLAB_URL || "https://openrouter.ai/api";
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || "";
-const EMBED_MODEL = process.env.EMBED_MODEL || "openai/text-embedding-3-small";
+const COLAB_URL = process.env.COLAB_URL || "https://api.venice.ai/api";
+const VENICE_API_KEY = process.env.VENICE_API_KEY || "";
+const EMBED_MODEL = process.env.EMBED_MODEL || "text-embedding-3-small";
 
 mongoose.connect(MONGO_URI).catch(err => {
   console.error("[FATAL] MongoDB connection failed:", err.message);
@@ -160,7 +160,7 @@ async function embedText(text, _retries = 1) {
   try {
     const res = await fetchWithTimeout(`${COLAB_URL}/v1/embeddings`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
       body: JSON.stringify({ model: EMBED_MODEL, input: text }),
     });
     if (!res.ok) throw new Error(`Embed HTTP ${res.status}`);
@@ -382,7 +382,7 @@ async function reRankWithLLM(query, candidates, timeoutMs = 5000) {
   try {
     const res = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
       body: JSON.stringify({
         model: CHAT_MODEL, temperature: 0.0, max_tokens: 80,
         messages: [{ role: "user", content: RERANK_PROMPT(query, candidates) }],
@@ -477,7 +477,7 @@ async function inferGoalStateLLM(message) {
   try {
     const res = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
       body: JSON.stringify({
         model: CHAT_MODEL, temperature: 0.0, max_tokens: 15,
         messages: [{ role: "user", content: `What emotional need does this message express? Reply with EXACTLY one word: comfort, venting, connection, distraction, validation, or neutral.\n\nMessage: "${message.substring(0, 300)}"` }],
@@ -1028,7 +1028,7 @@ If nothing worth storing, return []. Return ONLY the JSON array.`;
       messages: [{ role: "user", content: extractionPrompt }],
       temperature: 0.1, max_tokens: 900,
     };
-    const extractHeaders = { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` };
+    const extractHeaders = { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` };
 
     // Try extraction with one retry on failure
     for (let attempt = 0; attempt < 2 && newAtoms.length === 0; attempt++) {
@@ -1131,7 +1131,7 @@ Answer with ONLY the category name.`;
 
             const cRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
               method: "POST",
-              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
+              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
               body: JSON.stringify({
                 model: CHAT_MODEL,
                 messages: [{ role: "user", content: classifyPrompt }],
@@ -1192,7 +1192,7 @@ Answer with ONLY the category name.`;
       const clusterFacts = clusterAtoms.map(a => a.fact).join("\n- ");
       const synthRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
         body: JSON.stringify({
           model: CHAT_MODEL,
           messages: [{
@@ -1239,7 +1239,7 @@ Answer with ONLY the category name.`;
   try {
     const sptRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
       body: JSON.stringify({
         model: CHAT_MODEL,
         messages: [{ role: "user", content: SPT_DEPTH_ASSESSMENT_PROMPT(singleExchange, memory.sptDepth || 1) }],
@@ -1264,7 +1264,7 @@ Answer with ONLY the category name.`;
   try {
     const topicRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
       body: JSON.stringify({
         model: CHAT_MODEL,
         messages: [{ role: "user", content: SPT_BREADTH_EXTRACTION_PROMPT(singleExchange) }],
@@ -1289,7 +1289,7 @@ Answer with ONLY the category name.`;
     const topMols  = (memory.molecules || []).slice(-3).map(m => m.summary).join("\n");
     const narrativeRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
       body: JSON.stringify({
         model: CHAT_MODEL,
         messages: [{ role: "user", content: `Write a brief note (2-3 sentences) about this person from ${M.name}'s perspective. Ground it in what THEY'VE actually said and done — not what you imagine they might feel, and not what ${M.name} said in her responses. First person. Honest and specific, but do not embellish or add dramatic interpretation beyond what the facts support. No bullet points.
@@ -1314,7 +1314,7 @@ ${singleExchange.slice(-600)}` }],
   try {
     const reflectionRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
       body: JSON.stringify({
         model: CHAT_MODEL,
         messages: [{ role: "user", content: SELF_REFLECTION_PROMPT({
@@ -1359,7 +1359,7 @@ ${singleExchange.slice(-600)}` }],
 
       const gateRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
         body: JSON.stringify({
           model: CHAT_MODEL,
           messages: [{ role: "user", content: `You are reviewing a single exchange in a relationship. Does this exchange contain a genuine milestone moment — a first, a shift, a turning point, a rupture, a repair, a deepening, or a revelation that would be remembered as significant?
@@ -1427,7 +1427,7 @@ If on reflection this is not actually milestone-worthy, return {"skip": true}.`;
 
       const milestoneRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
         body: JSON.stringify({
           model: CHAT_MODEL,
           messages: [{ role: "user", content: milestonePrompt }],
@@ -1490,7 +1490,7 @@ If on reflection this is not actually milestone-worthy, return {"skip": true}.`;
 
     const callbackRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
       body: JSON.stringify({
         model: CHAT_MODEL,
         messages: [{ role: "user", content: `You are reviewing one exchange from a conversation ${M.name} just had. Identify things that were actually left unfinished — topics the USER started but didn't complete, or questions that went unanswered.
@@ -1678,7 +1678,7 @@ Return: a single string, or null.`;
 
     const res = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
       body: JSON.stringify({
         model: CHAT_MODEL,
         messages: [{ role: "user", content: prompt }],
@@ -1832,7 +1832,7 @@ Return ONLY JSON. No preamble.
 
     const res = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
       body: JSON.stringify({
         model: CHAT_MODEL,
         messages: [{ role: "user", content: prompt }],
@@ -2149,7 +2149,7 @@ async function updateFunctionalToM(userId, tomSnapshot, emotionalState, disclosu
 
         const trajRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
           method: "POST",
-          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
           body: JSON.stringify({
             model: CHAT_MODEL, temperature: 0.3, max_tokens: 150,
             messages: [{ role: "user", content: `Analyze this user's trajectory across sessions. Return JSON ONLY:\n{"trajectory": "1-2 sentence narrative of how they've changed", "phase": "testing|approaching|retreating|deepening|stable", "preferredStyle": "direct|gentle|playful|intellectual|null"}\n\nSnapshots:\n${recentSnaps}` }],
@@ -3593,7 +3593,7 @@ Return ONLY JSON:
     messages: [{ role: "user", content: prompt }],
     temperature: 0.1, max_tokens: 200,
   });
-  const headers = { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` };
+  const headers = { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` };
 
   // Retry once on failure — this determines trust/feelings progression
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -3948,7 +3948,7 @@ Or if it would be forced: {"skip": true}`;
   try {
     const res = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
       body: JSON.stringify({
         model: CHAT_MODEL,
         messages: [{ role: "user", content: prompt }],
@@ -4152,7 +4152,7 @@ ${COMPOSITION_CONSTRAINTS}`;
 
     const res = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
       body: JSON.stringify({
         model: CHAT_MODEL,
         messages: [{ role: "user", content: prompt }],
@@ -4212,7 +4212,7 @@ app.post("/api/self-atoms/seed", auth, async (req, res) => {
         // Step A: Self-criticism pass
         const critiqueRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
           method: "POST",
-          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
           body: JSON.stringify({
             model: CHAT_MODEL,
             temperature: 0.2,
@@ -4240,7 +4240,7 @@ app.post("/api/self-atoms/seed", auth, async (req, res) => {
         // Step B: Embed the (possibly revised) content
         const embedRes = await fetchWithTimeout(`${COLAB_URL}/v1/embeddings`, {
           method: "POST",
-          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
           body: JSON.stringify({ input: finalContent, model: EMBED_MODEL }),
         });
         const embedData = await embedRes.json();
@@ -4538,7 +4538,7 @@ app.post("/api/chat", auth, async (req, res) => {
       const topMemsForSomatic = retrieveTopK(session.memory.memories || [], msgEmbedding, 5, goalState);
       const somaticRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
         body: JSON.stringify({
           model: CHAT_MODEL,
           temperature: 0.1,
@@ -4633,7 +4633,7 @@ app.post("/api/chat", auth, async (req, res) => {
     try {
       const thoughtRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
         body: JSON.stringify({
           model: CHAT_MODEL,
           temperature: 0.68,
@@ -4750,7 +4750,7 @@ app.post("/api/chat", auth, async (req, res) => {
   try {
     const llmRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
       body: JSON.stringify({ model: CHAT_MODEL, messages, stream: true, temperature: 0.7, max_tokens: -1 }),
     }, 120_000); // 120s for streaming — allows longer responses
 
@@ -4960,7 +4960,7 @@ app.post("/api/chat", auth, async (req, res) => {
 
           const moodRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
             method: "POST",
-            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
+            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
             body: JSON.stringify({
               model: CHAT_MODEL,
               temperature: 0.6,
@@ -5166,7 +5166,7 @@ app.post("/api/chat", auth, async (req, res) => {
           try {
             const imRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
               method: "POST",
-              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
+              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
               body: JSON.stringify({
                 model: CHAT_MODEL,
                 temperature: 0.65,
@@ -5377,7 +5377,7 @@ app.post("/api/chat", auth, async (req, res) => {
                 try {
                   const r = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
                     method: "POST",
-                    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
+                    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
                     body: JSON.stringify({ model: CHAT_MODEL, temperature: 0.1, max_tokens: 10, messages: [{ role: "user", content: VOICE_AUDIT_PROMPT(msg.content) }] }),
                   });
                   if (r.ok) { const d = await r.json(); const s = parseFloat(d.choices?.[0]?.message?.content?.trim()); if (!isNaN(s)) { total += s; count++; } }
@@ -5655,7 +5655,7 @@ Return only valid JSON: { "score": N, "evidence": "one sentence" }`;
       try {
         const r = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
           method: "POST",
-          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
           body: JSON.stringify({
             model: CHAT_MODEL,
             messages: [{ role: "user", content: VOICE_AUDIT_PROMPT(evalEntry.morriganResponse) }],
@@ -5810,7 +5810,7 @@ app.get("/api/status", async (req, res) => {
     const timer = setTimeout(() => ctrl.abort(), 8000);
     try {
       const r = await fetch(url, {
-        method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
+        method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
         body: JSON.stringify(body), signal: ctrl.signal,
       });
       return { ok: r.ok, status: r.status };
@@ -5867,7 +5867,7 @@ async function seedSelfAtomsIfEmpty() {
         try {
           const critiqueRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
             method: "POST",
-            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
+            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
             body: JSON.stringify({
               model: CHAT_MODEL,
               temperature: 0.2,
@@ -5901,7 +5901,7 @@ async function seedSelfAtomsIfEmpty() {
           try {
             const embedRes = await fetchWithTimeout(`${COLAB_URL}/v1/embeddings`, {
               method: "POST",
-              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
+              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
               body: JSON.stringify({ input: finalContent, model: EMBED_MODEL }),
             });
             if (embedRes.ok) {
