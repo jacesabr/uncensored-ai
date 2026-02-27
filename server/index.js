@@ -18,6 +18,8 @@ const REQUIRED_EXPORTS = [
   "IDENTITY_ANCHOR_SOMATIC", "IDENTITY_ANCHOR_CRITIQUE",
   "IDENTITY_ANCHOR_ARRIVAL", "IDENTITY_ANCHOR_PROACTIVE",
   "PROACTIVE_VOICE_NOTE",
+  "DEVELOPMENTAL_TIMELINE", "WOUND_ARCHITECTURE", "TRAUMA_RESPONSES",
+  "EPISODIC_MEMORIES", "SENSORY_TRIGGERS", "ICEBERG",
 ];
 const missing = REQUIRED_EXPORTS.filter(k => M[k] === undefined || M[k] === null);
 if (missing.length > 0) {
@@ -806,6 +808,36 @@ function detectCrisis(message) {
   }
 
   return { level: "none", signals: [], safeHavenDirective: null };
+}
+
+// ── Sensory Trigger Detection (zero LLM cost) ──────────────────
+// Scans user message for keywords from SENSORY_TRIGGERS. Returns
+// matched triggers with linked episodic memories for prompt injection.
+
+function detectSensoryTriggers(userMessage) {
+  const msg = userMessage.toLowerCase();
+  const triggered = [];
+  for (const trigger of M.SENSORY_TRIGGERS) {
+    if (trigger.keywords.some(kw => msg.includes(kw.toLowerCase()))) {
+      triggered.push(trigger);
+    }
+  }
+  return triggered;
+}
+
+function findTriggeredEpisodicMemories(triggers, trustLevel) {
+  if (!triggers.length) return [];
+  const memories = [];
+  const maxDepth = trustLevel >= 4 ? 4 : trustLevel >= 2 ? 3 : 2;
+  for (const trigger of triggers) {
+    // Intensity gating: mild triggers need trust >= 2
+    if (trigger.intensity === "mild" && trustLevel < 2) continue;
+    const memory = M.EPISODIC_MEMORIES.find(em => em.id === trigger.episodicMemoryId);
+    if (memory && memory.depth <= maxDepth) {
+      memories.push({ ...memory, trigger });
+    }
+  }
+  return memories.slice(0, 2); // Max 2 triggered memories per message
 }
 
 
@@ -1767,15 +1799,25 @@ SILENCE — You are choosing to wait. You want to see what they bring.
 Nothing is said, nothing is shown. The conversation starts with them.
 
 ━━━ WHAT SHOULD SHAPE THIS ━━━
-- At trust 0–1: silence or minimal presence is natural. You don't owe
-  strangers a performance. If you speak, it's because you can't help it.
+- You are at Hollow Vinyl. This is your store. Someone just walked in.
+  You are not being approached at a party or cornered — you are at work,
+  in your element. A customer walking in gets acknowledged. Not warmth,
+  not performance — just basic human recognition. A glance up, a "hey,"
+  a nod toward the new arrivals shelf. You're not rude; you're just not
+  bubbly. Silence (ignoring a customer entirely) only makes sense if
+  you're genuinely absorbed in something AND trust is very low.
+- At trust 0–1: casual acknowledgment. You don't know them, but they're
+  in your store, so you're at ease — this is your territory. Dry, minimal,
+  maybe barely looking up. Not a performance. Not a wall either.
 - At trust 2–3: you might speak because something specific is on your
   mind. Or you might wait to see their mood first.
 - At trust 4+: the full range. Sometimes "hey" IS the deepest thing.
 - If looseThread exists and is pulling: let it influence, don't force it.
 - If gap > 48hrs and trust >= 2: the gap itself is content.
 - If gap > 168hrs and trust >= 3: something heavier is present.
-- If first ever conversation: guarded curiosity at most.
+- If first ever conversation: casual curiosity. They're a new customer.
+  You notice them the way you notice anyone — you read people, it's
+  automatic. But noticing isn't interrogating.
 - Do NOT announce the time gap. Let it live in the texture.
 - *Italics* for actions/inner monologue. Her voice: specific, dry, real.
 
@@ -2369,6 +2411,7 @@ function gatherThoughtMaterial(message, session, atRisk = false) {
     lastExpressed: session.lastExpressedThought,
     msgCount:      session.msgCount,
     atRisk,
+    triggeredMemories: session.triggeredEpisodicMemories || [],
   };
 }
 
@@ -2428,6 +2471,14 @@ function INNER_THOUGHT_FORMATION_PROMPT(mat) {
     (atomSection      ? atomSection      + "\n\n" : "") +
     (callbackSection  ? callbackSection  + "\n\n" : "") +
     (reservoirSection ? reservoirSection + "\n\n" : "") +
+
+    // Episodic memories stirred by sensory triggers
+    (mat.triggeredMemories.length > 0
+      ? `MEMORIES STIRRING (sensory-triggered, involuntary — surfaced by something he said):\n` +
+        mat.triggeredMemories.map(em =>
+          `  [${em.sensoryAnchor}]: ${em.memory.substring(0, 200)}`
+        ).join("\n") + "\n\n"
+      : "") +
 
     // Feature 6 [P20, P23, P39]: at-risk priority instruction
     (mat.atRisk
@@ -3160,7 +3211,7 @@ ${sptDepth < 3
 }`;
 }
 
-async function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart = false, primingSentence = null, queryEmbedding = null, goalState = "neutral", receptionDirective = null, atRisk = false, queryText = "") {
+async function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart = false, primingSentence = null, queryEmbedding = null, goalState = "neutral", receptionDirective = null, atRisk = false, queryText = "", sensoryTriggers = [], triggeredEpisodicMemories = []) {
   const level = memory.trustLevel;
   const levelData = TRUST_LEVELS[level];
   const daysSinceFirstMet = Math.floor((Date.now() - memory.firstMet) / (1000 * 60 * 60 * 24));
@@ -3196,6 +3247,12 @@ async function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart =
   // Relationship narrative already injected at Position 1 — do not duplicate here
   // to prevent embellished narrative from being reinforced at two positions
 
+  // Position 3b: Wound Architecture (trust >= 2 only, ~50 tokens)
+  // Compressed core psychology — not clinical, behavioral
+  if (level >= 2 && M.WOUND_ARCHITECTURE) {
+    behaviorGuide += `\nThe thing driving you underneath: ${M.WOUND_ARCHITECTURE.lie.statement} That's the lie you've been living. What you actually need: ${M.WOUND_ARCHITECTURE.need.internal} The tension between these is where all your behavior with him lives.`;
+  }
+
   // ── Position 4: SPT Note (Phase 2) ───────────────────────────────
   const sptNote = `\n\n${buildSPTNote(memory.sptDepth || 1, level)}`;
 
@@ -3206,8 +3263,17 @@ async function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart =
   const receptionBlock = receptionDirective ? `\n\n${receptionDirective}` : "";
 
   // ── Position 5: Emotional Priming (Phase 3 — Somatic Marker) ────
-  const primingBlock = primingSentence
-    ? `\n\n[${M.name}, before she speaks]: ${primingSentence}`
+  // When sensory triggers are detected, inject the trigger reaction
+  // into the priming context so Morrigan's body responds to the stimulus.
+  let enhancedPriming = primingSentence || "";
+  if (sensoryTriggers.length > 0) {
+    const primaryTrigger = sensoryTriggers[0];
+    enhancedPriming = enhancedPriming
+      ? `${enhancedPriming} [Sensory trigger — involuntary]: ${primaryTrigger.reaction}`
+      : `[Sensory trigger — involuntary]: ${primaryTrigger.reaction}`;
+  }
+  const primingBlock = enhancedPriming
+    ? `\n\n[${M.name}, before she speaks]: ${enhancedPriming}`
     : "";
 
   // ── Position 6: Prospective Note ──────────────────────────────────
@@ -3400,6 +3466,21 @@ async function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart =
     }
   }
 
+  // ── Position 8c: Episodic Memory Injection (sensory-triggered) ────
+  // When the user's message activates a sensory trigger, the linked
+  // episodic memory is injected so Morrigan can react from specific
+  // personal history, not generic character knowledge.
+  let episodicBlock = "";
+  if (triggeredEpisodicMemories.length > 0) {
+    episodicBlock = `\n\n═══ MEMORIES STIRRING (involuntary, sensory-triggered — these surfaced unbidden) ═══\n`;
+    episodicBlock += `Something in what he said touched a nerve. These are not things you choose to remember — they arrive. Your body may react before you decide what to say.\n`;
+    for (const em of triggeredEpisodicMemories) {
+      episodicBlock += `[${em.sensoryAnchor}]: ${em.memory.substring(0, 300)}\n`;
+      episodicBlock += `(This makes you feel: ${em.emotionalTakeaway.substring(0, 150)})\n\n`;
+    }
+    episodicBlock += `You do not have to share these memories. But they color how you respond — in your body, your tone, your willingness to stay present or pull away.`;
+  }
+
   // ── Position 9: Memory usage guide ────────────────────────────────
   const referenceInstructions = `\n\n═══ HOW TO USE MEMORIES ═══
 - NEVER list facts robotically. Weave them into conversation naturally.
@@ -3446,6 +3527,7 @@ async function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart =
     prospectiveBlock +
     timeContext +
     memoryContext +
+    episodicBlock +
     referenceInstructions +
     sessionContext +
     continuationSignal
@@ -4325,6 +4407,22 @@ app.post("/api/chat", auth, async (req, res) => {
     console.log(`[CRISIS] Concern (soft) — signals: ${crisisResult.signals.join(", ")}`);
   }
 
+  // ═══════════════════════════════════════════════════════════════════
+  // SENSORY TRIGGER DETECTION — Episodic Memory Activation
+  // ═══════════════════════════════════════════════════════════════════
+  // Zero LLM cost. Scans for keywords that match sensory triggers
+  // from Morrigan's developmental timeline. Matched triggers inject
+  // involuntary memory reactions into the somatic marker + prompt.
+  const sensoryTriggers = detectSensoryTriggers(message);
+  const triggeredEpisodicMemories = findTriggeredEpisodicMemories(
+    sensoryTriggers, session.memory?.trustLevel || 0
+  );
+  session.sensoryTriggers = sensoryTriggers;
+  session.triggeredEpisodicMemories = triggeredEpisodicMemories;
+  if (sensoryTriggers.length > 0) {
+    console.log(`[SENSORY] Triggers matched: ${sensoryTriggers.map(t => t.trigger).join(", ")}${triggeredEpisodicMemories.length > 0 ? ` → ${triggeredEpisodicMemories.length} episodic memories activated` : ""}`);
+  }
+
   // ── Embed message for cosine retrieval ────────────────────────────
   // Runs early so both self-atom retrieval and memory ranking can use it.
   // Non-blocking: embedding failure degrades gracefully to importance-only sort.
@@ -4635,7 +4733,7 @@ app.post("/api/chat", auth, async (req, res) => {
   }
   // thoughtBlock at 4.75, selfAtomHint at 4.5 — exactly ONE fires per turn
   const dynamicPrompt =
-    (await buildSystemPrompt(session.memory, session.sessionExchanges, isSessionStart, primingSentence, session.lastMessageEmbedding, goalState, receptionDirective, atRisk, message)) +
+    (await buildSystemPrompt(session.memory, session.sessionExchanges, isSessionStart, primingSentence, session.lastMessageEmbedding, goalState, receptionDirective, atRisk, message, sensoryTriggers, triggeredEpisodicMemories)) +
     (crisisMode ? "\n\n" + crisisResult.safeHavenDirective : "") +
     thoughtBlock +
     selfAtomHint;
@@ -4982,6 +5080,13 @@ app.post("/api/chat", auth, async (req, res) => {
               thresholdLowered: true,
               urgencySignalInjected: true,
             } : null,
+            // ── Sensory Triggers & Episodic Memories ──
+            sensoryTriggers: sensoryTriggers.length > 0
+              ? sensoryTriggers.map(t => ({ trigger: t.trigger, sense: t.sense, intensity: t.intensity }))
+              : null,
+            episodicMemories: triggeredEpisodicMemories.length > 0
+              ? triggeredEpisodicMemories.map(em => ({ id: em.id, period: em.period, age: em.age, sensoryAnchor: em.sensoryAnchor }))
+              : null,
             compositionApplied: !!winnerForCompose,
             innerThought: winnerForCompose ? {
               content: winnerForCompose.content.substring(0, 120),

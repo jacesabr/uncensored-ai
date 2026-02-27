@@ -1056,6 +1056,36 @@ function BrainPanel({ mood, speaking, latestMeta, moodReflection, disclosedAtoms
           </div>
         )}
 
+        {/* ── Section 4b: Sensory Triggers ── */}
+        {meta?.sensoryTriggers?.length > 0 && (
+          <div style={{ background: "#fefce8", border: "1px solid #eab30840", borderRadius: 10, padding: "12px 16px", marginBottom: 10 }}>
+            <div style={{ color: "#a16207", fontSize: 12, fontWeight: 700, letterSpacing: "1px", marginBottom: 8, fontFamily: FONT_MONO }}>SENSORY TRIGGERS DETECTED</div>
+            {meta.sensoryTriggers.map((t, i) => {
+              const intensityColor = { mild: "#22c55e", moderate: "#eab308", strong: "#f97316", severe: "#dc2626" }[t.intensity] || T.textDim;
+              return (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: i < meta.sensoryTriggers.length - 1 ? 6 : 0 }}>
+                  <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: intensityColor, flexShrink: 0 }} />
+                  <span style={{ color: T.text, fontSize: 13, fontWeight: 600 }}>{t.trigger}</span>
+                  <span style={{ color: T.textDim, fontSize: 12, fontFamily: FONT_MONO }}>{t.sense} · {t.intensity}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* ── Section 4c: Episodic Memories ── */}
+        {meta?.episodicMemories?.length > 0 && (
+          <div style={{ background: "#f5f3ff", border: "1px solid #8b5cf640", borderRadius: 10, padding: "12px 16px", marginBottom: 10 }}>
+            <div style={{ color: "#6d28d9", fontSize: 12, fontWeight: 700, letterSpacing: "1px", marginBottom: 8, fontFamily: FONT_MONO }}>MEMORIES STIRRING</div>
+            {meta.episodicMemories.map((em, i) => (
+              <div key={i} style={{ marginBottom: i < meta.episodicMemories.length - 1 ? 8 : 0 }}>
+                <div style={{ color: T.text, fontSize: 13, fontStyle: "italic", lineHeight: 1.6 }}>"{em.sensoryAnchor}"</div>
+                <div style={{ color: T.textDim, fontSize: 12, fontFamily: FONT_MONO, marginTop: 3 }}>{em.period} · age {em.age}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* ── Section 5: Status Pills ── */}
         {meta && (
           <>
@@ -1082,6 +1112,8 @@ function BrainPanel({ mood, speaking, latestMeta, moodReflection, disclosedAtoms
               {meta.somaticMarker && <Pill label="somatic" value={meta.somaticMarker.emotionalRegister} on />}
               {meta.crisisDetection?.safeHavenActive && <Pill label="crisis" value="SAFE HAVEN" on />}
               {meta.atRiskInterventions?.active && <Pill label="at-risk" value="interventions on" on />}
+              {meta.sensoryTriggers?.length > 0 && <Pill label="sensory" value={`${meta.sensoryTriggers.length} trigger${meta.sensoryTriggers.length > 1 ? "s" : ""}`} on />}
+              {meta.episodicMemories?.length > 0 && <Pill label="memories" value={`${meta.episodicMemories.length} stirring`} on />}
             </div>
           </>
         )}
