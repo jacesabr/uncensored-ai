@@ -3,3 +3,6 @@ dist/
 .env
 *.log
 .DS_Store
+
+# Notebook with API keys — run locally/Colab only, don't commit
+Morrigan_Phase1_DataPipeline.ipynb
