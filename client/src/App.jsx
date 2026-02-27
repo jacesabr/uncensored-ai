@@ -874,7 +874,7 @@ function ExplainPanel({ onClose, token, user, conversations, messages, status })
           {activeTab === "phase6"  && <Phase6Tab  token={token} />}
         </div>
       </div>
-      <style>{`button:focus{outline:none}::-webkit-scrollbar{width:14px}::-webkit-scrollbar-track{background:${MON.bg};border-radius:7px}::-webkit-scrollbar-thumb{background:${MON.accent}55;border-radius:7px;border:3px solid transparent;background-clip:padding-box}::-webkit-scrollbar-thumb:hover{background:${MON.accent}88;border:3px solid transparent;background-clip:padding-box}`}</style>
+      <style>{`button:focus{outline:none}::-webkit-scrollbar{width:18px}::-webkit-scrollbar-track{background:${MON.bg};border-radius:9px}::-webkit-scrollbar-thumb{background:${MON.accent}70;border-radius:9px;border:3px solid transparent;background-clip:padding-box;min-height:60px}::-webkit-scrollbar-thumb:hover{background:${MON.accent}aa;border:3px solid transparent;background-clip:padding-box}`}</style>
     </div>
   );
 }
@@ -1047,12 +1047,12 @@ function BrainPanel({ mood, speaking, latestMeta, moodReflection, disclosedAtoms
 
         {/* ── Section 4: Somatic Marker ── */}
         {meta?.somaticMarker && (
-          <div style={{ background: "#f0fdf4", border: "1px solid #10b98140", borderRadius: 8, padding: "10px 14px", marginBottom: 8 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
-              <span style={{ color: "#059669", fontSize: 10, fontWeight: 700, letterSpacing: "1px", fontFamily: FONT_MONO }}>SOMATIC MARKER — GUT FEELING</span>
-              <span style={{ color: T.textDim, fontSize: 10, fontFamily: FONT_MONO }}>{meta.somaticMarker.emotionalRegister} · intensity {(meta.somaticMarker.intensity || 0).toFixed(1)}</span>
+          <div style={{ background: "#f0fdf4", border: "1px solid #10b98140", borderRadius: 10, padding: "12px 16px", marginBottom: 10 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+              <span style={{ color: "#059669", fontSize: 12, fontWeight: 700, letterSpacing: "1px", fontFamily: FONT_MONO }}>SOMATIC MARKER — GUT FEELING</span>
+              <span style={{ color: T.textDim, fontSize: 12, fontFamily: FONT_MONO }}>{meta.somaticMarker.emotionalRegister} · intensity {(meta.somaticMarker.intensity || 0).toFixed(1)}</span>
             </div>
-            <div style={{ color: T.textSoft, lineHeight: 1.6, fontSize: 12, fontStyle: "italic" }}>"{meta.somaticMarker.gutFeeling}"</div>
+            <div style={{ color: T.textSoft, lineHeight: 1.7, fontSize: 14, fontStyle: "italic" }}>"{meta.somaticMarker.gutFeeling}"</div>
           </div>
         )}
 
@@ -1088,39 +1088,39 @@ function BrainPanel({ mood, speaking, latestMeta, moodReflection, disclosedAtoms
 
         {/* ── Section 6: Theory of Mind ── */}
         {meta?.theoryOfMind && (
-          <div style={{ background: "#fdf6e3", border: "1px solid #f59e0b40", borderRadius: 8, padding: "10px 14px", marginBottom: 8 }}>
-            <div style={{ color: "#b45309", fontSize: 10, fontWeight: 700, letterSpacing: "1px", marginBottom: 5, fontFamily: FONT_MONO }}>THEORY OF MIND — HER READ ON YOU</div>
-            <div style={{ color: T.textSoft, lineHeight: 1.6, fontSize: 12, fontStyle: "italic" }}>{meta.theoryOfMind}</div>
+          <div style={{ background: "#fdf6e3", border: "1px solid #f59e0b40", borderRadius: 10, padding: "12px 16px", marginBottom: 10 }}>
+            <div style={{ color: "#b45309", fontSize: 12, fontWeight: 700, letterSpacing: "1px", marginBottom: 6, fontFamily: FONT_MONO }}>THEORY OF MIND — HER READ ON YOU</div>
+            <div style={{ color: T.textSoft, lineHeight: 1.7, fontSize: 14, fontStyle: "italic" }}>{meta.theoryOfMind}</div>
           </div>
         )}
 
         {/* ── Section 7: Inner Thought ── */}
         {meta?.innerThought && (
-          <div style={{ background: T.accentSoft, border: `1px solid ${T.accent}30`, borderRadius: 8, padding: "10px 14px", marginBottom: 8 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-              <span style={{ color: T.accent, fontSize: 10, fontWeight: 700, letterSpacing: "1px", fontFamily: FONT_MONO }}>INNER THOUGHT EXPRESSED</span>
-              <span style={{ color: T.textDim, fontSize: 10, fontFamily: FONT_MONO }}>{meta.innerThought.type} · score {meta.innerThought.score}</span>
+          <div style={{ background: T.accentSoft, border: `1px solid ${T.accent}30`, borderRadius: 10, padding: "12px 16px", marginBottom: 10 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <span style={{ color: T.accent, fontSize: 12, fontWeight: 700, letterSpacing: "1px", fontFamily: FONT_MONO }}>INNER THOUGHT EXPRESSED</span>
+              <span style={{ color: T.textDim, fontSize: 12, fontFamily: FONT_MONO }}>{meta.innerThought.type} · score {meta.innerThought.score}</span>
             </div>
-            <div style={{ color: T.text, fontStyle: "italic", lineHeight: 1.65, fontSize: 13 }}>
+            <div style={{ color: T.text, fontStyle: "italic", lineHeight: 1.75, fontSize: 15 }}>
               "{meta.innerThought.content}"
             </div>
             {meta.innerThought.participationDirective && (
-              <div style={{ color: T.textDim, fontSize: 11, marginTop: 6, borderTop: `1px solid ${T.accent}20`, paddingTop: 6, fontFamily: FONT_MONO }}>
+              <div style={{ color: T.textDim, fontSize: 13, marginTop: 8, borderTop: `1px solid ${T.accent}20`, paddingTop: 8, fontFamily: FONT_MONO }}>
                 directive: <span style={{ fontStyle: "italic" }}>{meta.innerThought.participationDirective}</span>
               </div>
             )}
             {(meta.innerThought.reasonsFor?.length > 0 || meta.innerThought.reasonsAgainst?.length > 0) && (
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8, overflow: "hidden" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10, overflow: "hidden" }}>
                 {meta.innerThought.reasonsFor?.length > 0 && (
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ color: "#10b981", fontSize: 9.5, fontWeight: 700, letterSpacing: "1px", marginBottom: 4, fontFamily: FONT_MONO }}>FOR</div>
-                    {meta.innerThought.reasonsFor.map((r, i) => <div key={i} style={{ color: T.textSoft, fontSize: 11, lineHeight: 1.5, marginBottom: 2, wordBreak: "break-word" }}>+ {r}</div>)}
+                    <div style={{ color: "#10b981", fontSize: 11, fontWeight: 700, letterSpacing: "1px", marginBottom: 5, fontFamily: FONT_MONO }}>FOR</div>
+                    {meta.innerThought.reasonsFor.map((r, i) => <div key={i} style={{ color: T.textSoft, fontSize: 13, lineHeight: 1.55, marginBottom: 3, wordBreak: "break-word" }}>+ {r}</div>)}
                   </div>
                 )}
                 {meta.innerThought.reasonsAgainst?.length > 0 && (
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ color: "#dc2626", fontSize: 9.5, fontWeight: 700, letterSpacing: "1px", marginBottom: 4, fontFamily: FONT_MONO }}>AGAINST</div>
-                    {meta.innerThought.reasonsAgainst.map((r, i) => <div key={i} style={{ color: T.textSoft, fontSize: 11, lineHeight: 1.5, marginBottom: 2, wordBreak: "break-word" }}>− {r}</div>)}
+                    <div style={{ color: "#dc2626", fontSize: 11, fontWeight: 700, letterSpacing: "1px", marginBottom: 5, fontFamily: FONT_MONO }}>AGAINST</div>
+                    {meta.innerThought.reasonsAgainst.map((r, i) => <div key={i} style={{ color: T.textSoft, fontSize: 13, lineHeight: 1.55, marginBottom: 3, wordBreak: "break-word" }}>− {r}</div>)}
                   </div>
                 )}
               </div>
@@ -1130,9 +1130,9 @@ function BrainPanel({ mood, speaking, latestMeta, moodReflection, disclosedAtoms
 
         {/* ── Section 8: At-Risk Interventions ── */}
         {meta?.atRiskInterventions?.active && (
-          <div style={{ background: "#fffbeb", border: "2px solid #f59e0b", borderRadius: 8, padding: "10px 14px", marginBottom: 8 }}>
-            <div style={{ color: "#b45309", fontSize: 10, fontWeight: 700, letterSpacing: "1px", marginBottom: 5, fontFamily: FONT_MONO }}>AT-RISK INTERVENTIONS ACTIVE</div>
-            <div style={{ color: "#92400e", fontSize: 11, lineHeight: 1.6 }}>
+          <div style={{ background: "#fffbeb", border: "2px solid #f59e0b", borderRadius: 10, padding: "12px 16px", marginBottom: 10 }}>
+            <div style={{ color: "#b45309", fontSize: 12, fontWeight: 700, letterSpacing: "1px", marginBottom: 6, fontFamily: FONT_MONO }}>AT-RISK INTERVENTIONS ACTIVE</div>
+            <div style={{ color: "#92400e", fontSize: 13, lineHeight: 1.65 }}>
               {meta.atRiskInterventions.callbackBoostApplied && <div>+ Callback score boost (+1.5)</div>}
               {meta.atRiskInterventions.thresholdLowered && <div>+ Thought threshold lowered to 3.5</div>}
               {meta.atRiskInterventions.urgencySignalInjected && <div>+ Presence urgency signal in continuation block</div>}
@@ -1142,30 +1142,30 @@ function BrainPanel({ mood, speaking, latestMeta, moodReflection, disclosedAtoms
 
         {/* ── Section 9: Linguistic Depth + Disclosure ── */}
         {meta?.linguisticSignals && (
-          <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 14px", marginBottom: 8 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-              <span style={{ color: T.accent, fontSize: 10, fontWeight: 700, letterSpacing: "1px", fontFamily: FONT_MONO }}>LINGUISTIC DEPTH SIGNALS</span>
+          <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 16px", marginBottom: 10 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+              <span style={{ color: T.accent, fontSize: 12, fontWeight: 700, letterSpacing: "1px", fontFamily: FONT_MONO }}>LINGUISTIC DEPTH SIGNALS</span>
               {meta.disclosureDepth && (
-                <span style={{ color: meta.disclosureDepth.level >= 3 ? "#9f67ff" : meta.disclosureDepth.level >= 2 ? "#0ea5e9" : T.textDim, fontSize: 10, fontWeight: 700, fontFamily: FONT_MONO }}>
+                <span style={{ color: meta.disclosureDepth.level >= 3 ? "#9f67ff" : meta.disclosureDepth.level >= 2 ? "#0ea5e9" : T.textDim, fontSize: 12, fontWeight: 700, fontFamily: FONT_MONO }}>
                   DISCLOSURE L{meta.disclosureDepth.level} — {meta.disclosureDepth.label?.toUpperCase()}
                 </span>
               )}
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 12px" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "5px 14px" }}>
               <Bar label="authenticity" value={Math.round(meta.linguisticSignals.authenticity * 100)} color="#10b981" />
               <Bar label="emotion" value={Math.round(meta.linguisticSignals.emotionalTone * 100)} color="#f59e0b" />
               <Bar label="self-focus" value={Math.round(meta.linguisticSignals.selfFocus * 100)} color="#0ea5e9" />
               <Bar label="cognitive" value={Math.round(meta.linguisticSignals.cognitiveProcessing * 100)} color="#8b5cf6" />
               <Bar label="narrative" value={Math.round(meta.linguisticSignals.narrativeDepth * 100)} color="#ec4899" />
-              <div style={{ fontSize: 10.5, color: T.textDim, display: "flex", alignItems: "center" }}>{meta.linguisticSignals.wordCount} words</div>
+              <div style={{ fontSize: 12.5, color: T.textDim, display: "flex", alignItems: "center" }}>{meta.linguisticSignals.wordCount} words</div>
             </div>
             {meta.disclosureDepth?.signals?.length > 0 && (
-              <div style={{ marginTop: 6, fontSize: 10.5, color: T.textDim }}>
+              <div style={{ marginTop: 8, fontSize: 12.5, color: T.textDim }}>
                 signals: {meta.disclosureDepth.signals.join(", ")}
               </div>
             )}
             {meta.disclosureDepth?.receptionDirectiveApplied && (
-              <div style={{ marginTop: 4, fontSize: 10.5, color: "#0ea5e9", fontStyle: "italic" }}>reception directive injected</div>
+              <div style={{ marginTop: 5, fontSize: 12.5, color: "#0ea5e9", fontStyle: "italic" }}>reception directive injected</div>
             )}
           </div>
         )}
@@ -1177,10 +1177,10 @@ function BrainPanel({ mood, speaking, latestMeta, moodReflection, disclosedAtoms
             {sec.reservoir && (
               <div style={{ marginBottom: 4 }}>
                 {meta.reservoirContents.map((t, i) => (
-                  <div key={i} style={{ display: "flex", gap: 10, marginBottom: 6, alignItems: "flex-start" }}>
-                    <span style={{ color: T.textDim, fontSize: 10.5, minWidth: 80, flexShrink: 0, paddingTop: 1 }}>{t.type}</span>
-                    <span style={{ color: T.accent, fontSize: 10.5, minWidth: 28, flexShrink: 0, fontFamily: FONT_MONO, paddingTop: 1 }}>{t.score}</span>
-                    <span style={{ color: T.textSoft, lineHeight: 1.5, fontSize: 12 }}>{t.content}</span>
+                  <div key={i} style={{ display: "flex", gap: 10, marginBottom: 7, alignItems: "flex-start" }}>
+                    <span style={{ color: T.textDim, fontSize: 12.5, minWidth: 80, flexShrink: 0, paddingTop: 1 }}>{t.type}</span>
+                    <span style={{ color: T.accent, fontSize: 12.5, minWidth: 28, flexShrink: 0, fontFamily: FONT_MONO, paddingTop: 1 }}>{t.score}</span>
+                    <span style={{ color: T.textSoft, lineHeight: 1.55, fontSize: 14 }}>{t.content}</span>
                   </div>
                 ))}
               </div>
@@ -1195,11 +1195,11 @@ function BrainPanel({ mood, speaking, latestMeta, moodReflection, disclosedAtoms
             {sec.atoms && (
               <div style={{ marginBottom: 4 }}>
                 {meta.topSelfAtoms.map((a, i) => (
-                  <div key={i} style={{ display: "flex", gap: 10, marginBottom: 6, alignItems: "flex-start" }}>
-                    <span style={{ color: DEPTH_CLR[a.depth] || T.textDim, fontSize: 10.5, fontWeight: 700, minWidth: 58, flexShrink: 0, paddingTop: 1 }}>
-                      d{a.depth} <span style={{ fontWeight: 400, fontSize: 9.5 }}>{DEPTH_LBL[a.depth]}</span>
+                  <div key={i} style={{ display: "flex", gap: 10, marginBottom: 7, alignItems: "flex-start" }}>
+                    <span style={{ color: DEPTH_CLR[a.depth] || T.textDim, fontSize: 12.5, fontWeight: 700, minWidth: 62, flexShrink: 0, paddingTop: 1 }}>
+                      d{a.depth} <span style={{ fontWeight: 400, fontSize: 11.5 }}>{DEPTH_LBL[a.depth]}</span>
                     </span>
-                    <span style={{ color: T.textSoft, lineHeight: 1.5, fontSize: 12 }}>{a.content}</span>
+                    <span style={{ color: T.textSoft, lineHeight: 1.55, fontSize: 14 }}>{a.content}</span>
                   </div>
                 ))}
               </div>
@@ -1214,9 +1214,9 @@ function BrainPanel({ mood, speaking, latestMeta, moodReflection, disclosedAtoms
             {sec.callbacks && (
               <div style={{ marginBottom: 4 }}>
                 {meta.callbackQueue.map((cb, i) => (
-                  <div key={i} style={{ display: "flex", gap: 10, marginBottom: 6, alignItems: "flex-start" }}>
-                    <span style={{ color: cb.priority === "high" ? "#dc2626" : cb.priority === "medium" ? "#f59e0b" : T.textDim, fontSize: 10.5, minWidth: 44, flexShrink: 0, fontWeight: 700, paddingTop: 1 }}>{cb.priority}</span>
-                    <span style={{ color: T.textSoft, lineHeight: 1.5, fontSize: 12 }}>{cb.content}</span>
+                  <div key={i} style={{ display: "flex", gap: 10, marginBottom: 7, alignItems: "flex-start" }}>
+                    <span style={{ color: cb.priority === "high" ? "#dc2626" : cb.priority === "medium" ? "#f59e0b" : T.textDim, fontSize: 12.5, minWidth: 48, flexShrink: 0, fontWeight: 700, paddingTop: 1 }}>{cb.priority}</span>
+                    <span style={{ color: T.textSoft, lineHeight: 1.55, fontSize: 14 }}>{cb.content}</span>
                   </div>
                 ))}
               </div>
@@ -1235,7 +1235,7 @@ function BrainPanel({ mood, speaking, latestMeta, moodReflection, disclosedAtoms
                 <div key={i} style={{ flex: 1, height: 4, background: i <= (m.trustLevel ?? 0) ? T.accent : T.border, borderRadius: i === 0 ? "3px 0 0 3px" : i === 6 ? "0 3px 3px 0" : 0, marginRight: 1, transition: "background 0.3s" }} />
               ))}
             </div>
-            <div style={{ color: T.textDim, fontSize: 9.5, marginTop: 2 }}>
+            <div style={{ color: T.textDim, fontSize: 11, marginTop: 3 }}>
               {["stranger","acquaintance","maybe-friend","friend","close friend","trusted","bonded"].map((lv, i) => (
                 <span key={i} style={{ display: "inline-block", width: "14.2%", textAlign: "center", color: i === m.trustLevel ? T.accent : T.textDim, fontWeight: i === m.trustLevel ? 700 : 400 }}>{lv}</span>
               ))}
@@ -1275,7 +1275,7 @@ function BrainPanel({ mood, speaking, latestMeta, moodReflection, disclosedAtoms
                 <MemRow label="emotional" arr={m.memories?.emotional} />
                 {m.memories?.morriganDisclosed?.length > 0 && (
                   <>
-                    <div style={{ color: "#9B2D5E", fontSize: 9.5, fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", marginTop: 8, marginBottom: 4, fontFamily: FONT_MONO }}>What He Knows About Her</div>
+                    <div style={{ color: "#9B2D5E", fontSize: 11, fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", marginTop: 10, marginBottom: 5, fontFamily: FONT_MONO }}>What He Knows About Her</div>
                     <MemRow label="" arr={m.memories.morriganDisclosed} />
                   </>
                 )}
@@ -1294,24 +1294,24 @@ function BrainPanel({ mood, speaking, latestMeta, moodReflection, disclosedAtoms
               const atoms = atomsByDepth[section.depth] || [];
               return (
                 <div key={section.depth} style={{ marginBottom: 8 }}>
-                  <div style={{ fontFamily: FONT_MONO, fontSize: 9, color: atoms.length > 0 ? section.color : T.textDim, letterSpacing: "1.5px", fontWeight: 700, textTransform: "uppercase", marginBottom: 6 }}>{section.label}</div>
+                  <div style={{ fontFamily: FONT_MONO, fontSize: 11, color: atoms.length > 0 ? section.color : T.textDim, letterSpacing: "1.5px", fontWeight: 700, textTransform: "uppercase", marginBottom: 7 }}>{section.label}</div>
                   {atoms.length > 0 ? atoms.map((atom, i) => (
-                    <p key={atom.id || i} style={{ fontFamily: FONT, fontSize: 13, color: T.text, margin: i < atoms.length - 1 ? "0 0 10px" : "0 0 4px", lineHeight: 1.75, paddingLeft: 10, borderLeft: `2px solid ${section.color}30` }}>
+                    <p key={atom.id || i} style={{ fontFamily: FONT, fontSize: 15, color: T.text, margin: i < atoms.length - 1 ? "0 0 10px" : "0 0 5px", lineHeight: 1.8, paddingLeft: 12, borderLeft: `2px solid ${section.color}30` }}>
                       {atom.content}
                     </p>
                   )) : (
-                    <p style={{ fontFamily: FONT, fontSize: 11, color: T.textDim, margin: "0 0 4px", fontStyle: "italic", paddingLeft: 10, borderLeft: `2px solid ${T.border}` }}>{section.locked}</p>
+                    <p style={{ fontFamily: FONT, fontSize: 13, color: T.textDim, margin: "0 0 5px", fontStyle: "italic", paddingLeft: 12, borderLeft: `2px solid ${T.border}` }}>{section.locked}</p>
                   )}
                 </div>
               );
             })}
             {meta?.alreadyDisclosedAtoms?.length > 0 && (
               <div style={{ marginTop: 6 }}>
-                <div style={{ fontFamily: FONT_MONO, fontSize: 9, color: T.textDim, letterSpacing: "1.5px", fontWeight: 700, textTransform: "uppercase", marginBottom: 6 }}>Already Shared</div>
+                <div style={{ fontFamily: FONT_MONO, fontSize: 11, color: T.textDim, letterSpacing: "1.5px", fontWeight: 700, textTransform: "uppercase", marginBottom: 7 }}>Already Shared</div>
                 {meta.alreadyDisclosedAtoms.map((a, i) => (
-                  <div key={i} style={{ display: "flex", gap: 10, marginBottom: 4, alignItems: "flex-start" }}>
-                    <span style={{ color: DEPTH_CLR[a.depth] || T.textDim, fontSize: 10.5, fontWeight: 700, minWidth: 48, flexShrink: 0 }}>d{a.depth}</span>
-                    <span style={{ color: T.textSoft, lineHeight: 1.5, fontSize: 11, textDecoration: "line-through", opacity: 0.6 }}>{a.content}</span>
+                  <div key={i} style={{ display: "flex", gap: 10, marginBottom: 5, alignItems: "flex-start" }}>
+                    <span style={{ color: DEPTH_CLR[a.depth] || T.textDim, fontSize: 12.5, fontWeight: 700, minWidth: 48, flexShrink: 0 }}>d{a.depth}</span>
+                    <span style={{ color: T.textSoft, lineHeight: 1.55, fontSize: 13, textDecoration: "line-through", opacity: 0.6 }}>{a.content}</span>
                   </div>
                 ))}
               </div>
@@ -1322,12 +1322,12 @@ function BrainPanel({ mood, speaking, latestMeta, moodReflection, disclosedAtoms
         {/* ── Section 16: SPT Breadth Map ── */}
         {meta?.sptBreadth && Object.keys(meta.sptBreadth).length > 0 && (
           <>
-            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "1.2px", textTransform: "uppercase", color: T.accent, marginTop: 10, marginBottom: 8, paddingBottom: 5, borderBottom: `1px solid ${T.border}`, fontFamily: FONT_MONO }}>
+            <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "1.2px", textTransform: "uppercase", color: T.accent, marginTop: 12, marginBottom: 10, paddingBottom: 6, borderBottom: `1px solid ${T.border}`, fontFamily: FONT_MONO }}>
               SPT Breadth — Topic Depth Progress
             </div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginBottom: 10 }}>
               {Object.entries(meta.sptBreadth).map(([topic, depth]) => (
-                <span key={topic} style={{ background: T.surface2, border: `1px solid ${DEPTH_CLR[depth] || T.border}40`, borderRadius: 6, padding: "2px 8px", fontSize: 11, fontFamily: FONT_MONO }}>
+                <span key={topic} style={{ background: T.surface2, border: `1px solid ${DEPTH_CLR[depth] || T.border}40`, borderRadius: 6, padding: "3px 10px", fontSize: 13, fontFamily: FONT_MONO }}>
                   <span style={{ color: T.textDim }}>{topic}</span>
                   <span style={{ color: DEPTH_CLR[depth] || T.textDim, fontWeight: 700, marginLeft: 5 }}>d{depth}</span>
                 </span>
@@ -1348,8 +1348,8 @@ function BrainPanel({ mood, speaking, latestMeta, moodReflection, disclosedAtoms
               <div style={{ marginBottom: 4 }}>
                 {m.molecules.map((mol, i) => (
                   <div key={i} style={{ display: "flex", gap: 10, marginBottom: 7, paddingLeft: 8, borderLeft: `2px solid ${T.accent}50`, alignItems: "flex-start" }}>
-                    {mol.period && <span style={{ color: T.accent, fontSize: 10, minWidth: 64, flexShrink: 0, paddingTop: 2, fontFamily: FONT_MONO }}>[{mol.period}]</span>}
-                    <span style={{ color: T.textSoft, lineHeight: 1.55, fontSize: 12 }}>{mol.summary}</span>
+                    {mol.period && <span style={{ color: T.accent, fontSize: 12, minWidth: 68, flexShrink: 0, paddingTop: 2, fontFamily: FONT_MONO }}>[{mol.period}]</span>}
+                    <span style={{ color: T.textSoft, lineHeight: 1.6, fontSize: 14 }}>{mol.summary}</span>
                   </div>
                 ))}
               </div>
@@ -1360,15 +1360,15 @@ function BrainPanel({ mood, speaking, latestMeta, moodReflection, disclosedAtoms
         {/* ── Section 19: Milestones ── */}
         {m?.milestones?.length > 0 && (
           <>
-            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "1.2px", textTransform: "uppercase", color: T.accent, marginTop: 10, marginBottom: 6, paddingBottom: 5, borderBottom: `1px solid ${T.border}`, fontFamily: FONT_MONO }}>
+            <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "1.2px", textTransform: "uppercase", color: T.accent, marginTop: 12, marginBottom: 8, paddingBottom: 6, borderBottom: `1px solid ${T.border}`, fontFamily: FONT_MONO }}>
               Milestones <span style={{ color: T.textDim, fontWeight: 400 }}>({m.milestones.length})</span>
             </div>
             {m.milestones.map((ms, i) => {
               const ev = typeof ms === "string" ? ms : ms.event;
               const cat = typeof ms === "object" ? ms.category : null;
               return (
-                <div key={i} style={{ color: T.textSoft, fontSize: 12, paddingLeft: 8, marginBottom: 4, borderLeft: `2px solid ${T.border}`, lineHeight: 1.5 }}>
-                  — {ev}{cat && <span style={{ color: T.textDim, fontSize: 10, marginLeft: 6, fontFamily: FONT_MONO }}>[{cat}]</span>}
+                <div key={i} style={{ color: T.textSoft, fontSize: 14, paddingLeft: 10, marginBottom: 5, borderLeft: `2px solid ${T.border}`, lineHeight: 1.55 }}>
+                  — {ev}{cat && <span style={{ color: T.textDim, fontSize: 12, marginLeft: 6, fontFamily: FONT_MONO }}>[{cat}]</span>}
                 </div>
               );
             })}
@@ -1408,7 +1408,7 @@ function BrainPanel({ mood, speaking, latestMeta, moodReflection, disclosedAtoms
                   <KV label="ToM phase" value={phase6Summary.tom.currentPhase} />
                 )}
                 {phase6Summary.tom?.trajectoryNarrative && (
-                  <div style={{ color: T.textSoft, fontSize: 11, fontStyle: "italic", lineHeight: 1.5, marginTop: 6, paddingLeft: 10, borderLeft: `2px solid #f59e0b40` }}>{phase6Summary.tom.trajectoryNarrative}</div>
+                  <div style={{ color: T.textSoft, fontSize: 13, fontStyle: "italic", lineHeight: 1.6, marginTop: 8, paddingLeft: 12, borderLeft: `2px solid #f59e0b40` }}>{phase6Summary.tom.trajectoryNarrative}</div>
                 )}
               </div>
             )}
@@ -1423,13 +1423,13 @@ function BrainPanel({ mood, speaking, latestMeta, moodReflection, disclosedAtoms
               <div style={{ marginBottom: 4 }}>
                 {m.sessionContextUsed.map((ex, i) => (
                   <div key={i} style={{ marginBottom: 10, paddingLeft: 8, borderLeft: `2px solid ${T.border}` }}>
-                    <div style={{ display: "flex", gap: 8, marginBottom: 3, alignItems: "flex-start" }}>
-                      <span style={{ color: T.textDim, fontSize: 10.5, minWidth: 24, flexShrink: 0, paddingTop: 1 }}>you</span>
-                      <span style={{ color: T.textSoft, fontSize: 12, lineHeight: 1.5 }}>{ex.user}</span>
+                    <div style={{ display: "flex", gap: 8, marginBottom: 4, alignItems: "flex-start" }}>
+                      <span style={{ color: T.textDim, fontSize: 12.5, minWidth: 28, flexShrink: 0, paddingTop: 1 }}>you</span>
+                      <span style={{ color: T.textSoft, fontSize: 14, lineHeight: 1.55 }}>{ex.user}</span>
                     </div>
                     <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
-                      <span style={{ color: T.accent, fontSize: 10.5, minWidth: 24, flexShrink: 0, paddingTop: 1 }}>her</span>
-                      <span style={{ color: T.textSoft, fontSize: 12, lineHeight: 1.5 }}>{ex.assistant}</span>
+                      <span style={{ color: T.accent, fontSize: 12.5, minWidth: 28, flexShrink: 0, paddingTop: 1 }}>her</span>
+                      <span style={{ color: T.textSoft, fontSize: 14, lineHeight: 1.55 }}>{ex.assistant}</span>
                     </div>
                   </div>
                 ))}
@@ -1458,16 +1458,16 @@ function BrainPanel({ mood, speaking, latestMeta, moodReflection, disclosedAtoms
             if (m.trustLevel != null) tags.push(trustLabels[m.trustLevel] || "unknown");
             const unique = [...new Set(tags)].slice(0, 14);
             return unique.length > 0 ? unique.map(tag => (
-              <span key={tag} style={{ fontFamily: FONT_MONO, fontSize: 9, color: T.text, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, padding: "4px 9px" }}>{tag}</span>
+              <span key={tag} style={{ fontFamily: FONT_MONO, fontSize: 11, color: T.text, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, padding: "4px 10px" }}>{tag}</span>
             )) : (
-              <span style={{ fontFamily: FONT_MONO, fontSize: 11, color: T.textDim, opacity: 0.5 }}>send a message to start reading her</span>
+              <span style={{ fontFamily: FONT_MONO, fontSize: 13, color: T.textDim, opacity: 0.5 }}>send a message to start reading her</span>
             );
           })()}
         </div>
 
         {/* Empty state before first message */}
         {!meta && (
-          <div style={{ padding: "20px 0", textAlign: "center", color: T.textDim, fontSize: 11, fontFamily: FONT_MONO, lineHeight: 1.6 }}>
+          <div style={{ padding: "24px 0", textAlign: "center", color: T.textDim, fontSize: 14, fontFamily: FONT_MONO, lineHeight: 1.6 }}>
             send a message to see her thoughts
           </div>
         )}
@@ -2021,7 +2021,7 @@ export default function App() {
         @keyframes floatParticle{0%,100%{transform:translateY(0) translateX(0);opacity:0.3}25%{transform:translateY(-20px) translateX(10px);opacity:0.6}50%{transform:translateY(-10px) translateX(-5px);opacity:0.4}75%{transform:translateY(-30px) translateX(15px);opacity:0.5}}
         @keyframes speakBounce{0%,100%{transform:translateY(0);opacity:0.5}50%{transform:translateY(-5px);opacity:1}}
         ::placeholder{color:${T.textDim}}
-        ::-webkit-scrollbar{width:14px}::-webkit-scrollbar-track{background:${T.surface2 || T.bg};border-radius:7px}::-webkit-scrollbar-thumb{background:${T.accent}55;border-radius:7px;border:3px solid transparent;background-clip:padding-box}::-webkit-scrollbar-thumb:hover{background:${T.accent}88;border:3px solid transparent;background-clip:padding-box}
+        ::-webkit-scrollbar{width:18px}::-webkit-scrollbar-track{background:${T.surface2 || T.bg};border-radius:9px}::-webkit-scrollbar-thumb{background:${T.accent}70;border-radius:9px;border:3px solid transparent;background-clip:padding-box;min-height:60px}::-webkit-scrollbar-thumb:hover{background:${T.accent}aa;border:3px solid transparent;background-clip:padding-box}
         body{background:${T.bg};overflow:hidden}textarea:focus{outline:none}
       `}</style>
     </div>
