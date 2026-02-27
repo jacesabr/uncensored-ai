@@ -226,79 +226,71 @@ const ATTRIBUTION_REMINDER = `(Two speakers: "User:" = what THEY said. "${M.name
  * @param {string[]} alreadyShared - Current sharedSelfAtomIds
  * @returns {string[]} - Array of newly detected atom IDs to mark as shared
  */
-function detectDisclosedAtoms(response, selfAtomCache, sptDepth, alreadyShared) {
+async function detectDisclosedAtoms(response, selfAtomCache, sptDepth, alreadyShared) {
   if (!response || !selfAtomCache?.length) return [];
   const responseLower = response.toLowerCase();
   const newlyDetected = [];
 
+  // Embed the response once for semantic comparison against all atoms
+  let responseEmbedding = null;
+  try {
+    responseEmbedding = await embedText(response.slice(0, 2000));
+  } catch (e) {
+    console.error("[DISCLOSURE-DETECT] Embedding failed, falling back to markers only:", e.message);
+  }
+
   for (const atom of selfAtomCache) {
-    if (atom.depth > sptDepth) continue;           // respect depth gate
+    if (atom.depth > sptDepth) continue;
     if (atom.deprecated) continue;
-    if (alreadyShared.includes(atom.id)) continue;  // already tracked
+    if (alreadyShared.includes(atom.id)) continue;
 
-    // Extract distinctive markers from atom content:
-    // 1. Proper nouns / names (capitalized words not at sentence start)
-    // 2. Quoted or distinctive phrases (3+ word sequences with specificity)
-    // 3. Specific numbers, ages, dates
+    // ── Layer 1: Semantic similarity (primary detection) ──
+    // If both embeddings exist, cosine similarity above threshold = match
+    let semanticMatch = false;
+    if (responseEmbedding && atom.embedding?.length) {
+      const sim = cosineSimilarity(responseEmbedding, atom.embedding);
+      // 0.55 = moderate similarity — atom's theme is clearly present in response
+      // Higher threshold would miss paraphrased disclosures
+      if (sim >= 0.55) {
+        semanticMatch = true;
+        console.log(`[DISCLOSURE-DETECT] Semantic match: atom ${atom.id} (sim=${sim.toFixed(3)})`);
+      }
+    }
+
+    // ── Layer 2: Marker detection (fast-path, high confidence) ──
+    // Distinctive proper nouns, names, quoted phrases, specific numbers
     const content = atom.content || "";
-    const markers = [];
+    let markerMatch = false;
 
-    // Pull proper nouns: words that are capitalized mid-sentence
-    // (skip first word of sentences, common words like "I")
-    const properNouns = content.match(/(?<=[.!?]\s+\w+\s+|,\s+|—\s*|\.\.\.\s*)[A-Z][a-z]{2,}/g) || [];
-    // Also catch names that appear after "named", "called", "name is"
+    // Named entities: "named X", "called X", "name is X"
     const namedEntities = content.match(/(?:named?|called?|name(?:'s| is))\s+([A-Z][a-z]+)/g) || [];
+    const markers = [];
     namedEntities.forEach(m => {
       const name = m.split(/\s+/).pop();
       if (name && name.length > 2) markers.push(name.toLowerCase());
     });
-    properNouns.forEach(n => {
-      if (!["The", "She", "Her", "His", "But", "And", "Not", "That", "This", "There", "What"].includes(n)) {
-        markers.push(n.toLowerCase());
-      }
-    });
 
-    // Pull distinctive multi-word phrases: band names, place names, specific details
-    // Look for quoted text
+    // Proper nouns mid-sentence
+    const properNouns = content.match(/(?<=[.!?]\s+\w+\s+|,\s+|—\s*|\.\.\.\s*)[A-Z][a-z]{2,}/g) || [];
+    const skipWords = ["The", "She", "Her", "His", "But", "And", "Not", "That", "This", "There", "What", "When", "Some", "Most"];
+    properNouns.forEach(n => { if (!skipWords.includes(n)) markers.push(n.toLowerCase()); });
+
+    // Multi-word capitalized sequences (band/place names)
+    const multiCap = content.match(/[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+/g) || [];
+    multiCap.forEach(m => { if (!["Some Days", "Other People", "Most People"].includes(m)) markers.push(m.toLowerCase()); });
+
+    // Quoted phrases
     const quoted = content.match(/"([^"]{3,})"/g) || [];
     quoted.forEach(q => markers.push(q.replace(/"/g, "").toLowerCase()));
 
-    // Look for specific identifiers: band/artist names, book titles, locations
-    // These tend to be 2-3 capitalized words in sequence
-    const multiCap = content.match(/[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+/g) || [];
-    multiCap.forEach(m => {
-      if (!["Some Days", "Other People", "Most People"].includes(m)) {
-        markers.push(m.toLowerCase());
-      }
-    });
-
-    // Specific numbers/ages that are distinctive
+    // Specific numbers/ages
     const specificNumbers = content.match(/\b(?:at |age |since |for )\d+\b/gi) || [];
     specificNumbers.forEach(n => markers.push(n.toLowerCase()));
 
-    // Topic-based keywords from the atom's topics array
-    // These are curated and specific enough to be useful
-    const topicKeywords = (atom.topics || []).filter(t =>
-      !["past", "identity", "relationships", "emotions", "habits", "home"].includes(t)
-    );
+    markerMatch = markers.some(m => m.length > 2 && responseLower.includes(m));
 
-    // If we have no distinctive markers, fall back to checking for
-    // any unique 4+ word phrase from the atom content
-    if (markers.length === 0 && topicKeywords.length === 0) {
-      const words = content.split(/\s+/).filter(w => w.length > 3);
-      // Take a 4-word sliding window and check for distinctive sequences
-      for (let i = 0; i <= words.length - 4; i++) {
-        const phrase = words.slice(i, i + 4).join(" ").toLowerCase().replace(/[^a-z\s]/g, "");
-        if (phrase.length > 15) markers.push(phrase);
-      }
-    }
-
-    // Match: if ANY distinctive marker appears in the response
-    const markerMatch = markers.some(m => m.length > 2 && responseLower.includes(m));
-    const topicMatch = topicKeywords.some(t => responseLower.includes(t.toLowerCase()));
-
-    // Require marker match (high-confidence) — topic alone is too generic
-    if (markerMatch) {
+    // ── Decision: either layer triggers detection ──
+    if (markerMatch || semanticMatch) {
       newlyDetected.push(atom.id);
     }
   }
@@ -946,27 +938,40 @@ async function updateBrainAfterExchange(userId, userMessage, assistantResponse) 
   // ── Step 1: Extract atoms from THIS exchange ──────────────────────
   let newAtoms = [];
   try {
-    // Cap existing facts to most recent 30 to prevent prompt bloat + false dedup
-    const existingFacts = memory.memories.slice(-30).map(m => m.fact).join("; ") || "none yet";
-    const extractionPrompt = `You are a memory extraction assistant. Extract TWO types of facts from this exchange between a user and their AI companion ${M.name}:
+    // Cap existing facts to most recent 40 to prevent prompt bloat + false dedup
+    const existingFacts = memory.memories.slice(-40).map(m => m.fact).join("; ") || "none yet";
+    // Include recent context (last 3 exchanges) so extraction sees multi-turn disclosures
+    const extractionContext = (session.sessionExchanges || []).slice(-3).map(ex => {
+      let parts = [];
+      if (ex.user) parts.push(`User: ${ex.user}`);
+      parts.push(`${M.name}: ${ex.assistant}`);
+      return parts.join("\n");
+    }).join("\n---\n");
+    const extractionPrompt = `You are a memory extraction assistant. Extract TWO types of facts from this conversation between a user and their AI companion ${M.name}.
 
 TYPE A — Facts about the USER (from what the user said or implied):
-  Examples: their name, pets, hobbies, job, family, preferences, emotions, life events, relationships.
   Category: "name|interest|personal|emotional|preference|relationship|event"
+  Extract ANY personal information: their name, pets, animals, hobbies, job, daily habits, family members, living situation, food preferences, emotional patterns, relationships, significant events, health, schedule, opinions, dislikes. Even small details matter — "has a cat," "drinks coffee at night," "works late shifts" are all worth storing.
 
-TYPE B — Things ${M.name} REVEALED about herself that the user now knows:
-  Examples: ${M.name} mentioned her cat's name, shared a memory, talked about her music taste, revealed something personal.
+TYPE B — Things ${M.name} REVEALED about herself that the user NOW KNOWS:
   Category: "morrigan_disclosed"
-  The "fact" should be phrased as "The user now knows that ${M.name} [thing she revealed]."
+  Extract EVERYTHING ${M.name} said about herself, including:
+  - Personal facts: her pets, apartment, possessions, habits, routines, workplace details
+  - Opinions & tastes: music, food, art, what she likes/dislikes, how she spends time
+  - Emotional reveals: fears, vulnerabilities, what makes her uncomfortable, what she cares about
+  - Past/history: childhood, foster care, relationships, experiences she referenced
+  - Personality: humor style, reactions, quirks, things she's proud/ashamed of
+  - Casual mentions: even offhand comments like "I put on a record" (reveals she has a record player)
+  Phrase each as: "The user now knows that ${M.name} [specific thing she revealed]."
+  importance: 3 for casual/offhand, 4 for deliberate sharing, 5 for vulnerable/deep disclosure.
 
 ${ATTRIBUTION_GUARD}
-For Type A: extract from what the USER said/implied. Pets, animals, family members, daily habits — all count.
-For Type B: extract from what ${M.name} said about HERSELF. If she mentioned a pet, a place, a feeling, a memory — the user now knows that.
+CRITICAL: Be thorough with Type B. If ${M.name} mentions ANYTHING about herself — a name, a place, an object, an opinion, a feeling, a habit, a memory — extract it. The user heard it and now knows it. Don't skip "obvious" or "small" details.
 
 EXISTING MEMORIES (do not duplicate): ${existingFacts}
 
-EXCHANGE:
-${singleExchange}
+RECENT CONVERSATION:
+${extractionContext}
 
 Return ONLY a JSON array. Each object:
 {
@@ -989,7 +994,7 @@ If nothing worth storing, return []. Return ONLY the JSON array.`;
     const extractBody = {
       model: CHAT_MODEL,
       messages: [{ role: "user", content: extractionPrompt }],
-      temperature: 0.1, max_tokens: 600,
+      temperature: 0.1, max_tokens: 900,
     };
     const extractHeaders = { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` };
 
@@ -3262,8 +3267,17 @@ async function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart =
   if (events.length)        memoryContext += `Things that happened to him: ${events.join("; ")}\n`;
   if (emotional.length)     memoryContext += `Emotional/deep things he's shared: ${emotional.join("; ")}\n`;
 
-  const morriganDisclosed = byCategory("morrigan_disclosed");
-  if (morriganDisclosed.length) memoryContext += `\n═══ WHAT HE KNOWS ABOUT YOU (things you've already told him — don't repeat these unprompted, but you can reference them naturally) ═══\n${morriganDisclosed.join("; ")}\n`;
+  // What the user already knows about Morrigan — sorted by importance so deep disclosures are prominent
+  const morriganDisclosedAtoms = sorted.filter(m => m.category === "morrigan_disclosed")
+    .sort((a, b) => (b.importance || 3) - (a.importance || 3));
+  if (morriganDisclosedAtoms.length) {
+    const deep = morriganDisclosedAtoms.filter(m => (m.importance || 3) >= 4).map(m => m.fact);
+    const casual = morriganDisclosedAtoms.filter(m => (m.importance || 3) < 4).map(m => m.fact);
+    memoryContext += `\n═══ WHAT HE ALREADY KNOWS ABOUT YOU ═══\n`;
+    memoryContext += `He's heard all of this from you. Don't re-explain these — reference them naturally if relevant. Don't deny or forget them.\n`;
+    if (deep.length) memoryContext += `Important things you've shared: ${deep.join("; ")}\n`;
+    if (casual.length) memoryContext += `Casual things you've mentioned: ${casual.join("; ")}\n`;
+  }
 
   // Period-based grouping [P13 Conway]: lifetime periods organize identity
   const atomsByPeriod = {};
@@ -3954,6 +3968,10 @@ app.get("/api/personality", auth, async (req, res) => {
       nextLevel: TRUST_LEVELS[memory.trustLevel + 1] || null,
       pointsToNext: TRUST_LEVELS[memory.trustLevel + 1] ? TRUST_LEVELS[memory.trustLevel + 1].points - memory.trustPoints : 0,
       disclosedAtoms,
+      morriganDisclosed: (memory.memories || [])
+        .filter(m => m.category === "morrigan_disclosed")
+        .sort((a, b) => (b.importance || 3) - (a.importance || 3))
+        .map(m => ({ fact: m.fact, importance: m.importance || 3 })),
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -4764,7 +4782,7 @@ app.post("/api/chat", auth, async (req, res) => {
           const finalText = composedResponse || fullResponse;
           const currentShared = session.memory.sharedSelfAtomIds || [];
           const currentSptDepth = session.memory.sptDepth || 1;
-          const newlyDisclosed = detectDisclosedAtoms(
+          const newlyDisclosed = await detectDisclosedAtoms(
             finalText, session.selfAtomCache || [], currentSptDepth, currentShared
           );
           if (newlyDisclosed.length > 0) {
