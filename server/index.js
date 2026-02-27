@@ -4039,6 +4039,9 @@ Additional constraints:
 - If the inner thought is a self-disclosure, ensure the user's words are
   acknowledged BEFORE the disclosure is introduced.
   Self-disclosure without validation is worse than silence.
+- NEVER narrate, describe, or invent the user's physical actions, body language,
+  facial expressions, or thoughts. Only describe ${M.name}'s own actions and reactions.
+  Writing "You pick at..." or "You raise an eyebrow" about the user is forbidden.
 - NEVER include meta-commentary about your editing choices. No "Note that I've..."
   or explanations of technique. Output only ${M.name}'s words, nothing else.
 `;
