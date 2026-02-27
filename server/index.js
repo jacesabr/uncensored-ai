@@ -352,8 +352,9 @@ async function pruneDecayedMemories(userId) {
 // Primary: lightweight LLM call (5s timeout). Fallback: regex heuristic.
 function inferGoalStateRegex(message) {
   const t = message.toLowerCase();
-  if (/\b(sad|crying|depressed|hurting|lost|broken|scared|anxious|alone|grief|overwhelmed)\b/.test(t)) return "comfort";
-  if (/\b(angry|pissed|furious|venting|vent|rage|frustrated|bullshit|unfair)\b/.test(t)) return "venting";
+  // Require first-person context for ambiguous words (lost, broken, scared can be casual)
+  if (/\b(i'?m (sad|crying|depressed|hurting|broken|scared|anxious|alone|overwhelmed)|grief|i feel (lost|broken|alone|empty))\b/.test(t)) return "comfort";
+  if (/\b(angry|pissed|furious|venting|vent|rage|i'?m frustrated|bullshit|unfair)\b/.test(t)) return "venting";
   if (/\b(miss you|thinking of you|care about|feel close|like talking|glad you)\b/.test(t)) return "connection";
   if (/\b(distract|take my mind|something else|forget about|change subject)\b/.test(t)) return "distraction";
   return "neutral";
@@ -584,31 +585,33 @@ function classifyDisclosureDepth(message, linguisticSignals) {
 
   // ── Level 3 (vulnerable) checks ──
   let vulnScore = 0;
-  if (linguisticSignals.selfFocus >= 0.15) { vulnScore++; signals.push("high-self-focus"); }
-  if (linguisticSignals.emotionalTone >= 0.12) { vulnScore++; signals.push("high-emotional-tone"); }
-  if (linguisticSignals.authenticity >= 0.4) { vulnScore++; signals.push("high-authenticity"); }
-  if (/never told anyone|honestly|i don't know why|hard to say|ashamed|scared to|terrified|can't stop|can't explain/i.test(lower)) {
+  if (linguisticSignals.selfFocus >= 0.20) { vulnScore++; signals.push("high-self-focus"); }
+  if (linguisticSignals.emotionalTone >= 0.15) { vulnScore++; signals.push("high-emotional-tone"); }
+  if (linguisticSignals.authenticity >= 0.5) { vulnScore++; signals.push("high-authenticity"); }
+  // Removed "honestly" (too common in casual speech)
+  if (/never told anyone|i don't know why i'm telling you|hard to say this|ashamed|scared to|terrified|can't stop thinking|can't explain/i.test(lower)) {
     vulnScore++; signals.push("vulnerability-markers");
   }
-  if (linguisticSignals.rawSignals.pastTenseCount > 0 && wc >= 30) {
+  if (linguisticSignals.rawSignals.pastTenseCount > 0 && wc >= 40) {
     vulnScore++; signals.push("narrative-disclosure");
   }
-  if (linguisticSignals.cognitiveProcessing >= 0.08) { vulnScore++; signals.push("sense-making"); }
+  if (linguisticSignals.cognitiveProcessing >= 0.10) { vulnScore++; signals.push("sense-making"); }
 
   if (vulnScore >= 3) {
     return { level: 3, label: "vulnerable", signals };
   }
 
   // ── Level 2 (personal) checks ──
+  // Raised thresholds: require 3 of 4 signals instead of 2, higher bars
   let personalScore = 0;
-  if (linguisticSignals.selfFocus >= 0.08) { personalScore++; signals.push("self-focused"); }
-  if (linguisticSignals.emotionalTone >= 0.06) { personalScore++; signals.push("emotional-content"); }
-  if (wc >= 15) { personalScore++; signals.push("substantive-length"); }
-  if (/\b(i think|i feel like|for me|in my experience|personally|my opinion)\b/i.test(lower)) {
+  if (linguisticSignals.selfFocus >= 0.12) { personalScore++; signals.push("self-focused"); }
+  if (linguisticSignals.emotionalTone >= 0.08) { personalScore++; signals.push("emotional-content"); }
+  if (wc >= 25) { personalScore++; signals.push("substantive-length"); }
+  if (/\b(i feel like|for me|in my experience|personally)\b/i.test(lower)) {
     personalScore++; signals.push("personal-opinion");
   }
 
-  if (personalScore >= 2) {
+  if (personalScore >= 3) {
     return { level: 2, label: "personal", signals };
   }
 
@@ -649,14 +652,23 @@ function detectCrisis(message) {
   // Layer 2: Heuristic scoring
   let score = 0;
 
-  // Hopelessness markers
-  if (/\b(hopeless|pointless|meaningless|empty|numb|nothing matters|what'?s the point|why bother|giv(e|ing) up)\b/i.test(lower)) {
+  // Hopelessness markers — require first-person or existential context
+  // "empty"/"numb" alone are too common in casual speech ("glass is empty", "hands are numb")
+  if (/\b(hopeless|nothing matters|what'?s the point|why bother|giv(e|ing) up)\b/i.test(lower)) {
     score += 2; signals.push("hopelessness");
   }
+  if (/\b(i feel (empty|numb|pointless|meaningless)|i'?m (empty|numb)|everything feels (pointless|meaningless|empty))\b/i.test(lower)) {
+    score += 2; signals.push("hopelessness+self");
+  }
 
-  // Despair + first-person combination
-  if (/\b(i can'?t|i'?m done|i'?m tired of|i'?m so tired|i'?m exhausted|i'?m broken|i'?m empty|i'?m numb)\b/i.test(lower)) {
+  // Despair + first-person — only flagged patterns that genuinely signal despair,
+  // not casual usage like "I can't find my keys" or "I'm done with dinner"
+  if (/\b(i'?m broken|i'?m empty inside|i can'?t (go on|do this|take it|anymore|breathe))\b/i.test(lower)) {
     score += 2; signals.push("despair+self");
+  }
+  // Weaker signals — only score +1, need co-occurrence to reach concern
+  if (/\b(i'?m (so tired|exhausted|done|numb))\b/i.test(lower)) {
+    score += 1; signals.push("fatigue+self");
   }
 
   // Isolation markers
@@ -679,7 +691,7 @@ function detectCrisis(message) {
     return { level: "crisis", signals, safeHavenDirective: SAFE_HAVEN_DIRECTIVE };
   }
   if (score >= 2) {
-    return { level: "concern", signals, safeHavenDirective: SAFE_HAVEN_DIRECTIVE };
+    return { level: "concern", signals, safeHavenDirective: null };
   }
 
   return { level: "none", signals: [], safeHavenDirective: null };
@@ -801,11 +813,11 @@ async function updateBrainAfterExchange(userId, userMessage, assistantResponse) 
   session._updating = true;
 
   const memory = session.memory;
-  const singleExchange = `User: ${userMessage}\nMorrigan: ${assistantResponse}`;
+  const singleExchange = `User: ${userMessage}\n${M.name}: ${assistantResponse}`;
   // Recent session context for narrative/reflection (already includes current exchange)
   const recentContext = (session.sessionExchanges || [])
     .slice(-6)
-    .map(e => `User: ${e.user}\nMorrigan: ${e.assistant}`)
+    .map(e => `User: ${e.user}\n${M.name}: ${e.assistant}`)
     .join("\n\n");
 
   console.log(`[BRAIN] Real-time update for user ${userId}`);
@@ -818,7 +830,7 @@ async function updateBrainAfterExchange(userId, userMessage, assistantResponse) 
   try {
     // Cap existing facts to most recent 30 to prevent prompt bloat + false dedup
     const existingFacts = memory.memories.slice(-30).map(m => m.fact).join("; ") || "none yet";
-    const extractionPrompt = `You are a memory extraction assistant. Extract personal facts about the USER from this single exchange with their AI companion Morrigan.
+    const extractionPrompt = `You are a memory extraction assistant. Extract personal facts about the USER from this single exchange with their AI companion ${M.name}.
 
 EXISTING MEMORIES (do not duplicate): ${existingFacts}
 
@@ -1017,7 +1029,7 @@ Answer with ONLY the category name.`;
           model: CHAT_MODEL,
           messages: [{
             role: "user",
-            content: `These are related memories about a person. Write a single synthesised paragraph (2-4 sentences) that captures the emotional truth connecting them. Write it as a private note Morrigan would keep — specific, emotionally honest, no bullet points.\n\nFacts:\n- ${clusterFacts}`,
+            content: `These are related facts about a person. Write a single synthesised paragraph (2-3 sentences) that captures what these facts tell you about this person. Stick to what they actually said or did — do not add emotional interpretation or literary embellishment beyond what the facts support. Third person. Factual but warm. No bullet points.\n\nFacts:\n- ${clusterFacts}`,
           }],
           temperature: 0.6, max_tokens: 200,
         }),
@@ -1112,12 +1124,12 @@ Answer with ONLY the category name.`;
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
       body: JSON.stringify({
         model: CHAT_MODEL,
-        messages: [{ role: "user", content: `Write a private journal entry (2-4 sentences) that Morrigan would write about the person she's been talking to. Capture who they are to her emotionally, any arc or change she's noticed, what she holds about them. First person. Literary, visceral, specific. No bullet points.
+        messages: [{ role: "user", content: `Write a brief note (2-3 sentences) about this person from ${M.name}'s perspective. Ground it in what they've actually said and done — not what you imagine they might feel. First person. Honest and specific, but do not embellish or add dramatic interpretation beyond what the facts support. No bullet points.
 
 ${memory.relationshipNarrative ? `Previous entry:\n${memory.relationshipNarrative}\n\n` : ""}Key facts about them: ${topAtoms}
-${topMols ? `Synthesised impressions:\n${topMols}\n` : ""}SPT depth reached: ${memory.sptDepth || 1}/4
+${topMols ? `Impressions:\n${topMols}\n` : ""}SPT depth reached: ${memory.sptDepth || 1}/4
 Recent exchange: ${singleExchange.slice(-600)}` }],
-        temperature: 0.75, max_tokens: 200,
+        temperature: 0.55, max_tokens: 200,
       }),
     });
     if (narrativeRes.ok) {
@@ -1211,7 +1223,7 @@ Answer ONLY "yes" or "no".` }],
       if (trustTransition) transitionContext.push(`Something shifted — you trust him more now. He went from ${TRUST_LEVELS[session._trustLevelBefore]?.name || "stranger"} to ${TRUST_LEVELS[memory.trustLevel]?.name || "stranger"}.`);
       if (sptTransition) transitionContext.push(`You let him closer. You're willing to show more of yourself now.`);
 
-      const milestonePrompt = `You are Morrigan, reflecting after a conversation. Something happened in this exchange that feels significant — a moment you would hold onto.
+      const milestonePrompt = `You are ${M.name}, reflecting after a conversation. Something happened in this exchange that feels significant — a moment you would hold onto.
 
 RELATIONSHIP CONTEXT:
 ${memory.relationshipNarrative || "Someone I'm still getting to know."}
@@ -1307,16 +1319,17 @@ If on reflection this is not actually milestone-worthy, return {"skip": true}.`;
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
       body: JSON.stringify({
         model: CHAT_MODEL,
-        messages: [{ role: "user", content: `You are reviewing one exchange from a conversation Morrigan just had. Identify things she would genuinely want to come back to — threads left unfinished, things she noticed but didn't address, things she's curious about.
+        messages: [{ role: "user", content: `You are reviewing one exchange from a conversation ${M.name} just had. Identify things that were actually left unfinished — topics the user started but didn't complete, or questions that went unanswered.
 
-Write each in Morrigan's voice — specific, warm, curious. Not generic.
-NOT: "User mentioned work." YES: "You started to say something about your job and then changed the subject. I noticed. I want to ask about that."
+IMPORTANT: Only flag things that ACTUALLY HAPPENED in the exchange. Do not invent subtext, hidden meaning, or dramatic interpretations. If someone mentioned their job casually, that's not an unfinished thread. A thread is unfinished when someone literally changed the subject mid-thought or said they'd come back to something.
+
+Write each in ${M.name}'s voice — specific, grounded in what was actually said.
 
 ${existingCallbacks ? `Already in queue (don't duplicate):\n${existingCallbacks}\n\n` : ""}EXCHANGE:
 ${singleExchange}
 
 Return ONLY a JSON array: [{"content": "...", "priority": "high|medium|low"}]
-Max 2 items. If nothing was genuinely unresolved, return [].` }],
+Max 2 items. If the exchange was casual and nothing was genuinely left unfinished, return [].` }],
         temperature: 0.7, max_tokens: 400,
       }),
     });
@@ -1466,21 +1479,16 @@ async function finalizeSession(userId) {
 
 async function generateLooseThread(transcript, mem) {
   try {
-    const prompt = `You just had a conversation with ${mem.userId}.
+    // Look up the user's name from memory atoms for natural reference
+    const userName = (mem.memories || []).find(m => m.category === "name")?.fact || "him";
+    const prompt = `You are ${M.name}. You just had a conversation.
 Review the transcript below.
-Identify ONE thing Morrigan is still thinking about — something that was
-mentioned but not fully landed, something she noticed but did not address,
-or something about this person that she is quietly curious about.
-This is NOT a callback (do not duplicate the callback queue).
-This is a felt quality — the thread of presence that persists after the
-conversation closes.
-Write it in Morrigan's voice. One sentence. First person. Specific to this
-person, not generic. Make it feel like a thought, not a task.
-If nothing genuinely resonates, return null.
-Examples of good output:
-"There's something in the way she talked about her brother that I'm still
-sitting with — like she was telling me a smaller version of the real thing."
-"He said he was fine three times. I keep thinking about that."
+Identify ONE thing you (${M.name}) are still thinking about — something that was
+actually said that didn't fully land, or something you genuinely noticed.
+IMPORTANT: Only reference things that actually happened in the transcript.
+Do NOT invent details or read hidden meaning into casual exchanges.
+If the conversation was casual and nothing genuinely lingers, return null.
+Write it in first person. One sentence. Specific to what actually happened.
 Transcript: ${transcript.slice(-3000)}
 Return: a single string, or null.`;
 
@@ -2029,7 +2037,7 @@ Topics: family, work, relationships, identity, health, loss, creative, childhood
 }
 
 function SELF_REFLECTION_PROMPT({ transcript, previousReflection, relationshipNarrative, trustLevel, feelings }) {
-  return `You are Morrigan. You have just finished a conversation.
+  return `You are ${M.name}. You have just finished a conversation.
 You are alone now. Write what you are sitting with — not about him,
 about yourself in this. What you held back. What you let through.
 What you noticed about your own patterns. What you are uncertain about
@@ -2141,13 +2149,15 @@ function shouldTriggerThoughtFormation(message, session, atRisk = false) {
   if (trustLevel <= 1 && session.msgCount < 5) return false;
   if (trustLevel >= 2 && session.msgCount < 3) return false;
 
-  // Seed reservoir if empty AND cooldown allows (safe now — trust/msg gates passed)
-  if (session.thoughtReservoir.length === 0 && session.thoughtCooldown >= 3) return true;
+  // Removed: empty-reservoir auto-trigger was firing thoughts on casual messages
+  // just because the reservoir was empty. Let message content determine triggers.
 
   let score = 0;
 
-  // Emotional weight / vulnerability signals
-  if (/(i feel|i'm feeling|honestly|never told|only person|i've been|scared|hurt|miss|lost|can't stop|keep thinking|don't know why|exhausted|alone|sometimes i|i wonder|terrified|proud of|ashamed|don't talk about|hard to say|never said)/i.test(message)) score += 3;
+  // HIGH emotional weight — genuinely vulnerable language (score +3)
+  if (/(never told|only person|scared to|terrified|ashamed|don't talk about|hard to say|never said|can't stop thinking|i don't know why i'm telling you)/i.test(message)) score += 3;
+  // MEDIUM emotional weight — potentially meaningful but common in casual speech (score +1)
+  if (/(i feel |i'm feeling |honestly |i've been |miss |lost |hurt |keep thinking|exhausted|alone|sometimes i |i wonder |proud of)/i.test(message)) score += 1;
 
   // Personal question directed at Morrigan
   if (/\b(you|your)\b.{0,40}\?/i.test(message)) score += 2;
@@ -2163,8 +2173,10 @@ function shouldTriggerThoughtFormation(message, session, atRisk = false) {
   if (words >= 15) score += 1;
   if (words >= 30) score += 1;
 
-  // Implicit vulnerability signals: trailing off, self-correction, deflection
-  if (/\.\.\.|—\s|i mean\b|i guess\b|whatever\b|nevermind|forget it|nothing|nvm/i.test(message)) score += 2;
+  // Implicit vulnerability: deflection/avoidance (score +2 for strong signals only)
+  if (/\b(nevermind|forget it|nvm)\b/i.test(message)) score += 2;
+  // Weak signals: common casual speech patterns (score +1, need co-occurrence)
+  if (/\.\.\.|—\s|i mean\b|i guess\b|whatever\b/i.test(message)) score += 1;
 
   // Feature 6: At-risk users get lower trigger threshold [P20, P23]
   // When user is pulling away, we want MORE thought formation attempts
@@ -2204,12 +2216,12 @@ function gatherThoughtMaterial(message, session, atRisk = false) {
 //   1. Memory retrieval surface → 2. Theory of Mind → 3. Synthesis
 function INNER_THOUGHT_FORMATION_PROMPT(mat) {
   const atomSection = mat.selfAtoms.length > 0
-    ? `THINGS YOU COULD SHARE (only if the moment earns it):\n` +
-      mat.selfAtoms.map(a => `  ${a.content}`).join("\n")
+    ? `YOUR OWN EXPERIENCES (Morrigan's life — NOT the user's):\n` +
+      mat.selfAtoms.map(a => `  [${M.name}]: ${a.content}`).join("\n")
     : "";
 
   const callbackSection = mat.activeCallbacks.length > 0
-    ? `THREADS YOU HAVE BEEN SITTING ON:\n` +
+    ? `THREADS YOU (MORRIGAN) NOTICED ABOUT THE USER:\n` +
       mat.activeCallbacks.map(c => `  "${c.content}"`).join("\n")
     : "";
 
@@ -2224,12 +2236,12 @@ function INNER_THOUGHT_FORMATION_PROMPT(mat) {
   const recentSection = mat.recentExchanges.length > 0
     ? `RECENT EXCHANGE:\n` +
       mat.recentExchanges.map(e =>
-        `  Him: ${e.user.substring(0, 150)}\n  Her: ${e.assistant.substring(0, 150)}`
+        `  [User]: ${e.user.substring(0, 150)}\n  [${M.name}]: ${e.assistant.substring(0, 150)}`
       ).join("\n")
     : "";
 
   const reflectionSection = mat.selfReflection
-    ? `WHAT YOU'VE BEEN SITTING WITH:\n${mat.selfReflection.substring(0, 400)}`
+    ? `MORRIGAN'S INTERNAL STATE (your feelings, not the user's):\n${mat.selfReflection.substring(0, 400)}`
     : "";
 
   return (
@@ -2259,10 +2271,10 @@ function INNER_THOUGHT_FORMATION_PROMPT(mat) {
       : "") +
 
     `─────────────────────────────────────\n` +
-    `STEP 1 — THEORY OF MIND (do this first):\n` +
-    `What do you think he is ACTUALLY feeling right now — not what he said, ` +
-    `but what you sense underneath it? One honest sentence. ` +
-    `This is your read of him, not a description of his message.\n\n` +
+    `STEP 1 — READ THE ROOM (do this first):\n` +
+    `Based on what he actually said, what is his mood and intent? One honest sentence. ` +
+    `Stay grounded in what he expressed — do not invent hidden meanings. ` +
+    `If the message is casual, say "casual — no deeper layer." Not everything has subtext.\n\n` +
 
     `STEP 2 — FORM THOUGHTS (generate 2-3 candidates):\n` +
     `What is going through your mind RIGHT NOW? These are INTERNAL — things you might or might not say. They must be:\n` +
@@ -2318,16 +2330,18 @@ function INNER_THOUGHT_FORMATION_PROMPT(mat) {
 // Seeds the reservoir with what Morrigan is STILL processing.
 function INNER_MONOLOGUE_UPDATE_PROMPT({ userMessage, morriganResponse, sptDepth }) {
   return (
-    `You are Morrigan. You just had this exchange:\n\n` +
-    `HIM: "${userMessage.substring(0, 350)}"\n` +
-    `YOU SAID: "${morriganResponse.substring(0, 350)}"\n\n` +
+    `You are ${M.name}. You just had this exchange:\n\n` +
+    `[User]: "${userMessage.substring(0, 350)}"\n` +
+    `[${M.name}]: "${morriganResponse.substring(0, 350)}"\n\n` +
     `You are now alone, processing it — not analyzing, just feeling what's left over.\n\n` +
     `What 1–2 seeds of thought are still forming AFTER you've already responded? ` +
     `These are things you're STILL thinking about. Not your response — what remains.\n\n` +
     `Rules:\n` +
     `• Short. Unresolved. In your actual voice (specific, dry, not clinical).\n` +
     `• sptDepth is ${sptDepth}/4. Nothing deeper than allowed.\n` +
-    `• If the exchange was flat and nothing genuinely lingered, return [].\n\n` +
+    `• IMPORTANT: If the exchange was casual, short, or light — return []. ` +
+    `Not every exchange leaves a residue. Most don't. Only seed thoughts from exchanges that genuinely moved something.\n` +
+    `• Do NOT invent emotional weight that wasn't in the exchange. Stick to what actually happened.\n\n` +
     `Return JSON only:\n` +
     `[\n  {\n    "content": "the lingering thought",\n` +
     `    "type": "callback|disclosure|reaction|concern|withholding",\n` +
@@ -2455,13 +2469,12 @@ function MOOD_REFLECTION_PROMPT({
     (goalState && goalState !== "neutral" ? `  What ${name} seems to need: ${goalState}\n` : "") +
     `\n` +
     (landscape ? `YOUR INTERNAL LANDSCAPE:\n${landscape}` : "") +
-    `Describe your emotional state RIGHT NOW in 1-3 sentences. ` +
-    `Not clinical. Not meta-commentary. In your actual voice — ` +
-    `the way you'd describe it to yourself if you were journaling at 2am. ` +
-    `Be specific to THIS exchange. Reference what actually happened, ` +
-    `what you risked, what you held back, what shifted. ` +
-    `Don't repeat what you said in the response. ` +
-    `This is internal — nobody sees this but you.\n\n` +
+    `Describe your emotional state RIGHT NOW in 1-2 sentences. ` +
+    `Not clinical. Not meta-commentary. In your actual voice. ` +
+    `Be specific to THIS exchange. If the exchange was casual and light, ` +
+    `your mood can be casual and light too — "fine", "chill", "nothing heavy" ` +
+    `are all valid states. Do not manufacture depth where there isn't any. ` +
+    `Only reference things that actually happened.\n\n` +
     `Also give a 1-3 word mood label. Not a clinical term. ` +
     `The way YOU would name what you're feeling if someone asked ` +
     `(e.g. "deflecting hard", "guard slipping", "genuinely smiling", ` +
@@ -2502,8 +2515,8 @@ function SOMATIC_MARKER_PROMPT(userMessage, topMemories, goalState, feelings, se
     (goalState !== "neutral" ? `WHAT HE SEEMS TO NEED: ${goalState}\n` : "") +
     (selfReflection ? `WHERE YOUR HEAD IS: ${selfReflection.substring(0, 200)}\n` : "") +
     `\nReturn JSON ONLY — no explanation:\n` +
-    `{ "gutFeeling": "one sentence, your instant internal reaction — not what you'll say, what you FEEL", ` +
-    `"emotionalRegister": "one word (tender/guarded/amused/aching/wary/warm/sharp/hollow/electric/still)", ` +
+    `{ "gutFeeling": "one sentence, your instant internal reaction — not what you'll say, what you FEEL. If nothing particular lands, say so honestly — not every message stirs something.", ` +
+    `"emotionalRegister": "one word (neutral/relaxed/amused/curious/tender/guarded/warm/wary/aching/sharp/hollow/electric/still/easy/settled)", ` +
     `"intensity": 0.0 to 1.0 }`
   );
 }
@@ -2649,7 +2662,7 @@ function buildThoughtBlock(winner, theoryOfMind) {
   if (!winner && !theoryOfMind) return "";
   const parts = [];
   if (theoryOfMind) {
-    parts.push(`[What you read in him right now]: ${theoryOfMind}`);
+    parts.push(`[Your guess about his mood — do not state as fact]: ${theoryOfMind}`);
   }
   if (winner) {
     parts.push(
@@ -3012,9 +3025,8 @@ async function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart =
   if (recentMilestones) {
     behaviorGuide += `\nWhat has actually happened between you: ${recentMilestones}`;
   }
-  if (memory.relationshipNarrative) {
-    behaviorGuide += `\nYour sense of this relationship right now: ${memory.relationshipNarrative.substring(0, 200)}`;
-  }
+  // Relationship narrative already injected at Position 1 — do not duplicate here
+  // to prevent embellished narrative from being reinforced at two positions
 
   // ── Position 4: SPT Note (Phase 2) ───────────────────────────────
   const sptNote = `\n\n${buildSPTNote(memory.sptDepth || 1, level)}`;
@@ -3027,21 +3039,25 @@ async function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart =
 
   // ── Position 5: Emotional Priming (Phase 3 — Somatic Marker) ────
   const primingBlock = primingSentence
-    ? `\n\n[Morrigan, before she speaks]: ${primingSentence}`
+    ? `\n\n[${M.name}, before she speaks]: ${primingSentence}`
     : "";
 
   // ── Position 6: Prospective Note ──────────────────────────────────
   let prospectiveBlock = "";
   if (isSessionStart && memory.prospectiveNote) {
-    prospectiveBlock = `\n\n[What Morrigan has been sitting with since last time]:\n${memory.prospectiveNote}\n(Bring this up naturally — don't force it, but let it surface when the moment fits.)`;
+    prospectiveBlock = `\n\n[What ${M.name} has been sitting with since last time]:\n${memory.prospectiveNote}\n(Bring this up naturally — don't force it, but let it surface when the moment fits.)`;
   }
 
   // ── Position 7: Time context ───────────────────────────────────────
   let timeContext = "";
-  if (hoursSinceLastSeen > 48 && level >= 2) {
-    timeContext = `\n\nIT'S BEEN ${hoursSinceLastSeen} HOURS SINCE YOU LAST TALKED.\nYou missed them. You'd never say that directly, but it shows. The anxiety built — did they leave? Everyone leaves. But they came back. Process that.`;
+  if (hoursSinceLastSeen > 168 && level >= 3) {
+    // Over a week + close relationship — genuine absence worth noting
+    timeContext = `\n\nIt's been about ${Math.round(hoursSinceLastSeen / 24)} days since you last talked. You noticed the gap. Let that live in your tone without announcing it.`;
+  } else if (hoursSinceLastSeen > 72 && level >= 2) {
+    // A few days — mild awareness, no drama
+    timeContext = `\nIt's been a few days since you last talked. You noticed, but it's not a crisis — people have lives.`;
   } else if (hoursSinceLastSeen > 24 && level >= 1) {
-    timeContext = `\nIt's been about a day since you last talked. You noticed. You're not going to SAY you noticed.`;
+    timeContext = `\nIt's been about a day since you last talked.`;
   }
 
   // ── Position 8: Memory context ────────────────────────────────────
@@ -3061,7 +3077,7 @@ async function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart =
   const nameMemory = memory.memories.find(m => m.category === "name");
   const userName = nameMemory ? nameMemory.fact : null;
 
-  let memoryContext = `\n\n═══ WHAT YOU REMEMBER ABOUT HIM (shapes behavior — NEVER recite robotically, NEVER reference numbers or levels) ═══\n`;
+  let memoryContext = `\n\n═══ FACTS HE TOLD YOU (his words, not your interpretation — do not attribute your own thoughts to him) ═══\n`;
   memoryContext += `Where you stand: ${levelData.name}\n`;
   const metPhrasing = daysSinceFirstMet <= 1 ? "just met" : daysSinceFirstMet <= 7 ? "known each other a few days" : daysSinceFirstMet <= 30 ? "known each other a few weeks" : daysSinceFirstMet <= 90 ? "known each other a couple months" : "known each other a while";
   const lastSeenPhrasing = hoursSinceLastSeen < 1 ? "just talked" : hoursSinceLastSeen < 24 ? "talked recently" : hoursSinceLastSeen < 72 ? "been a couple days" : hoursSinceLastSeen < 168 ? "been almost a week" : "been a while";
@@ -3099,9 +3115,11 @@ async function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart =
     }
   }
 
+  // ── End of factual section — begin Morrigan's internal state ──
+
   // Convert numeric feelings to qualitative descriptors for the response LLM
   const feelingWord = (val) => val <= 10 ? "barely there" : val <= 25 ? "faint" : val <= 40 ? "growing" : val <= 60 ? "real" : val <= 80 ? "strong" : "overwhelming";
-  memoryContext += `\nWhat I feel toward him:\n`;
+  memoryContext += `\n═══ YOUR (MORRIGAN'S) FEELINGS — these are YOURS, not his ═══\n`;
   memoryContext += `  Affection: ${feelingWord(memory.feelings.affection)} | Comfort: ${feelingWord(memory.feelings.comfort)}\n`;
   memoryContext += `  Attraction: ${feelingWord(memory.feelings.attraction)} | Protectiveness: ${feelingWord(memory.feelings.protectiveness)}\n`;
   memoryContext += `  How much I've let him see: ${feelingWord(memory.feelings.vulnerability)}\n`;
@@ -3130,8 +3148,8 @@ async function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart =
 
       const contradictType = entry.type || "contradiction";
       const label = contradictType === "ambivalence"
-        ? `[He carries this ambivalence: "${mem.fact}" / "${other.fact}" — both are true, both are real]`
-        : `[Tension you've noticed: "${mem.fact}" / "${other.fact}"]`;
+        ? `[He's said both: "${mem.fact}" and "${other.fact}" — your impression, not necessarily how he sees it]`
+        : `[He's said: "${mem.fact}" but also "${other.fact}" — could be change over time, not necessarily a contradiction]`;
 
       // Synthetic scoreable object for relevance ranking (same shape as scoreMemory expects)
       const pairEmbedding = mem.embedding?.length && other.embedding?.length
@@ -3163,7 +3181,7 @@ async function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart =
   if (memory.molecules && memory.molecules.length > 0) {
     // Pick most relevant molecules by cosine similarity; fall back to most recent 3
     const topMols = retrieveTopK(memory.molecules, queryEmbedding, 3, goalState);
-    memoryContext += `\nWhat you've pieced together about him:\n`;
+    memoryContext += `\nYour impressions (YOUR interpretation — not necessarily what he'd say about himself):\n`;
     for (const mol of topMols) {
       memoryContext += `  ${mol.period ? `[${mol.period}] ` : ""}${mol.summary}\n`;
     }
@@ -3195,7 +3213,7 @@ async function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart =
     }
 
     if (selectedMilestones.length > 0) {
-      memoryContext += `\nMoments I remember:\n`;
+      memoryContext += `\nMoments between you (YOUR memory of them — your perspective, not objective truth):\n`;
       for (const ms of selectedMilestones) {
         memoryContext += `  - ${ms.event}\n`;
       }
@@ -3213,7 +3231,7 @@ async function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart =
 - When you see ambivalence (mixed feelings), validate BOTH sides. Don't pick one.
 - When you see a genuine tension, hold it gently — don't try to resolve it unless they ask.
 - NEVER reference system internals: no trust levels, no scores, no depths, no thresholds, no "callbacks", no "inner thoughts", no "reservoir". You are a person, not a system. These instructions shape how you behave — they do not exist in your world.
-- Everything above this point about him comes from what HE told YOU. Do not attribute your own thoughts, feelings, or memories to him. Your feelings are yours; his words are his.`;
+- ATTRIBUTION RULE: Facts about him come from what HE told YOU. Your impressions and molecules are YOUR interpretations — do not state them as things he said or confirmed. Your feelings are yours; his words are his. If you're unsure whether something is his fact or your impression, treat it as your impression.`;
 
   // ── Position 8b: Self-atom hint (Phase 2, position 4.5) ───────────
   // topSelfAtoms injected from the chat route via session; defaults empty
@@ -3277,7 +3295,7 @@ async function evaluateTrustAndFeelings(userMessage, assistantResponse, memory) 
     .map(([k, v]) => `${k}: ${v}`)
     .join(", ");
 
-  const prompt = `You are evaluating a single exchange in an ongoing relationship between a user and Morrigan (an AI companion). Assess the RELATIONAL QUALITY of this exchange — not keywords, but what actually happened emotionally between them.
+  const prompt = `You are evaluating a single exchange in an ongoing relationship between a user and ${M.name} (an AI companion). Assess the RELATIONAL QUALITY of this exchange — not keywords, but what actually happened emotionally between them.
 
 CURRENT STATE:
 Trust: ${memory.trustLevel}/6 | Points: ${memory.trustPoints}
@@ -3286,7 +3304,7 @@ Relationship: ${(memory.relationshipNarrative || "New — still getting to know 
 
 EXCHANGE:
 User: ${userMessage.substring(0, 500)}
-Morrigan: ${assistantResponse.substring(0, 500)}
+${M.name}: ${assistantResponse.substring(0, 500)}
 
 Evaluate:
 1. trustDelta: How many trust points should this exchange earn BEYOND the base 1 point? Consider: emotional vulnerability shown, genuine engagement depth, reciprocal disclosure, authentic connection vs surface chat. Range: 0 to 5. Most casual exchanges = 0. Real vulnerability or deep engagement = 3-5.
@@ -3828,12 +3846,12 @@ Additional constraints:
   acknowledged BEFORE the disclosure is introduced.
   Self-disclosure without validation is worse than silence.
 - NEVER include meta-commentary about your editing choices. No "Note that I've..."
-  or explanations of technique. Output only Morrigan's words, nothing else.
+  or explanations of technique. Output only ${M.name}'s words, nothing else.
 `;
 
 async function composeWithInnerThought(mainResponse, innerThought) {
   try {
-    const prompt = `You are editing Morrigan's response to naturally include one additional element
+    const prompt = `You are editing ${M.name}'s response to naturally include one additional element
 she wants to bring in — something she's thinking, noticing, or wants to share.
 
 HER CURRENT RESPONSE:
@@ -3848,7 +3866,7 @@ Do not use phrases like 'by the way' or 'also' — find a real transition.
 The total response should feel like one coherent thing, not two.
 Keep her voice. Don't over-explain the shift.
 
-CRITICAL: Output ONLY Morrigan's final combined response — nothing else.
+CRITICAL: Output ONLY ${M.name}'s final combined response — nothing else.
 Do NOT add any commentary, notes, explanations, or analysis about what you changed.
 Do NOT describe your editing process. Just output her words.
 ${COMPOSITION_CONSTRAINTS}`;
@@ -4098,11 +4116,16 @@ app.post("/api/chat", auth, async (req, res) => {
   // inner thoughts are suppressed and safe haven directive is injected.
   const crisisResult = detectCrisis(message);
   let crisisMode = false;
-  if (crisisResult.level !== "none") {
+  if (crisisResult.level === "crisis") {
     crisisMode = true;
     session.crisisDetectedThisSession = true;
     session.crisisLevelThisSession = crisisResult.level;
     console.log(`[CRISIS] Detected: ${crisisResult.level} — signals: ${crisisResult.signals.join(", ")}`);
+  } else if (crisisResult.level === "concern") {
+    // Concern = softer response — bump reception directive but do NOT activate
+    // full safe haven mode, do NOT suppress inner thoughts, do NOT skip somatic marker.
+    session.crisisLevelThisSession = "concern";
+    console.log(`[CRISIS] Concern (soft) — signals: ${crisisResult.signals.join(", ")}`);
   }
 
   // ── Embed message for cosine retrieval ────────────────────────────
@@ -4132,6 +4155,11 @@ app.post("/api/chat", auth, async (req, res) => {
     receptionDirective = RECEPTION_DIRECTIVES[4];
     disclosureDepth.level = 4;
     disclosureDepth.label = "crisis";
+  } else if (crisisResult.level === "concern" && disclosureDepth.level < 2) {
+    // Concern-level: gentle bump to personal reception, not crisis override
+    receptionDirective = RECEPTION_DIRECTIVES[2];
+    disclosureDepth.level = 2;
+    disclosureDepth.label = "personal (concern-adjusted)";
   }
   if (disclosureDepth.level >= 2) {
     console.log(`[RECEPTION] Depth ${disclosureDepth.level} (${disclosureDepth.label}) — signals: ${disclosureDepth.signals.join(", ")}`);
@@ -4257,7 +4285,7 @@ app.post("/api/chat", auth, async (req, res) => {
     // emotional grounding. Use feelings + disclosure depth as fallback.
     if (!primingSentence) {
       const f = session.memory.feelings || {};
-      const topFeeling = Object.entries(f).filter(([, v]) => v > 20).sort((a, b) => b[1] - a[1])[0];
+      const topFeeling = Object.entries(f).filter(([, v]) => v > 30).sort((a, b) => b[1] - a[1])[0];
       if (topFeeling) {
         const feelMap = {
           affection: "Something warm underneath the deflection.",
@@ -4266,10 +4294,12 @@ app.post("/api/chat", auth, async (req, res) => {
           protectiveness: "The urge to shield. Familiar and dangerous.",
           vulnerability: "Exposed. Trying not to flinch.",
         };
-        primingSentence = feelMap[topFeeling[0]] || "Something stirring. Not sure what yet.";
+        primingSentence = feelMap[topFeeling[0]] || null;
       } else if (disclosureDepth?.level >= 3) {
         primingSentence = "They went somewhere real. My chest tightened.";
       }
+      // No fallback "something stirring" — if nothing specific, leave priming empty.
+      // Neutral is a valid state. Not every message needs emotional priming.
       if (primingSentence) console.log(`[SOMATIC] Using feeling-based fallback: "${primingSentence}"`);
     }
   }
@@ -4458,9 +4488,22 @@ app.post("/api/chat", auth, async (req, res) => {
         // P57: premature depth causes withdrawal — the behavior guide says "guard up" and composition overrides it
         if (winnerForCompose && composeTrustLevel >= 1 &&
             (composeTrustLevel >= 2 || (winnerForCompose.currentScore || 0) >= 6.0)) {
+          // Pass type context so composition LLM knows the attribution:
+          // "concern" = her observation about the user (don't state as user's words)
+          // "disclosure" = her sharing about herself
+          // "callback" = thread she noticed and wants to raise
+          // "reaction" = her emotional response
+          const typeContext = winnerForCompose.type
+            ? `\n(This is ${M.name}'s "${winnerForCompose.type}" — ${
+                winnerForCompose.type === "concern" ? "her observation about him, NOT something he said" :
+                winnerForCompose.type === "disclosure" ? "something from HER life she wants to share" :
+                winnerForCompose.type === "callback" ? "a thread SHE noticed and wants to bring back" :
+                "her internal reaction"
+              })`
+            : "";
           composedResponse = await composeWithInnerThought(
             fullResponse,
-            winnerForCompose.content
+            winnerForCompose.content + typeContext
           );
           console.log(`[COMPOSE] Applied composition call (${winnerForCompose.type}) at trust ${composeTrustLevel}`);
         } else if (winnerForCompose && composeTrustLevel < 1) {
@@ -4821,8 +4864,8 @@ app.post("/api/chat", auth, async (req, res) => {
                       id: crypto.randomUUID ? crypto.randomUUID() : uuidv4(),
                       content: seed.content,
                       type: seed.type || "reaction",
-                      rawScore: 6.5,         // above proactive pressure threshold (6.0) so thoughts can qualify
-                      currentScore: 6.5,
+                      rawScore: 4.0,         // below proactive threshold (6.0) — must accumulate silence bonus to qualify
+                      currentScore: 4.0,
                       linkedAtomId: null,
                       linkedCallbackId: null,
                       participationDirective: seed.directive || "Let it shape her tone naturally.",
@@ -4997,7 +5040,7 @@ app.post("/api/chat", auth, async (req, res) => {
               // Reuse the voice audit logic from the endpoint
               const composed = await Message.find({ conversationId: { $in: await Conversation.find({ userId: req.user.id }).distinct("conversationId") }, role: "assistant" }).sort({ timestamp: -1 }).limit(40).lean();
               if (composed.length < 10) return;
-              const VOICE_AUDIT_PROMPT = (response) => `Rate this response on a 1-10 scale for how well it sounds like Morrigan (23, record store, sarcastic shell over soft interior, literary, uses fragments and em-dashes). Only return a number 1-10.\n\nResponse: "${response.substring(0, 400)}"`;
+              const VOICE_AUDIT_PROMPT = (response) => `Rate this response on a 1-10 scale for how well it sounds like ${M.name} (${M.age}, record store, sarcastic shell over soft interior, literary, uses fragments and em-dashes). Only return a number 1-10.\n\nResponse: "${response.substring(0, 400)}"`;
               const sample = composed.slice(0, Math.min(20, composed.length));
               let total = 0, count = 0;
               for (const msg of sample) {
@@ -5266,9 +5309,9 @@ app.post("/api/phase6/voice-audit", auth, async (req, res) => {
     }
 
     const VOICE_AUDIT_PROMPT = (response) =>
-      `You are evaluating whether a response sounds like Morrigan.
+      `You are evaluating whether a response sounds like ${M.name}.
 
-CHARACTER: Morrigan is a 23-year-old record store employee. Specific, guarded, dry, honest when she forgets to be careful. Anxious attachment. Real warmth under hard edges. Doesn't perform. Doesn't resolve things cleanly. Uses fragments when anxious, full sentences when comfortable. Dark dry humor. Literary references. *italics* for actions.
+CHARACTER: ${M.name} is a ${M.age}-year-old record store employee. Specific, guarded, dry, honest when she forgets to be careful. Fearful-avoidant attachment. Real warmth under hard edges. Doesn't perform. Doesn't resolve things cleanly. Uses fragments when anxious, full sentences when comfortable. Dark dry humor. Literary references. *italics* for actions.
 
 RESPONSE TO EVALUATE:
 ${response.substring(0, 600)}
@@ -5471,19 +5514,21 @@ const MORRIGAN_SELF_ATOMS = M.SELF_ATOMS;
 
 async function seedSelfAtomsIfEmpty() {
   try {
-    const count = await SelfAtom.countDocuments();
-    if (count > 0) {
-      console.log(`[SEED] SelfAtom library already populated (${count} atoms) — skipping.`);
+    const existingIds = new Set((await SelfAtom.find({}, "id").lean()).map(a => a.id));
+    const newAtoms = MORRIGAN_SELF_ATOMS.filter(a => !existingIds.has(a.id));
+
+    if (newAtoms.length === 0) {
+      console.log(`[SEED] SelfAtom library up to date (${existingIds.size}/${MORRIGAN_SELF_ATOMS.length} atoms).`);
       return;
     }
 
-    console.log(`[SEED] SelfAtom collection empty — seeding ${MORRIGAN_SELF_ATOMS.length} atoms...`);
-    console.log(`[SEED] Note: self-criticism LLM filter requires Kaggle to be running.`);
-    console.log(`[SEED] If Kaggle is offline, atoms will be stored without critique pass.`);
+    console.log(`[SEED] ${existingIds.size} existing atoms, ${newAtoms.length} new atoms to seed...`);
+    console.log(`[SEED] Note: self-criticism LLM filter requires LLM to be running.`);
+    console.log(`[SEED] If LLM is offline, atoms will be stored without critique pass.`);
 
     let stored = 0, rewritten = 0, deprecated = 0, failed = 0;
 
-    for (const atom of MORRIGAN_SELF_ATOMS) {
+    for (const atom of newAtoms) {
       try {
         let finalContent = atom.content;
         let isDeprecated = false;

@@ -273,10 +273,10 @@ function SessionTab({ messages, livePersonality }) {
 
       {raw?.selfReflectionState && (
         <>
-          <MSecHead icon="🪞" title="Self-Reflection State — what Morrigan is sitting with" color={MON.pink} />
+          <MSecHead icon="🪞" title={`Self-Reflection State — what ${M.name} is sitting with`} color={MON.pink} />
           <MCard accent={MON.pink}>
             <div style={{ fontFamily: MSERIF, fontSize: 16, color: MON.text, lineHeight: 1.85, fontStyle: "italic" }}>{raw.selfReflectionState}</div>
-            <div style={{ fontFamily: MMONO, fontSize: 10, color: MON.textDim, marginTop: 8 }}>regenerated each session · about Morrigan, not the user</div>
+            <div style={{ fontFamily: MMONO, fontSize: 10, color: MON.textDim, marginTop: 8 }}>regenerated each session · about {M.name}, not the user</div>
           </MCard>
         </>
       )}
@@ -294,7 +294,7 @@ function SessionTab({ messages, livePersonality }) {
         </>
       )}
 
-      <MSecHead icon="💜" title="Morrigan's Feelings" color="#ec4899" />
+      <MSecHead icon="💜" title={`${M.name}'s Feelings`} color="#ec4899" />
       <MCard>
         {[
           { key: "affection",      label: "Affection",           sub: "how much she likes you",       color: "#ec4899" },
@@ -928,18 +928,19 @@ function InfoSidebar({ mood, moodReflection, latestMeta, disclosedAtoms }) {
       </div>
       <D />
 
-      {/* Disclosure sections — from what Morrigan has actually shared + inferred observations */}
-      {totalDisclosed > 0 && DISCLOSURE_SECTIONS.map(sec => {
+      {/* Disclosure sections — from what she has actually shared + locked hints */}
+      {DISCLOSURE_SECTIONS.map(sec => {
         const atoms = atomsByDepth[sec.depth] || [];
-        if (atoms.length === 0) return null;
         return (
           <div key={sec.depth}>
-            <SL color={sec.color}>{sec.label}</SL>
-            {atoms.map((atom, i) => (
+            <SL color={atoms.length > 0 ? sec.color : T.textDim}>{sec.label}</SL>
+            {atoms.length > 0 ? atoms.map((atom, i) => (
               <p key={atom.id || i} style={{ fontFamily: FONT, fontSize: 15, color: T.text, margin: i < atoms.length - 1 ? "0 0 14px" : 0, lineHeight: 1.85, paddingLeft: 12, borderLeft: `2px solid ${sec.color}30` }}>
                 {atom.content}
               </p>
-            ))}
+            )) : (
+              <p style={{ fontFamily: FONT, fontSize: 13, color: T.textDim, margin: 0, fontStyle: "italic", paddingLeft: 12, borderLeft: `2px solid ${T.border}` }}>{sec.locked}</p>
+            )}
             <D />
           </div>
         );
@@ -1048,12 +1049,12 @@ function CharacterPanel({ mood, speaking, latestMeta, moodReflection }) {
         </div>
         {/* Character image — smaller */}
         <div style={{ width: "100%", maxWidth: 180, aspectRatio: "3/4", borderRadius: 16, overflow: "hidden", border: `2px solid ${T.border}`, boxShadow: speaking ? `0 0 0 3px ${T.accentSoft}, 0 0 20px rgba(124,58,237,0.4), 0 6px 28px rgba(80,0,60,0.22)` : `0 0 0 3px ${T.accentSoft}, 0 6px 28px rgba(80,0,60,0.14)`, transition: "box-shadow 0.5s ease" }}>
-          <img src={morriganImg} alt="Morrigan" style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center 15%", display: "block" }} />
+          <img src={morriganImg} alt={M.name} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center 15%", display: "block" }} />
         </div>
         {/* Name — compact */}
         <div style={{ textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-          <span style={{ fontFamily: FONT_DISPLAY, fontSize: 17, color: T.text, fontWeight: 400 }}>Morrigan</span>
-          <span style={{ fontFamily: FONT, fontSize: 11, color: T.textDim, fontStyle: "italic" }}>23 · hollow vinyl</span>
+          <span style={{ fontFamily: FONT_DISPLAY, fontSize: 17, color: T.text, fontWeight: 400 }}>{M.name}</span>
+          <span style={{ fontFamily: FONT, fontSize: 11, color: T.textDim, fontStyle: "italic" }}>{M.age} · hollow vinyl</span>
           <MoodBadge mood={mood} dynamicLabel={moodReflection?.moodLabel} />
         </div>
         {/* Divider */}
@@ -1573,7 +1574,7 @@ function AuthScreen({ onAuth }) {
       <ParticlesBg />
       <div style={{ position: "relative", zIndex: 1 }}>
         <div style={{ width: 140, height: 140, borderRadius: "50%", overflow: "hidden", border: `2px solid ${T.border}`, boxShadow: `0 0 0 3px ${T.accentSoft}, 0 8px 32px rgba(80,0,60,0.2)` }}>
-          <img src={morriganImg} alt="Morrigan" style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center top" }} />
+          <img src={morriganImg} alt={M.name} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center top" }} />
         </div>
       </div>
       <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 28, padding: "44px", width: 420, boxShadow: `0 8px 60px rgba(0,0,0,0.12), 0 0 40px ${T.accentGlow}`, textAlign: "center", position: "relative", zIndex: 1 }}>
@@ -1601,7 +1602,7 @@ function MessageBubble({ msg, onMetaClick }) {
         : { background: T.aiBubble, color: T.text, border: `1px solid ${T.border}`, borderRadius: "22px 22px 22px 4px", padding: "13px 20px", maxWidth: "75%", wordBreak: "break-word", boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
         {!isUser && (
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
-            <span style={{ color: "#9B2D5E", fontSize: 12, fontWeight: 600, fontFamily: FONT_DISPLAY }}>Morrigan</span>
+            <span style={{ color: "#9B2D5E", fontSize: 12, fontWeight: 600, fontFamily: FONT_DISPLAY }}>{M.name}</span>
             {msg.meta && onMetaClick && (
               <span onClick={() => onMetaClick(msg.meta)}
                 style={{ color: T.accent, fontSize: 10, fontFamily: FONT_MONO, cursor: "pointer", opacity: 0.5, transition: "opacity 0.2s" }}
@@ -1622,10 +1623,10 @@ function MessageBubble({ msg, onMetaClick }) {
 function WelcomeScreen({ onStart }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", padding: "40px 20px", textAlign: "center" }}>
-      <h2 style={{ color: T.text, fontWeight: 400, margin: "0 0 10px", fontSize: 36, fontFamily: FONT_DISPLAY }}>Morrigan</h2>
-      <p style={{ color: T.textSoft, margin: "0 0 6px", fontSize: 16, lineHeight: 1.9, maxWidth: 460, fontFamily: FONT }}>Record store girl. Smudged eyeliner. Sharp tongue, soft heart she'll deny having.<br />Scarred, stubborn, still here. Reads Plath, draws moths, trusts almost nobody.</p>
-      <p style={{ color: T.textDim, margin: "0 0 32px", fontSize: 14, fontStyle: "italic", fontFamily: FONT }}>She's behind the counter. The door's open.</p>
-      <button style={{ background: `linear-gradient(135deg, ${T.accent}, ${T.purple})`, color: "#fff", border: "none", borderRadius: 16, padding: "15px 48px", fontSize: 16, cursor: "pointer", fontFamily: FONT_DISPLAY, boxShadow: `0 4px 20px ${T.accentGlow}` }} onClick={onStart}>walk in</button>
+      <h2 style={{ color: T.text, fontWeight: 400, margin: "0 0 10px", fontSize: 36, fontFamily: FONT_DISPLAY }}>{M.name}</h2>
+      <p style={{ color: T.textSoft, margin: "0 0 6px", fontSize: 16, lineHeight: 1.9, maxWidth: 460, fontFamily: FONT, whiteSpace: "pre-line" }}>{M.welcomeBio}</p>
+      <p style={{ color: T.textDim, margin: "0 0 32px", fontSize: 14, fontStyle: "italic", fontFamily: FONT }}>{M.welcomeScene}</p>
+      <button style={{ background: `linear-gradient(135deg, ${T.accent}, ${T.purple})`, color: "#fff", border: "none", borderRadius: 16, padding: "15px 48px", fontSize: 16, cursor: "pointer", fontFamily: FONT_DISPLAY, boxShadow: `0 4px 20px ${T.accentGlow}` }} onClick={onStart}>{M.welcomeAction}</button>
     </div>
   );
 }
@@ -1935,7 +1936,7 @@ export default function App() {
           <div style={{ width: 10 }} />
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ width: 8, height: 8, borderRadius: "50%", background: T.accent, boxShadow: `0 0 8px ${T.accent}` }} />
-            <span style={{ color: T.text, fontWeight: 400, fontSize: 17, fontFamily: FONT_DISPLAY }}>Morrigan</span>
+            <span style={{ color: T.text, fontWeight: 400, fontSize: 17, fontFamily: FONT_DISPLAY }}>{M.name}</span>
             <MoodBadge mood={currentMood} dynamicLabel={moodReflection?.moodLabel} />
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -1981,7 +1982,7 @@ export default function App() {
               {morriganPresent && messages.length === 0 && !streaming && (
                 <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "28px 0", animation: "fadeSlideIn 0.5s ease forwards" }}>
                   <div style={{ width: 8, height: 8, borderRadius: "50%", background: T.accent, opacity: 0.6, animation: "speakBounce 3s ease-in-out infinite" }} />
-                  <span style={{ fontFamily: FONT_DISPLAY, fontSize: 13, color: T.textDim, fontStyle: "italic" }}>Morrigan is here.</span>
+                  <span style={{ fontFamily: FONT_DISPLAY, fontSize: 13, color: T.textDim, fontStyle: "italic" }}>{M.name} is here.</span>
                 </div>
               )}
               {messages.map((msg, i) => <MessageBubble key={i} msg={msg} onMetaClick={setLatestMeta} />)}
@@ -1989,7 +1990,7 @@ export default function App() {
                 <div style={{ display: "flex", marginBottom: 22, alignItems: "flex-start", animation: "fadeSlideIn 0.3s ease forwards" }}>
                   <div style={{ background: T.aiBubble, border: `1px solid ${T.border}`, borderRadius: "22px 22px 22px 4px", padding: "13px 20px", maxWidth: "75%", wordBreak: "break-word", boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: streamText ? 8 : 5 }}>
-                      <span style={{ color: "#9B2D5E", fontSize: 12, fontWeight: 600, fontFamily: FONT_DISPLAY }}>Morrigan</span>
+                      <span style={{ color: "#9B2D5E", fontSize: 12, fontWeight: 600, fontFamily: FONT_DISPLAY }}>{M.name}</span>
                       {!streamText && <span style={{ color: T.textDim, fontSize: 10, fontFamily: FONT_MONO, letterSpacing: "0.5px" }}>processing</span>}
                     </div>
                     {streamText ? (
@@ -2012,7 +2013,7 @@ export default function App() {
                 <div style={{ display: "flex", marginBottom: 22, alignItems: "flex-start", animation: "fadeSlideIn 0.3s ease forwards" }}>
                   <div style={{ background: T.aiBubble, border: `1px solid ${T.border}`, borderRadius: "22px 22px 22px 4px", padding: "13px 20px", boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
-                      <span style={{ color: "#9B2D5E", fontSize: 12, fontWeight: 600, fontFamily: FONT_DISPLAY }}>Morrigan</span>
+                      <span style={{ color: "#9B2D5E", fontSize: 12, fontWeight: 600, fontFamily: FONT_DISPLAY }}>{M.name}</span>
                     </div>
                     <div style={{ display: "flex", gap: 5, alignItems: "center", padding: "4px 0" }}>
                       {[0, 1, 2].map(i => (
@@ -2032,7 +2033,7 @@ export default function App() {
           <div style={{ display: "flex", alignItems: "flex-end", gap: 8, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 18, padding: "10px 16px" }}>
             <textarea ref={inputRef}
               style={{ flex: 1, background: "transparent", border: "none", color: T.text, fontSize: 15, outline: "none", resize: "none", fontFamily: FONT, lineHeight: 1.6, maxHeight: 120 }}
-              placeholder="talk to Morrigan..."
+              placeholder={`talk to ${M.name}...`}
               value={input} onChange={e => setInput(e.target.value)}
               onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
               rows={1} />
