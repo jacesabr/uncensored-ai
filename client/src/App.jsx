@@ -896,216 +896,28 @@ function MoodBadge({ mood, dynamicLabel }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// INFO SIDEBAR
+// BRAIN PANEL — Unified always-visible scrollable state display
 // ═══════════════════════════════════════════════════════════════════
 
 const DISCLOSURE_SECTIONS = M.DISCLOSURE_SECTIONS;
+const DEPTH_CLR = { 1: "#10b981", 2: "#0ea5e9", 3: "#9f67ff", 4: "#dc2626" };
+const DEPTH_LBL = { 1: "surface", 2: "exploratory", 3: "affective", 4: "core" };
 
-function InfoSidebar({ mood, moodReflection, latestMeta, disclosedAtoms }) {
-  // Group disclosed atoms by depth for section display
+function BrainPanel({ mood, speaking, latestMeta, moodReflection, disclosedAtoms, proactiveTyping, morriganPresent, phase6Summary }) {
+  const meta = latestMeta;
+  const m = meta?.memorySummary || {};
+
   const atomsByDepth = {};
   for (const atom of (disclosedAtoms || [])) {
     if (!atomsByDepth[atom.depth]) atomsByDepth[atom.depth] = [];
     atomsByDepth[atom.depth].push(atom);
   }
-  const totalDisclosed = (disclosedAtoms || []).length;
 
-  const SL = ({ children, color }) => <p style={{ fontFamily: FONT_MONO, fontSize: 10, color: color || T.accent, margin: "0 0 12px", letterSpacing: "1.5px", fontWeight: 700, textTransform: "uppercase" }}>{children}</p>;
-  const D  = () => <div style={{ height: 1, background: T.border, margin: "4px 0" }} />;
-
-  return (
-    <div style={{ width: 380, minWidth: 380, background: `linear-gradient(180deg, ${T.surface}, ${T.bg})`, borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", padding: "32px 24px 40px 30px", overflowY: "auto", gap: 20, position: "relative", zIndex: 1 }}>
-      <div>
-        <h2 style={{ fontFamily: FONT_DISPLAY, fontSize: 30, color: T.text, margin: "0 0 3px", fontWeight: 500 }}>{M.name}</h2>
-        <p style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.textDim, margin: 0, letterSpacing: "1px" }}>{M.workplace}</p>
-      </div>
-      <D />
-      {/* Mood — always visible, dynamic from LLM reflection */}
-      <div>
-        <SL>Current Mood</SL>
-        <MoodBadge mood={mood} dynamicLabel={moodReflection?.moodLabel} />
-        <p style={{ fontFamily: FONT, fontSize: 16, color: T.text, margin: "14px 0 0", lineHeight: 1.85, overflowWrap: "break-word", wordBreak: "break-word" }}>{moodReflection?.reflection || MOOD_DESCRIPTIONS[mood] || MOOD_DESCRIPTIONS.neutral}</p>
-      </div>
-      <D />
-
-      {/* Disclosure sections — from what she has actually shared + locked hints */}
-      {DISCLOSURE_SECTIONS.map(sec => {
-        const atoms = atomsByDepth[sec.depth] || [];
-        return (
-          <div key={sec.depth}>
-            <SL color={atoms.length > 0 ? sec.color : T.textDim}>{sec.label}</SL>
-            {atoms.length > 0 ? atoms.map((atom, i) => (
-              <p key={atom.id || i} style={{ fontFamily: FONT, fontSize: 15, color: T.text, margin: i < atoms.length - 1 ? "0 0 14px" : 0, lineHeight: 1.85, paddingLeft: 12, borderLeft: `2px solid ${sec.color}30` }}>
-                {atom.content}
-              </p>
-            )) : (
-              <p style={{ fontFamily: FONT, fontSize: 13, color: T.textDim, margin: 0, fontStyle: "italic", paddingLeft: 12, borderLeft: `2px solid ${T.border}` }}>{sec.locked}</p>
-            )}
-            <D />
-          </div>
-        );
-      })}
-      {/* Inferred observations — always show what we've picked up from interactions */}
-      {(() => {
-        const m = latestMeta?.memorySummary || {};
-        const feelings = m.feelings || {};
-        const observations = [];
-        // Current emotional state
-        if (latestMeta?.somaticMarker?.gutFeeling) observations.push({ label: "Her gut feeling", value: latestMeta.somaticMarker.gutFeeling, color: "#10b981" });
-        // Feelings toward user
-        const feelingEntries = Object.entries(feelings).filter(([,v]) => v > 0);
-        if (feelingEntries.length > 0) {
-          const top = feelingEntries.sort((a,b) => b[1] - a[1]).slice(0, 3);
-          observations.push({ label: "How she feels", value: top.map(([k,v]) => `${k} (${v})`).join(", "), color: T.accent });
-        }
-        // Inner thought if expressed
-        if (latestMeta?.innerThought?.content) observations.push({ label: "What's on her mind", value: latestMeta.innerThought.content, color: "#9f67ff" });
-        // Prospective note
-        if (m.prospectiveNote) observations.push({ label: "Sitting with", value: m.prospectiveNote, color: "#0ea5e9" });
-        // Loose thread
-        if (m.looseThread) observations.push({ label: "Unresolved", value: m.looseThread, color: "#f59e0b" });
-        // Callbacks
-        if (latestMeta?.callbackQueue?.length > 0) observations.push({ label: "Wants to bring up", value: latestMeta.callbackQueue.slice(0, 2).map(c => c.content).join("; "), color: "#f59e0b" });
-
-        return observations.length > 0 ? (
-          <div>
-            <SL>What You Know About Her</SL>
-            {observations.map((obs, i) => (
-              <div key={i} style={{ marginBottom: 12, paddingLeft: 12, borderLeft: `2px solid ${obs.color}30` }}>
-                <p style={{ fontFamily: FONT_MONO, fontSize: 9, color: obs.color, margin: "0 0 4px", letterSpacing: "1px", textTransform: "uppercase", fontWeight: 600 }}>{obs.label}</p>
-                <p style={{ fontFamily: FONT, fontSize: 14, color: T.text, margin: 0, lineHeight: 1.7, fontStyle: "italic" }}>{obs.value}</p>
-              </div>
-            ))}
-            <D />
-          </div>
-        ) : totalDisclosed === 0 ? (
-          <div style={{ padding: "8px 0" }}>
-            <SL>What You Know About Her</SL>
-            <p style={{ fontFamily: FONT_MONO, fontSize: 13, color: T.textDim, margin: 0, lineHeight: 1.6, opacity: 0.5 }}>nothing yet. keep talking.</p>
-            <D />
-          </div>
-        ) : null;
-      })()}
-
-      {/* Personality tags — from disclosed topics + inferred signals */}
-      <div>
-        <SL>What You've Gathered</SL>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-          {(() => {
-            const tags = [];
-            // From disclosed atoms
-            if (totalDisclosed > 0) {
-              tags.push(...[...new Set((disclosedAtoms || []).flatMap(a => a.topics || []))]);
-            }
-            // From processing meta — mood, somatic, feelings
-            if (latestMeta?.somaticMarker?.emotionalRegister) tags.push(latestMeta.somaticMarker.emotionalRegister);
-            if (moodReflection?.moodLabel && !tags.includes(moodReflection.moodLabel)) tags.push(moodReflection.moodLabel);
-            if (latestMeta?.goalState && latestMeta.goalState !== "neutral") tags.push(latestMeta.goalState);
-            if (latestMeta?.disclosureDepth?.label) tags.push(`${latestMeta.disclosureDepth.label} disclosure`);
-            if (latestMeta?.crisisDetection?.safeHavenActive) tags.push("crisis mode");
-            if (latestMeta?.atRisk) tags.push("at-risk");
-            // Trust level tag
-            const trustLabels = ["stranger", "acquaintance", "maybe-friend", "friend", "close friend", "trusted", "bonded"];
-            if (latestMeta?.memorySummary?.trustLevel != null) tags.push(trustLabels[latestMeta.memorySummary.trustLevel] || "unknown");
-            const unique = [...new Set(tags)].slice(0, 14);
-            return unique.length > 0 ? unique.map(tag => (
-              <span key={tag} style={{ fontFamily: FONT_MONO, fontSize: 9, color: T.text, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, padding: "4px 9px" }}>{tag}</span>
-            )) : (
-              <span style={{ fontFamily: FONT_MONO, fontSize: 11, color: T.textDim, opacity: 0.5 }}>send a message to start reading her</span>
-            );
-          })()}
-        </div>
-      </div>
-      <D />
-
-      {/* Dynamic quote — relationship narrative from LLM, or nothing */}
-      {latestMeta?.memorySummary?.relationshipNarrative && (
-        <div style={{ background: T.accentSoft, borderRadius: 14, border: `1px solid ${T.accent}20`, padding: "16px 18px" }}>
-          <p style={{ fontFamily: FONT, fontSize: 15, color: T.text, margin: 0, lineHeight: 1.9, fontStyle: "italic" }}>
-            "{latestMeta.memorySummary.relationshipNarrative}"
-          </p>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// CHARACTER PANEL
-// ═══════════════════════════════════════════════════════════════════
-
-function CharacterPanel({ mood, speaking, latestMeta, moodReflection }) {
-  return (
-    <div style={{ width: 420, minWidth: 420, background: `linear-gradient(180deg, ${T.surface}f0, ${T.bg}f0)`, borderLeft: `1px solid ${T.border}`, display: "flex", flexDirection: "column", alignItems: "center", position: "relative", overflowY: "auto" }}>
-      <div style={{ position: "absolute", inset: 0, background: `radial-gradient(ellipse at 50% 20%, rgba(155,45,94,0.07) 0%, transparent 70%)`, pointerEvents: "none" }} />
-      <div style={{ position: "relative", zIndex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 10, padding: "14px 16px", width: "100%", boxSizing: "border-box" }}>
-        {/* Speaking indicator */}
-        <div style={{ height: 18, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          {speaking && (
-            <div style={{ display: "flex", gap: 4 }}>
-              {[0,1,2].map(i => <div key={i} style={{ width: 6, height: 6, borderRadius: "50%", background: T.accent, animation: "speakBounce 0.6s ease-in-out infinite", animationDelay: `${i * 0.2}s` }} />)}
-            </div>
-          )}
-        </div>
-        {/* Character image — smaller */}
-        <div style={{ width: "100%", maxWidth: 180, aspectRatio: "3/4", borderRadius: 16, overflow: "hidden", border: `2px solid ${T.border}`, boxShadow: speaking ? `0 0 0 3px ${T.accentSoft}, 0 0 20px rgba(124,58,237,0.4), 0 6px 28px rgba(80,0,60,0.22)` : `0 0 0 3px ${T.accentSoft}, 0 6px 28px rgba(80,0,60,0.14)`, transition: "box-shadow 0.5s ease" }}>
-          <img src={morriganImg} alt={M.name} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center 15%", display: "block" }} />
-        </div>
-        {/* Name — compact */}
-        <div style={{ textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-          <span style={{ fontFamily: FONT_DISPLAY, fontSize: 17, color: T.text, fontWeight: 400 }}>{M.name}</span>
-          <span style={{ fontFamily: FONT, fontSize: 11, color: T.textDim, fontStyle: "italic" }}>{M.age} · hollow vinyl</span>
-          <MoodBadge mood={mood} dynamicLabel={moodReflection?.moodLabel} />
-        </div>
-        {/* Divider */}
-        <div style={{ width: "90%", height: 1, background: T.border, margin: "2px 0" }} />
-        {/* Brain panel */}
-        {latestMeta ? (
-          <div style={{ width: "100%" }}>
-            <ProcessingMeta meta={latestMeta} />
-          </div>
-        ) : (
-          <div style={{ padding: "20px 8px", textAlign: "center", color: T.textDim, fontSize: 11, fontFamily: FONT_MONO, lineHeight: 1.6 }}>
-            send a message to see her thoughts
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// SMALL COMPONENTS
-// ═══════════════════════════════════════════════════════════════════
-
-function FormatMessage({ text, bold }) {
-  if (!text) return null;
-  const wrapStyle = bold ? { fontWeight: 600 } : {};
-  return (
-    <span style={wrapStyle}>
-      {text.split(/(\*[^*]+\*)/g).map((part, i) =>
-        part.startsWith("*") && part.endsWith("*")
-          ? <em key={i} style={{ color: T.textSoft, fontStyle: "italic", opacity: 0.85, fontWeight: bold ? 500 : "normal" }}>{part.slice(1,-1)}</em>
-          : <span key={i}>{part}</span>
-      )}
-    </span>
-  );
-}
-
-function ProcessingMeta({ meta }) {
-  const [open, setOpen] = useState(false);
-  const [sec, setSec] = useState({ reservoir: false, atoms: true, disclosed: false, knowledge: true, molecules: true, state: true, callbacks: true, history: false });
-  if (!meta) return null;
-  const m = meta.memorySummary || {};
+  const [sec, setSec] = useState({ reservoir: true, atoms: true, disclosed: true, knowledge: true, molecules: true, state: true, callbacks: true, history: true, disclosure: true, phase6: true });
   const tog = k => setSec(s => ({ ...s, [k]: !s[k] }));
 
-  const DEPTH_CLR = { 1: "#10b981", 2: "#0ea5e9", 3: "#9f67ff", 4: "#dc2626" };
-  const DEPTH_LBL = { 1: "surface", 2: "exploratory", 3: "affective", 4: "core" };
-
-  const hasKnowledge = m.userName || m.memories?.interests?.length || m.memories?.emotional?.length
-    || m.memories?.personal?.length || m.memories?.relationships?.length
-    || m.memories?.events?.length   || m.memories?.preferences?.length;
-  const hasState = m.relationshipNarrative || m.prospectiveNote || m.looseThread;
+  const SL = ({ children, color }) => <p style={{ fontFamily: FONT_MONO, fontSize: 10, color: color || T.accent, margin: "0 0 8px", letterSpacing: "1.5px", fontWeight: 700, textTransform: "uppercase" }}>{children}</p>;
+  const D = () => <div style={{ height: 1, background: T.border, margin: "10px 0" }} />;
 
   const Pill = ({ label, value, on }) => (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: on ? T.accentSoft : T.surface2, border: `1px solid ${on ? T.accent + "40" : T.border}`, borderRadius: 6, padding: "2px 8px", fontSize: 11, marginRight: 5, marginBottom: 4 }}>
@@ -1114,8 +926,8 @@ function ProcessingMeta({ meta }) {
     </span>
   );
 
-  const SecBtn = ({ label, count, sk, alwaysShow }) => (
-    <div onClick={() => tog(sk)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 10, fontWeight: 700, letterSpacing: "1.2px", textTransform: "uppercase", color: T.accent, marginTop: 14, marginBottom: 6, paddingBottom: 5, borderBottom: `1px solid ${T.border}`, cursor: "pointer", userSelect: "none" }}>
+  const SecBtn = ({ label, count, sk }) => (
+    <div onClick={() => tog(sk)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 10, fontWeight: 700, letterSpacing: "1.2px", textTransform: "uppercase", color: T.accent, marginTop: 10, marginBottom: 6, paddingBottom: 5, borderBottom: `1px solid ${T.border}`, cursor: "pointer", userSelect: "none", fontFamily: FONT_MONO }}>
       <span>{label}{count != null ? <span style={{ color: T.textDim, fontWeight: 400, fontSize: 10, marginLeft: 5 }}>({count})</span> : ""}</span>
       <span style={{ color: T.textDim, fontSize: 11 }}>{sec[sk] ? "▲" : "▼"}</span>
     </div>
@@ -1150,406 +962,537 @@ function ProcessingMeta({ meta }) {
     </div>
   );
 
-  // Compact summary line always shown in header
-  const summaryParts = [
-    `spt ${meta.sptDepth}/4`,
-    meta.goalState && meta.goalState !== "neutral" ? `${meta.goalState}` : null,
-    meta.disclosureDepth ? `L${meta.disclosureDepth.level}` : null,
-    meta.somaticMarker ? meta.somaticMarker.emotionalRegister : null,
-    meta.triggerFired ? "triggered" : null,
-    meta.compositionApplied ? "composed" : null,
-    meta.crisisDetection?.safeHavenActive ? "CRISIS" : null,
-    meta.atRisk ? "at-risk" : null,
-  ].filter(Boolean).join("  ·  ");
+  const hasKnowledge = m.userName || m.memories?.interests?.length || m.memories?.emotional?.length
+    || m.memories?.personal?.length || m.memories?.relationships?.length
+    || m.memories?.events?.length || m.memories?.preferences?.length
+    || m.memories?.morriganDisclosed?.length;
 
   return (
-    <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, marginBottom: 10, fontFamily: FONT_MONO, fontSize: 12, overflow: "hidden", boxShadow: "0 1px 4px rgba(0,0,0,0.05)", maxWidth: "100%", wordBreak: "break-word" }}>
+    <div style={{ width: 460, minWidth: 460, background: `linear-gradient(180deg, ${T.surface}f0, ${T.bg}f0)`, borderLeft: `1px solid ${T.border}`, display: "flex", flexDirection: "column", position: "relative", overflowY: "auto", overflowX: "hidden", zIndex: 1 }}>
+      <div style={{ position: "absolute", inset: 0, background: `radial-gradient(ellipse at 50% 20%, rgba(155,45,94,0.07) 0%, transparent 70%)`, pointerEvents: "none" }} />
 
-      {/* ── Clickable header ── */}
-      <div onClick={() => setOpen(o => !o)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 16px", background: T.surface2, borderBottom: open ? `1px solid ${T.border}` : "none", cursor: "pointer", userSelect: "none", gap: 12 }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <span style={{ color: T.accent, fontWeight: 700, fontSize: 10.5, letterSpacing: "1px" }}>PROCESSING</span>
-            <span style={{ color: T.textDim, fontSize: 10.5 }}>msg #{meta.msgCount}</span>
-            {summaryParts && <span style={{ color: T.textSoft, fontSize: 10.5 }}>· {summaryParts}</span>}
-          </div>
-          {meta.innerThought && !open && (
-            <div style={{ marginTop: 3, color: T.textSoft, fontSize: 11.5, fontStyle: "italic", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              "{meta.innerThought.content}"
-            </div>
-          )}
+      {/* ── Section 1: Identity Header (sticky) ── */}
+      <div style={{ position: "sticky", top: 0, zIndex: 2, background: `linear-gradient(180deg, ${T.surface}f8, ${T.surface}e0)`, backdropFilter: "blur(10px)", borderBottom: `1px solid ${T.border}`, padding: "14px 16px", display: "flex", alignItems: "center", gap: 14 }}>
+        <div style={{ width: 72, height: 72, borderRadius: "50%", overflow: "hidden", border: `2px solid ${T.border}`, boxShadow: speaking ? `0 0 0 3px ${T.accentSoft}, 0 0 16px rgba(124,58,237,0.4)` : `0 0 0 3px ${T.accentSoft}`, transition: "box-shadow 0.5s ease", flexShrink: 0 }}>
+          <img src={morriganImg} alt={M.name} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center 15%", display: "block" }} />
         </div>
-        <span style={{ color: T.textDim, fontSize: 11, flexShrink: 0 }}>{open ? "▲" : "▼"}</span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontFamily: FONT_DISPLAY, fontSize: 17, color: T.text, fontWeight: 400 }}>{M.name}</span>
+            {speaking && (
+              <div style={{ display: "flex", gap: 3 }}>
+                {[0,1,2].map(i => <div key={i} style={{ width: 5, height: 5, borderRadius: "50%", background: T.accent, animation: "speakBounce 0.6s ease-in-out infinite", animationDelay: `${i * 0.2}s` }} />)}
+              </div>
+            )}
+            {proactiveTyping && !speaking && (
+              <div style={{ display: "flex", gap: 3 }}>
+                {[0,1,2].map(i => <div key={i} style={{ width: 5, height: 5, borderRadius: "50%", background: "#9B2D5E", opacity: 0.4, animation: "speakBounce 1.2s ease-in-out infinite", animationDelay: `${i * 0.22}s` }} />)}
+              </div>
+            )}
+            {morriganPresent && !speaking && !proactiveTyping && (
+              <div style={{ width: 6, height: 6, borderRadius: "50%", background: T.accent, opacity: 0.6, animation: "speakBounce 3s ease-in-out infinite" }} />
+            )}
+          </div>
+          <span style={{ fontFamily: FONT, fontSize: 11, color: T.textDim, fontStyle: "italic" }}>{M.age} · hollow vinyl</span>
+          <div style={{ marginTop: 4 }}>
+            <MoodBadge mood={mood} dynamicLabel={moodReflection?.moodLabel} />
+          </div>
+        </div>
       </div>
 
-      {/* ── Expanded body ── */}
-      {open && (
-        <div style={{ padding: "14px 16px", overflow: "hidden" }}>
+      {/* ── Scrollable content ── */}
+      <div style={{ position: "relative", zIndex: 1, padding: "14px 16px", display: "flex", flexDirection: "column", gap: 2 }}>
 
-          {/* ── Stat pills row ── */}
-          <div style={{ display: "flex", flexWrap: "wrap", marginBottom: 10 }}>
-            <Pill label="spt depth" value={`${meta.sptDepth} / 4`} />
-            <Pill label="msg" value={`#${meta.msgCount}`} />
-            {meta.memorySummary?.totalMessages > 0 && <Pill label="total msgs" value={meta.memorySummary.totalMessages} />}
-            {meta.memorySummary?.totalConversations > 0 && <Pill label="convos" value={meta.memorySummary.totalConversations} />}
-            {meta.goalState && <Pill label="goal" value={meta.goalState} on={meta.goalState !== "neutral"} />}
-            <Pill label="reservoir" value={`${meta.reservoirSize} thoughts`} />
-            <Pill label="cooldown" value={`${meta.thoughtCooldown}/3`} on={meta.thoughtCooldown >= 3} />
-            <Pill label="threshold" value={meta.motivationThreshold} />
-            <Pill label="trigger" value={meta.triggerFired ? "fired" : "—"} on={meta.triggerFired} />
-            <Pill label="composition" value={meta.compositionApplied ? "applied" : "—"} on={meta.compositionApplied} />
-            {meta.callbackQueue?.length > 0 && <Pill label="callbacks" value={meta.callbackQueue.length} on />}
-            {meta.alreadyDisclosedAtoms?.length > 0 && <Pill label="disclosed" value={`${meta.alreadyDisclosedAtoms.length} atoms`} />}
-            {meta.atRisk && <Pill label="status" value="at-risk" on />}
-            {!meta.innerThought && meta.atomHintUsed && <Pill label="phase 2" value="hint active" />}
-            {meta.disclosureDepth && <Pill label="disclosure" value={`L${meta.disclosureDepth.level} ${meta.disclosureDepth.label}`} on={meta.disclosureDepth.level >= 2} />}
-            {meta.linguisticSignals && <Pill label="authenticity" value={`${(meta.linguisticSignals.authenticity * 100).toFixed(0)}%`} on={meta.linguisticSignals.authenticity >= 0.3} />}
-            {meta.linguisticSignals && meta.linguisticSignals.emotionalTone > 0 && <Pill label="emotion" value={`${(meta.linguisticSignals.emotionalTone * 100).toFixed(0)}%`} on={meta.linguisticSignals.emotionalTone >= 0.1} />}
-            {meta.somaticMarker && <Pill label="somatic" value={meta.somaticMarker.emotionalRegister} on />}
-            {meta.crisisDetection?.safeHavenActive && <Pill label="crisis" value="SAFE HAVEN" on />}
-            {meta.atRiskInterventions?.active && <Pill label="at-risk" value="interventions on" on />}
+        {/* ── Section 2: Mood Reflection ── */}
+        {moodReflection?.reflection && (
+          <div style={{ marginBottom: 8 }}>
+            <p style={{ fontFamily: FONT, fontSize: 14, color: T.text, margin: 0, lineHeight: 1.8, fontStyle: "italic" }}>{moodReflection.reflection}</p>
           </div>
+        )}
 
-          {/* ── Theory of Mind ── */}
-          {meta.theoryOfMind && (
-            <div style={{ background: "#fdf6e3", border: `1px solid #f59e0b40`, borderRadius: 8, padding: "10px 14px", marginBottom: 10 }}>
-              <div style={{ color: "#b45309", fontSize: 10, fontWeight: 700, letterSpacing: "1px", marginBottom: 5 }}>THEORY OF MIND — HER READ ON YOU</div>
-              <div style={{ color: T.textSoft, lineHeight: 1.6, fontSize: 12, fontStyle: "italic" }}>{meta.theoryOfMind}</div>
+        {/* ── Section 3: Crisis Detection ── */}
+        {meta?.crisisDetection?.safeHavenActive && (
+          <div style={{ background: "#fef2f2", border: "2px solid #dc2626", borderRadius: 8, padding: "10px 14px", marginBottom: 8 }}>
+            <div style={{ color: "#dc2626", fontSize: 10, fontWeight: 700, letterSpacing: "1px", marginBottom: 5, fontFamily: FONT_MONO }}>CRISIS DETECTED — SAFE HAVEN MODE</div>
+            <div style={{ color: "#991b1b", fontSize: 11, lineHeight: 1.6, fontFamily: FONT_MONO }}>
+              Level: <strong>{meta.crisisDetection.level}</strong> · Signals: {meta.crisisDetection.signals?.join(", ") || "none"}
             </div>
-          )}
+            <div style={{ color: "#7f1d1d", fontSize: 10.5, marginTop: 4, fontStyle: "italic" }}>Inner thoughts suppressed. Threads suppressed. Full presence mode.</div>
+          </div>
+        )}
 
-          {/* ── Crisis Detection [P62/P63] ── */}
-          {meta.crisisDetection?.safeHavenActive && (
-            <div style={{ background: "#fef2f2", border: "2px solid #dc2626", borderRadius: 8, padding: "10px 14px", marginBottom: 10 }}>
-              <div style={{ color: "#dc2626", fontSize: 10, fontWeight: 700, letterSpacing: "1px", marginBottom: 5 }}>CRISIS DETECTED — SAFE HAVEN MODE ACTIVE</div>
-              <div style={{ color: "#991b1b", fontSize: 11, lineHeight: 1.6 }}>
-                Level: <strong>{meta.crisisDetection.level}</strong> · Signals: {meta.crisisDetection.signals?.join(", ") || "none"}
+        {/* ── Section 4: Somatic Marker ── */}
+        {meta?.somaticMarker && (
+          <div style={{ background: "#f0fdf4", border: "1px solid #10b98140", borderRadius: 8, padding: "10px 14px", marginBottom: 8 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
+              <span style={{ color: "#059669", fontSize: 10, fontWeight: 700, letterSpacing: "1px", fontFamily: FONT_MONO }}>SOMATIC MARKER — GUT FEELING</span>
+              <span style={{ color: T.textDim, fontSize: 10, fontFamily: FONT_MONO }}>{meta.somaticMarker.emotionalRegister} · intensity {(meta.somaticMarker.intensity || 0).toFixed(1)}</span>
+            </div>
+            <div style={{ color: T.textSoft, lineHeight: 1.6, fontSize: 12, fontStyle: "italic" }}>"{meta.somaticMarker.gutFeeling}"</div>
+          </div>
+        )}
+
+        {/* ── Section 5: Status Pills ── */}
+        {meta && (
+          <>
+            <D />
+            <SL>Processing — msg #{meta.msgCount}</SL>
+            <div style={{ display: "flex", flexWrap: "wrap", marginBottom: 8 }}>
+              <Pill label="spt depth" value={`${meta.sptDepth} / 4`} />
+              <Pill label="msg" value={`#${meta.msgCount}`} />
+              {m.totalMessages > 0 && <Pill label="total msgs" value={m.totalMessages} />}
+              {m.totalConversations > 0 && <Pill label="convos" value={m.totalConversations} />}
+              {meta.goalState && <Pill label="goal" value={meta.goalState} on={meta.goalState !== "neutral"} />}
+              <Pill label="reservoir" value={`${meta.reservoirSize} thoughts`} />
+              <Pill label="cooldown" value={`${meta.thoughtCooldown}/3`} on={meta.thoughtCooldown >= 3} />
+              <Pill label="threshold" value={meta.motivationThreshold} />
+              <Pill label="trigger" value={meta.triggerFired ? "fired" : "—"} on={meta.triggerFired} />
+              <Pill label="composition" value={meta.compositionApplied ? "applied" : "—"} on={meta.compositionApplied} />
+              {meta.callbackQueue?.length > 0 && <Pill label="callbacks" value={meta.callbackQueue.length} on />}
+              {meta.alreadyDisclosedAtoms?.length > 0 && <Pill label="disclosed" value={`${meta.alreadyDisclosedAtoms.length} atoms`} />}
+              {meta.atRisk && <Pill label="status" value="at-risk" on />}
+              {!meta.innerThought && meta.atomHintUsed && <Pill label="phase 2" value="hint active" />}
+              {meta.disclosureDepth && <Pill label="disclosure" value={`L${meta.disclosureDepth.level} ${meta.disclosureDepth.label}`} on={meta.disclosureDepth.level >= 2} />}
+              {meta.linguisticSignals && <Pill label="authenticity" value={`${(meta.linguisticSignals.authenticity * 100).toFixed(0)}%`} on={meta.linguisticSignals.authenticity >= 0.3} />}
+              {meta.linguisticSignals?.emotionalTone > 0 && <Pill label="emotion" value={`${(meta.linguisticSignals.emotionalTone * 100).toFixed(0)}%`} on={meta.linguisticSignals.emotionalTone >= 0.1} />}
+              {meta.somaticMarker && <Pill label="somatic" value={meta.somaticMarker.emotionalRegister} on />}
+              {meta.crisisDetection?.safeHavenActive && <Pill label="crisis" value="SAFE HAVEN" on />}
+              {meta.atRiskInterventions?.active && <Pill label="at-risk" value="interventions on" on />}
+            </div>
+          </>
+        )}
+
+        {/* ── Section 6: Theory of Mind ── */}
+        {meta?.theoryOfMind && (
+          <div style={{ background: "#fdf6e3", border: "1px solid #f59e0b40", borderRadius: 8, padding: "10px 14px", marginBottom: 8 }}>
+            <div style={{ color: "#b45309", fontSize: 10, fontWeight: 700, letterSpacing: "1px", marginBottom: 5, fontFamily: FONT_MONO }}>THEORY OF MIND — HER READ ON YOU</div>
+            <div style={{ color: T.textSoft, lineHeight: 1.6, fontSize: 12, fontStyle: "italic" }}>{meta.theoryOfMind}</div>
+          </div>
+        )}
+
+        {/* ── Section 7: Inner Thought ── */}
+        {meta?.innerThought && (
+          <div style={{ background: T.accentSoft, border: `1px solid ${T.accent}30`, borderRadius: 8, padding: "10px 14px", marginBottom: 8 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+              <span style={{ color: T.accent, fontSize: 10, fontWeight: 700, letterSpacing: "1px", fontFamily: FONT_MONO }}>INNER THOUGHT EXPRESSED</span>
+              <span style={{ color: T.textDim, fontSize: 10, fontFamily: FONT_MONO }}>{meta.innerThought.type} · score {meta.innerThought.score}</span>
+            </div>
+            <div style={{ color: T.text, fontStyle: "italic", lineHeight: 1.65, fontSize: 13 }}>
+              "{meta.innerThought.content}"
+            </div>
+            {meta.innerThought.participationDirective && (
+              <div style={{ color: T.textDim, fontSize: 11, marginTop: 6, borderTop: `1px solid ${T.accent}20`, paddingTop: 6, fontFamily: FONT_MONO }}>
+                directive: <span style={{ fontStyle: "italic" }}>{meta.innerThought.participationDirective}</span>
               </div>
-              <div style={{ color: "#7f1d1d", fontSize: 10.5, marginTop: 4, fontStyle: "italic" }}>Inner thoughts suppressed. Threads suppressed. Full presence mode.</div>
-            </div>
-          )}
-
-          {/* ── Somatic Marker [P14 Damasio] ── */}
-          {meta.somaticMarker && (
-            <div style={{ background: "#f0fdf4", border: "1px solid #10b98140", borderRadius: 8, padding: "10px 14px", marginBottom: 10 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
-                <span style={{ color: "#059669", fontSize: 10, fontWeight: 700, letterSpacing: "1px" }}>SOMATIC MARKER — GUT FEELING</span>
-                <span style={{ color: T.textDim, fontSize: 10 }}>{meta.somaticMarker.emotionalRegister} · intensity {(meta.somaticMarker.intensity || 0).toFixed(1)}</span>
-              </div>
-              <div style={{ color: T.textSoft, lineHeight: 1.6, fontSize: 12, fontStyle: "italic" }}>"{meta.somaticMarker.gutFeeling}"</div>
-            </div>
-          )}
-
-          {/* ── Linguistic Depth + Disclosure Depth [P69 LIWC-22, P56 Aron] ── */}
-          {meta.linguisticSignals && (
-            <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 14px", marginBottom: 10 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                <span style={{ color: T.accent, fontSize: 10, fontWeight: 700, letterSpacing: "1px" }}>LINGUISTIC DEPTH SIGNALS</span>
-                {meta.disclosureDepth && (
-                  <span style={{ color: meta.disclosureDepth.level >= 3 ? "#9f67ff" : meta.disclosureDepth.level >= 2 ? "#0ea5e9" : T.textDim, fontSize: 10, fontWeight: 700 }}>
-                    DISCLOSURE L{meta.disclosureDepth.level} — {meta.disclosureDepth.label?.toUpperCase()}
-                  </span>
+            )}
+            {(meta.innerThought.reasonsFor?.length > 0 || meta.innerThought.reasonsAgainst?.length > 0) && (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8, overflow: "hidden" }}>
+                {meta.innerThought.reasonsFor?.length > 0 && (
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ color: "#10b981", fontSize: 9.5, fontWeight: 700, letterSpacing: "1px", marginBottom: 4, fontFamily: FONT_MONO }}>FOR</div>
+                    {meta.innerThought.reasonsFor.map((r, i) => <div key={i} style={{ color: T.textSoft, fontSize: 11, lineHeight: 1.5, marginBottom: 2, wordBreak: "break-word" }}>+ {r}</div>)}
+                  </div>
+                )}
+                {meta.innerThought.reasonsAgainst?.length > 0 && (
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ color: "#dc2626", fontSize: 9.5, fontWeight: 700, letterSpacing: "1px", marginBottom: 4, fontFamily: FONT_MONO }}>AGAINST</div>
+                    {meta.innerThought.reasonsAgainst.map((r, i) => <div key={i} style={{ color: T.textSoft, fontSize: 11, lineHeight: 1.5, marginBottom: 2, wordBreak: "break-word" }}>− {r}</div>)}
+                  </div>
                 )}
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 12px" }}>
-                <Bar label="authenticity" value={Math.round(meta.linguisticSignals.authenticity * 100)} color="#10b981" />
-                <Bar label="emotion" value={Math.round(meta.linguisticSignals.emotionalTone * 100)} color="#f59e0b" />
-                <Bar label="self-focus" value={Math.round(meta.linguisticSignals.selfFocus * 100)} color="#0ea5e9" />
-                <Bar label="cognitive" value={Math.round(meta.linguisticSignals.cognitiveProcessing * 100)} color="#8b5cf6" />
-                <Bar label="narrative" value={Math.round(meta.linguisticSignals.narrativeDepth * 100)} color="#ec4899" />
-                <div style={{ fontSize: 10.5, color: T.textDim, display: "flex", alignItems: "center" }}>{meta.linguisticSignals.wordCount} words</div>
-              </div>
-              {meta.disclosureDepth?.signals?.length > 0 && (
-                <div style={{ marginTop: 6, fontSize: 10.5, color: T.textDim }}>
-                  signals: {meta.disclosureDepth.signals.join(", ")}
-                </div>
-              )}
-              {meta.disclosureDepth?.receptionDirectiveApplied && (
-                <div style={{ marginTop: 4, fontSize: 10.5, color: "#0ea5e9", fontStyle: "italic" }}>reception directive injected</div>
+            )}
+          </div>
+        )}
+
+        {/* ── Section 8: At-Risk Interventions ── */}
+        {meta?.atRiskInterventions?.active && (
+          <div style={{ background: "#fffbeb", border: "2px solid #f59e0b", borderRadius: 8, padding: "10px 14px", marginBottom: 8 }}>
+            <div style={{ color: "#b45309", fontSize: 10, fontWeight: 700, letterSpacing: "1px", marginBottom: 5, fontFamily: FONT_MONO }}>AT-RISK INTERVENTIONS ACTIVE</div>
+            <div style={{ color: "#92400e", fontSize: 11, lineHeight: 1.6 }}>
+              {meta.atRiskInterventions.callbackBoostApplied && <div>+ Callback score boost (+1.5)</div>}
+              {meta.atRiskInterventions.thresholdLowered && <div>+ Thought threshold lowered to 3.5</div>}
+              {meta.atRiskInterventions.urgencySignalInjected && <div>+ Presence urgency signal in continuation block</div>}
+            </div>
+          </div>
+        )}
+
+        {/* ── Section 9: Linguistic Depth + Disclosure ── */}
+        {meta?.linguisticSignals && (
+          <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 14px", marginBottom: 8 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <span style={{ color: T.accent, fontSize: 10, fontWeight: 700, letterSpacing: "1px", fontFamily: FONT_MONO }}>LINGUISTIC DEPTH SIGNALS</span>
+              {meta.disclosureDepth && (
+                <span style={{ color: meta.disclosureDepth.level >= 3 ? "#9f67ff" : meta.disclosureDepth.level >= 2 ? "#0ea5e9" : T.textDim, fontSize: 10, fontWeight: 700, fontFamily: FONT_MONO }}>
+                  DISCLOSURE L{meta.disclosureDepth.level} — {meta.disclosureDepth.label?.toUpperCase()}
+                </span>
               )}
             </div>
-          )}
-
-          {/* ── At-Risk Interventions [P20, P23, P39] ── */}
-          {meta.atRiskInterventions?.active && (
-            <div style={{ background: "#fffbeb", border: "2px solid #f59e0b", borderRadius: 8, padding: "10px 14px", marginBottom: 10 }}>
-              <div style={{ color: "#b45309", fontSize: 10, fontWeight: 700, letterSpacing: "1px", marginBottom: 5 }}>AT-RISK INTERVENTIONS ACTIVE</div>
-              <div style={{ color: "#92400e", fontSize: 11, lineHeight: 1.6 }}>
-                {meta.atRiskInterventions.callbackBoostApplied && <div>+ Callback score boost (+1.5)</div>}
-                {meta.atRiskInterventions.thresholdLowered && <div>+ Thought threshold lowered to 3.5</div>}
-                {meta.atRiskInterventions.urgencySignalInjected && <div>+ Presence urgency signal in continuation block</div>}
-              </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 12px" }}>
+              <Bar label="authenticity" value={Math.round(meta.linguisticSignals.authenticity * 100)} color="#10b981" />
+              <Bar label="emotion" value={Math.round(meta.linguisticSignals.emotionalTone * 100)} color="#f59e0b" />
+              <Bar label="self-focus" value={Math.round(meta.linguisticSignals.selfFocus * 100)} color="#0ea5e9" />
+              <Bar label="cognitive" value={Math.round(meta.linguisticSignals.cognitiveProcessing * 100)} color="#8b5cf6" />
+              <Bar label="narrative" value={Math.round(meta.linguisticSignals.narrativeDepth * 100)} color="#ec4899" />
+              <div style={{ fontSize: 10.5, color: T.textDim, display: "flex", alignItems: "center" }}>{meta.linguisticSignals.wordCount} words</div>
             </div>
-          )}
-
-          {/* ── Inner thought expressed (highlighted) ── */}
-          {meta.innerThought && (
-            <div style={{ background: T.accentSoft, border: `1px solid ${T.accent}30`, borderRadius: 8, padding: "10px 14px", marginBottom: 12 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                <span style={{ color: T.accent, fontSize: 10, fontWeight: 700, letterSpacing: "1px" }}>INNER THOUGHT EXPRESSED</span>
-                <span style={{ color: T.textDim, fontSize: 10 }}>{meta.innerThought.type} · score {meta.innerThought.score}</span>
+            {meta.disclosureDepth?.signals?.length > 0 && (
+              <div style={{ marginTop: 6, fontSize: 10.5, color: T.textDim }}>
+                signals: {meta.disclosureDepth.signals.join(", ")}
               </div>
-              <div style={{ color: T.text, fontStyle: "italic", lineHeight: 1.65, fontSize: 13 }}>
-                "{meta.innerThought.content}"
-              </div>
-              {meta.innerThought.participationDirective && (
-                <div style={{ color: T.textDim, fontSize: 11, marginTop: 6, borderTop: `1px solid ${T.accent}20`, paddingTop: 6 }}>
-                  directive: <span style={{ fontStyle: "italic" }}>{meta.innerThought.participationDirective}</span>
-                </div>
-              )}
-              {(meta.innerThought.reasonsFor?.length > 0 || meta.innerThought.reasonsAgainst?.length > 0) && (
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8, overflow: "hidden" }}>
-                  {meta.innerThought.reasonsFor?.length > 0 && (
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ color: "#10b981", fontSize: 9.5, fontWeight: 700, letterSpacing: "1px", marginBottom: 4 }}>FOR</div>
-                      {meta.innerThought.reasonsFor.map((r, i) => <div key={i} style={{ color: T.textSoft, fontSize: 11, lineHeight: 1.5, marginBottom: 2, wordBreak: "break-word" }}>+ {r}</div>)}
-                    </div>
-                  )}
-                  {meta.innerThought.reasonsAgainst?.length > 0 && (
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ color: "#dc2626", fontSize: 9.5, fontWeight: 700, letterSpacing: "1px", marginBottom: 4 }}>AGAINST</div>
-                      {meta.innerThought.reasonsAgainst.map((r, i) => <div key={i} style={{ color: T.textSoft, fontSize: 11, lineHeight: 1.5, marginBottom: 2, wordBreak: "break-word" }}>− {r}</div>)}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
+            )}
+            {meta.disclosureDepth?.receptionDirectiveApplied && (
+              <div style={{ marginTop: 4, fontSize: 10.5, color: "#0ea5e9", fontStyle: "italic" }}>reception directive injected</div>
+            )}
+          </div>
+        )}
 
-          {/* ── Thought reservoir ── */}
-          {meta.reservoirContents?.length > 0 && (
-            <>
-              <SecBtn label="Thought Reservoir" count={meta.reservoirContents.length} sk="reservoir" />
-              {sec.reservoir && (
-                <div style={{ marginBottom: 4 }}>
-                  {meta.reservoirContents.map((t, i) => (
-                    <div key={i} style={{ display: "flex", gap: 10, marginBottom: 6, alignItems: "flex-start" }}>
-                      <span style={{ color: T.textDim, fontSize: 10.5, minWidth: 80, flexShrink: 0, paddingTop: 1 }}>{t.type}</span>
-                      <span style={{ color: T.accent, fontSize: 10.5, minWidth: 28, flexShrink: 0, fontFamily: FONT_MONO, paddingTop: 1 }}>{t.score}</span>
-                      <span style={{ color: T.textSoft, lineHeight: 1.5, fontSize: 12 }}>{t.content}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
-
-          {/* ── Self-atoms (Morrigan's own disclosures, depth-gated) ── */}
-          {meta.topSelfAtoms?.length > 0 && (
-            <>
-              <SecBtn label="Self-Atoms Retrieved" count={meta.topSelfAtoms.length} sk="atoms" />
-              {sec.atoms && (
-                <div style={{ marginBottom: 4 }}>
-                  {meta.topSelfAtoms.map((a, i) => (
-                    <div key={i} style={{ display: "flex", gap: 10, marginBottom: 6, alignItems: "flex-start" }}>
-                      <span style={{ color: DEPTH_CLR[a.depth] || T.textDim, fontSize: 10.5, fontWeight: 700, minWidth: 58, flexShrink: 0, paddingTop: 1 }}>
-                        d{a.depth} <span style={{ fontWeight: 400, fontSize: 9.5 }}>{DEPTH_LBL[a.depth]}</span>
-                      </span>
-                      <span style={{ color: T.textSoft, lineHeight: 1.5, fontSize: 12 }}>{a.content}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
-
-          {/* ── Callback queue (threads she's tracking to raise) ── */}
-          {meta.callbackQueue?.length > 0 && (
-            <>
-              <SecBtn label="Callback Queue — Threads She's Tracking" count={meta.callbackQueue.length} sk="callbacks" />
-              {sec.callbacks && (
-                <div style={{ marginBottom: 4 }}>
-                  {meta.callbackQueue.map((cb, i) => (
-                    <div key={i} style={{ display: "flex", gap: 10, marginBottom: 6, alignItems: "flex-start" }}>
-                      <span style={{ color: cb.priority === "high" ? "#dc2626" : cb.priority === "medium" ? "#f59e0b" : T.textDim, fontSize: 10.5, minWidth: 44, flexShrink: 0, fontWeight: 700, paddingTop: 1 }}>{cb.priority}</span>
-                      <span style={{ color: T.textSoft, lineHeight: 1.5, fontSize: 12 }}>{cb.content}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
-
-          {/* ── Already-disclosed atoms (what she's shared about herself) ── */}
-          {meta.alreadyDisclosedAtoms?.length > 0 && (
-            <>
-              <SecBtn label="Already Disclosed About Herself" count={meta.alreadyDisclosedAtoms.length} sk="disclosed" />
-              {sec.disclosed && (
-                <div style={{ marginBottom: 4 }}>
-                  {meta.alreadyDisclosedAtoms.map((a, i) => (
-                    <div key={i} style={{ display: "flex", gap: 10, marginBottom: 6, alignItems: "flex-start" }}>
-                      <span style={{ color: DEPTH_CLR[a.depth] || T.textDim, fontSize: 10.5, fontWeight: 700, minWidth: 58, flexShrink: 0, paddingTop: 1 }}>
-                        d{a.depth} <span style={{ fontWeight: 400, fontSize: 9.5 }}>{DEPTH_LBL[a.depth]}</span>
-                      </span>
-                      <span style={{ color: T.textSoft, lineHeight: 1.5, fontSize: 12, textDecoration: "line-through", opacity: 0.6 }}>{a.content}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
-
-          {/* ── SPT Breadth map ── */}
-          {meta.sptBreadth && Object.keys(meta.sptBreadth).length > 0 && (
-            <>
-              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "1.2px", textTransform: "uppercase", color: T.accent, marginTop: 14, marginBottom: 8, paddingBottom: 5, borderBottom: `1px solid ${T.border}` }}>
-                SPT Breadth — Topic Depth Progress
-              </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
-                {Object.entries(meta.sptBreadth).map(([topic, depth]) => (
-                  <span key={topic} style={{ background: T.surface2, border: `1px solid ${DEPTH_CLR[depth] || T.border}40`, borderRadius: 6, padding: "2px 8px", fontSize: 11 }}>
-                    <span style={{ color: T.textDim }}>{topic}</span>
-                    <span style={{ color: DEPTH_CLR[depth] || T.textDim, fontWeight: 700, marginLeft: 5 }}>d{depth}</span>
-                  </span>
+        {/* ── Section 10: Thought Reservoir ── */}
+        {meta?.reservoirContents?.length > 0 && (
+          <>
+            <SecBtn label="Thought Reservoir" count={meta.reservoirContents.length} sk="reservoir" />
+            {sec.reservoir && (
+              <div style={{ marginBottom: 4 }}>
+                {meta.reservoirContents.map((t, i) => (
+                  <div key={i} style={{ display: "flex", gap: 10, marginBottom: 6, alignItems: "flex-start" }}>
+                    <span style={{ color: T.textDim, fontSize: 10.5, minWidth: 80, flexShrink: 0, paddingTop: 1 }}>{t.type}</span>
+                    <span style={{ color: T.accent, fontSize: 10.5, minWidth: 28, flexShrink: 0, fontFamily: FONT_MONO, paddingTop: 1 }}>{t.score}</span>
+                    <span style={{ color: T.textSoft, lineHeight: 1.5, fontSize: 12 }}>{t.content}</span>
+                  </div>
                 ))}
               </div>
-            </>
-          )}
+            )}
+          </>
+        )}
 
-          {/* ── What she knows about you ── */}
-          {hasKnowledge && (
-            <>
-              <SecBtn label="What She Knows About You" sk="knowledge" />
-              {sec.knowledge && (
-                <div style={{ marginBottom: 4 }}>
-                  {/* Identity */}
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 20px", marginBottom: 8 }}>
-                    {m.userName && <KV label="name" value={m.userName} accent />}
-                    <KV label="trust level" value={`${m.trustLevelName || ""} (${m.trustLevel}/6)`} />
-                    <KV label="trust pts" value={m.trustPoints} />
-                    <KV label="first met" value={`${m.daysSinceFirstMet}d ago`} />
-                    <KV label="last seen" value={`${m.hoursSinceLastSeen}h ago`} />
-                    {m.totalMessages > 0 && <KV label="total msgs" value={m.totalMessages} />}
-                    {m.totalConversations > 0 && <KV label="convos" value={m.totalConversations} />}
+        {/* ── Section 11: Self-Atoms Retrieved ── */}
+        {meta?.topSelfAtoms?.length > 0 && (
+          <>
+            <SecBtn label="Self-Atoms Retrieved" count={meta.topSelfAtoms.length} sk="atoms" />
+            {sec.atoms && (
+              <div style={{ marginBottom: 4 }}>
+                {meta.topSelfAtoms.map((a, i) => (
+                  <div key={i} style={{ display: "flex", gap: 10, marginBottom: 6, alignItems: "flex-start" }}>
+                    <span style={{ color: DEPTH_CLR[a.depth] || T.textDim, fontSize: 10.5, fontWeight: 700, minWidth: 58, flexShrink: 0, paddingTop: 1 }}>
+                      d{a.depth} <span style={{ fontWeight: 400, fontSize: 9.5 }}>{DEPTH_LBL[a.depth]}</span>
+                    </span>
+                    <span style={{ color: T.textSoft, lineHeight: 1.5, fontSize: 12 }}>{a.content}</span>
                   </div>
-                  {/* Trust track */}
-                  <div style={{ marginBottom: 10 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 0, marginBottom: 2 }}>
-                      {["stranger","acquaintance","maybe-friend","friend","close friend","trusted","bonded"].map((lv, i) => (
-                        <div key={i} style={{ flex: 1, height: 4, background: i <= m.trustLevel ? T.accent : T.border, borderRadius: i === 0 ? "3px 0 0 3px" : i === 6 ? "0 3px 3px 0" : 0, marginRight: 1, transition: "background 0.3s" }} />
-                      ))}
-                    </div>
-                    <div style={{ color: T.textDim, fontSize: 9.5, marginTop: 2 }}>
-                      {["stranger","acquaintance","maybe-friend","friend","close friend","trusted","bonded"].map((lv, i) => (
-                        <span key={i} style={{ display: "inline-block", width: "14.2%", textAlign: "center", color: i === m.trustLevel ? T.accent : T.textDim, fontWeight: i === m.trustLevel ? 700 : 400 }}>{lv}</span>
-                      ))}
-                    </div>
-                  </div>
-                  {/* Feeling bars */}
-                  {m.feelings && (
-                    <div style={{ marginBottom: 10 }}>
-                      <div style={{ color: T.textDim, fontSize: 9.5, fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", marginBottom: 6 }}>Her Feelings</div>
-                      <Bar label="affection"      value={m.feelings.affection}      color="#9B2D5E" />
-                      <Bar label="comfort"        value={m.feelings.comfort}        color="#10b981" />
-                      <Bar label="attraction"     value={m.feelings.attraction}     color="#9f67ff" />
-                      <Bar label="protectiveness" value={m.feelings.protectiveness} color="#0ea5e9" />
-                      <Bar label="vulnerability"  value={m.feelings.vulnerability}  color="#f59e0b" />
-                    </div>
-                  )}
-                  {/* Memory categories */}
-                  <MemRow label="interests"     arr={m.memories?.interests} />
-                  <MemRow label="preferences"   arr={m.memories?.preferences} />
-                  <MemRow label="personal"      arr={m.memories?.personal} />
-                  <MemRow label="relationships" arr={m.memories?.relationships} />
-                  <MemRow label="events"        arr={m.memories?.events} />
-                  <MemRow label="emotional"     arr={m.memories?.emotional} />
-                </div>
-              )}
-            </>
-          )}
-
-          {/* ── Synthesised impressions (molecules) ── */}
-          {m?.molecules?.length > 0 && (
-            <>
-              <SecBtn label="Synthesised Impressions" count={m.molecules.length} sk="molecules" />
-              {sec.molecules && (
-                <div style={{ marginBottom: 4 }}>
-                  {m.molecules.map((mol, i) => (
-                    <div key={i} style={{ display: "flex", gap: 10, marginBottom: 7, paddingLeft: 8, borderLeft: `2px solid ${T.accent}50`, alignItems: "flex-start" }}>
-                      {mol.period && <span style={{ color: T.accent, fontSize: 10, minWidth: 64, flexShrink: 0, paddingTop: 2 }}>[{mol.period}]</span>}
-                      <span style={{ color: T.textSoft, lineHeight: 1.55, fontSize: 12 }}>{mol.summary}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
-
-          {/* ── Milestones ── */}
-          {m?.milestones?.length > 0 && (
-            <>
-              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "1.2px", textTransform: "uppercase", color: T.accent, marginTop: 14, marginBottom: 6, paddingBottom: 5, borderBottom: `1px solid ${T.border}` }}>
-                Milestones <span style={{ color: T.textDim, fontWeight: 400 }}>({m.milestones.length})</span>
+                ))}
               </div>
-              {m.milestones.map((ms, i) => {
-                const ev = typeof ms === "string" ? ms : ms.event;
-                const cat = typeof ms === "object" ? ms.category : null;
-                return (
-                  <div key={i} style={{ color: T.textSoft, fontSize: 12, paddingLeft: 8, marginBottom: 4, borderLeft: `2px solid ${T.border}`, lineHeight: 1.5 }}>
-                    — {ev}{cat && <span style={{ color: T.textDim, fontSize: 10, marginLeft: 6 }}>[{cat}]</span>}
+            )}
+          </>
+        )}
+
+        {/* ── Section 12: Callback Queue ── */}
+        {meta?.callbackQueue?.length > 0 && (
+          <>
+            <SecBtn label="Callback Queue — Threads She's Tracking" count={meta.callbackQueue.length} sk="callbacks" />
+            {sec.callbacks && (
+              <div style={{ marginBottom: 4 }}>
+                {meta.callbackQueue.map((cb, i) => (
+                  <div key={i} style={{ display: "flex", gap: 10, marginBottom: 6, alignItems: "flex-start" }}>
+                    <span style={{ color: cb.priority === "high" ? "#dc2626" : cb.priority === "medium" ? "#f59e0b" : T.textDim, fontSize: 10.5, minWidth: 44, flexShrink: 0, fontWeight: 700, paddingTop: 1 }}>{cb.priority}</span>
+                    <span style={{ color: T.textSoft, lineHeight: 1.5, fontSize: 12 }}>{cb.content}</span>
                   </div>
-                );
-              })}
-            </>
-          )}
+                ))}
+              </div>
+            )}
+          </>
+        )}
 
-          {/* ── Her inner state ── */}
-          {hasState && (
-            <>
-              <SecBtn label="Her Inner State" sk="state" />
-              {sec.state && (
-                <div style={{ marginBottom: 4 }}>
-                  {m.relationshipNarrative && (
-                    <div style={{ marginBottom: 10 }}>
-                      <div style={{ color: T.textDim, fontSize: 9.5, fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", marginBottom: 5 }}>How She Sees You</div>
-                      <div style={{ color: T.textSoft, fontStyle: "italic", lineHeight: 1.65, fontSize: 12, paddingLeft: 8, borderLeft: `2px solid ${T.border}` }}>{m.relationshipNarrative}</div>
-                    </div>
-                  )}
-                  {m.prospectiveNote && (
-                    <div style={{ marginBottom: 10 }}>
-                      <div style={{ color: T.textDim, fontSize: 9.5, fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", marginBottom: 5 }}>Sitting With</div>
-                      <div style={{ color: T.textSoft, lineHeight: 1.65, fontSize: 12, paddingLeft: 8, borderLeft: `2px solid #f59e0b80` }}>{m.prospectiveNote}</div>
-                    </div>
-                  )}
-                  {m.looseThread && (
-                    <div style={{ marginBottom: 6 }}>
-                      <div style={{ color: T.textDim, fontSize: 9.5, fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", marginBottom: 5 }}>Loose Thread</div>
-                      <div style={{ color: T.textSoft, lineHeight: 1.65, fontSize: 12, paddingLeft: 8, borderLeft: `2px solid #0ea5e980` }}>{m.looseThread}</div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </>
-          )}
+        <D />
 
-          {/* ── Session history ── */}
-          {m?.sessionContextUsed?.length > 0 && (
-            <>
-              <SecBtn label="Session History Used" count={m.sessionContextUsed.length} sk="history" />
-              {sec.history && (
-                <div style={{ marginBottom: 4 }}>
-                  {m.sessionContextUsed.map((ex, i) => (
-                    <div key={i} style={{ marginBottom: 10, paddingLeft: 8, borderLeft: `2px solid ${T.border}` }}>
-                      <div style={{ display: "flex", gap: 8, marginBottom: 3, alignItems: "flex-start" }}>
-                        <span style={{ color: T.textDim, fontSize: 10.5, minWidth: 24, flexShrink: 0, paddingTop: 1 }}>you</span>
-                        <span style={{ color: T.textSoft, fontSize: 12, lineHeight: 1.5 }}>{ex.user}</span>
-                      </div>
-                      <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
-                        <span style={{ color: T.accent, fontSize: 10.5, minWidth: 24, flexShrink: 0, paddingTop: 1 }}>her</span>
-                        <span style={{ color: T.textSoft, fontSize: 12, lineHeight: 1.5 }}>{ex.assistant}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
-
+        {/* ── Section 13: Trust & Feelings ── */}
+        <SL>Trust & Feelings</SL>
+        {m.trustLevel != null && (
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 0, marginBottom: 2 }}>
+              {["stranger","acquaintance","maybe-friend","friend","close friend","trusted","bonded"].map((lv, i) => (
+                <div key={i} style={{ flex: 1, height: 4, background: i <= (m.trustLevel ?? 0) ? T.accent : T.border, borderRadius: i === 0 ? "3px 0 0 3px" : i === 6 ? "0 3px 3px 0" : 0, marginRight: 1, transition: "background 0.3s" }} />
+              ))}
+            </div>
+            <div style={{ color: T.textDim, fontSize: 9.5, marginTop: 2 }}>
+              {["stranger","acquaintance","maybe-friend","friend","close friend","trusted","bonded"].map((lv, i) => (
+                <span key={i} style={{ display: "inline-block", width: "14.2%", textAlign: "center", color: i === m.trustLevel ? T.accent : T.textDim, fontWeight: i === m.trustLevel ? 700 : 400 }}>{lv}</span>
+              ))}
+            </div>
+          </div>
+        )}
+        {m.feelings && (
+          <div style={{ marginBottom: 8 }}>
+            <Bar label="affection" value={m.feelings.affection} color="#9B2D5E" />
+            <Bar label="comfort" value={m.feelings.comfort} color="#10b981" />
+            <Bar label="attraction" value={m.feelings.attraction} color="#9f67ff" />
+            <Bar label="protectiveness" value={m.feelings.protectiveness} color="#0ea5e9" />
+            <Bar label="vulnerability" value={m.feelings.vulnerability} color="#f59e0b" />
+          </div>
+        )}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 20px", marginBottom: 6 }}>
+          {m.userName && <KV label="name" value={m.userName} accent />}
+          <KV label="trust level" value={`${m.trustLevelName || ""} (${m.trustLevel ?? 0}/6)`} />
+          <KV label="trust pts" value={m.trustPoints} />
+          {m.daysSinceFirstMet != null && <KV label="first met" value={`${m.daysSinceFirstMet}d ago`} />}
+          {m.hoursSinceLastSeen != null && <KV label="last seen" value={`${m.hoursSinceLastSeen}h ago`} />}
+          {m.totalMessages > 0 && <KV label="total msgs" value={m.totalMessages} />}
+          {m.totalConversations > 0 && <KV label="convos" value={m.totalConversations} />}
         </div>
-      )}
+
+        {/* ── Section 14: What She Knows About You ── */}
+        {hasKnowledge && (
+          <>
+            <SecBtn label="What She Knows About You" sk="knowledge" />
+            {sec.knowledge && (
+              <div style={{ marginBottom: 4 }}>
+                <MemRow label="interests" arr={m.memories?.interests} />
+                <MemRow label="preferences" arr={m.memories?.preferences} />
+                <MemRow label="personal" arr={m.memories?.personal} />
+                <MemRow label="relationships" arr={m.memories?.relationships} />
+                <MemRow label="events" arr={m.memories?.events} />
+                <MemRow label="emotional" arr={m.memories?.emotional} />
+                {m.memories?.morriganDisclosed?.length > 0 && (
+                  <>
+                    <div style={{ color: "#9B2D5E", fontSize: 9.5, fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", marginTop: 8, marginBottom: 4, fontFamily: FONT_MONO }}>What He Knows About Her</div>
+                    <MemRow label="" arr={m.memories.morriganDisclosed} />
+                  </>
+                )}
+              </div>
+            )}
+          </>
+        )}
+
+        <D />
+
+        {/* ── Section 15: Disclosed About Herself ── */}
+        <SecBtn label="What She's Shared" count={(disclosedAtoms || []).length} sk="disclosure" />
+        {sec.disclosure && (
+          <div style={{ marginBottom: 4 }}>
+            {DISCLOSURE_SECTIONS.map(section => {
+              const atoms = atomsByDepth[section.depth] || [];
+              return (
+                <div key={section.depth} style={{ marginBottom: 8 }}>
+                  <div style={{ fontFamily: FONT_MONO, fontSize: 9, color: atoms.length > 0 ? section.color : T.textDim, letterSpacing: "1.5px", fontWeight: 700, textTransform: "uppercase", marginBottom: 6 }}>{section.label}</div>
+                  {atoms.length > 0 ? atoms.map((atom, i) => (
+                    <p key={atom.id || i} style={{ fontFamily: FONT, fontSize: 13, color: T.text, margin: i < atoms.length - 1 ? "0 0 10px" : "0 0 4px", lineHeight: 1.75, paddingLeft: 10, borderLeft: `2px solid ${section.color}30` }}>
+                      {atom.content}
+                    </p>
+                  )) : (
+                    <p style={{ fontFamily: FONT, fontSize: 11, color: T.textDim, margin: "0 0 4px", fontStyle: "italic", paddingLeft: 10, borderLeft: `2px solid ${T.border}` }}>{section.locked}</p>
+                  )}
+                </div>
+              );
+            })}
+            {meta?.alreadyDisclosedAtoms?.length > 0 && (
+              <div style={{ marginTop: 6 }}>
+                <div style={{ fontFamily: FONT_MONO, fontSize: 9, color: T.textDim, letterSpacing: "1.5px", fontWeight: 700, textTransform: "uppercase", marginBottom: 6 }}>Already Shared</div>
+                {meta.alreadyDisclosedAtoms.map((a, i) => (
+                  <div key={i} style={{ display: "flex", gap: 10, marginBottom: 4, alignItems: "flex-start" }}>
+                    <span style={{ color: DEPTH_CLR[a.depth] || T.textDim, fontSize: 10.5, fontWeight: 700, minWidth: 48, flexShrink: 0 }}>d{a.depth}</span>
+                    <span style={{ color: T.textSoft, lineHeight: 1.5, fontSize: 11, textDecoration: "line-through", opacity: 0.6 }}>{a.content}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Section 16: SPT Breadth Map ── */}
+        {meta?.sptBreadth && Object.keys(meta.sptBreadth).length > 0 && (
+          <>
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "1.2px", textTransform: "uppercase", color: T.accent, marginTop: 10, marginBottom: 8, paddingBottom: 5, borderBottom: `1px solid ${T.border}`, fontFamily: FONT_MONO }}>
+              SPT Breadth — Topic Depth Progress
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+              {Object.entries(meta.sptBreadth).map(([topic, depth]) => (
+                <span key={topic} style={{ background: T.surface2, border: `1px solid ${DEPTH_CLR[depth] || T.border}40`, borderRadius: 6, padding: "2px 8px", fontSize: 11, fontFamily: FONT_MONO }}>
+                  <span style={{ color: T.textDim }}>{topic}</span>
+                  <span style={{ color: DEPTH_CLR[depth] || T.textDim, fontWeight: 700, marginLeft: 5 }}>d{depth}</span>
+                </span>
+              ))}
+            </div>
+          </>
+        )}
+
+        <D />
+
+        {/* ── Section 17: Her Inner State ── */}
+        {(m.relationshipNarrative || m.prospectiveNote || m.looseThread) && (
+          <>
+            <SL>Her Inner State</SL>
+            {m.relationshipNarrative && (
+              <div style={{ marginBottom: 8, background: T.accentSoft, borderRadius: 10, border: `1px solid ${T.accent}20`, padding: "12px 14px" }}>
+                <div style={{ color: T.textDim, fontSize: 9, fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", marginBottom: 5, fontFamily: FONT_MONO }}>How She Sees You</div>
+                <p style={{ fontFamily: FONT, fontSize: 13, color: T.text, margin: 0, lineHeight: 1.8, fontStyle: "italic" }}>"{m.relationshipNarrative}"</p>
+              </div>
+            )}
+            {m.prospectiveNote && (
+              <div style={{ marginBottom: 8, paddingLeft: 10, borderLeft: "2px solid #f59e0b80" }}>
+                <div style={{ color: T.textDim, fontSize: 9, fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", marginBottom: 4, fontFamily: FONT_MONO }}>Sitting With</div>
+                <div style={{ color: T.textSoft, lineHeight: 1.65, fontSize: 12 }}>{m.prospectiveNote}</div>
+              </div>
+            )}
+            {m.looseThread && (
+              <div style={{ marginBottom: 8, paddingLeft: 10, borderLeft: "2px solid #0ea5e980" }}>
+                <div style={{ color: T.textDim, fontSize: 9, fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", marginBottom: 4, fontFamily: FONT_MONO }}>Loose Thread</div>
+                <div style={{ color: T.textSoft, lineHeight: 1.65, fontSize: 12 }}>{m.looseThread}</div>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ── Section 18: Synthesised Impressions ── */}
+        {m?.molecules?.length > 0 && (
+          <>
+            <SecBtn label="Synthesised Impressions" count={m.molecules.length} sk="molecules" />
+            {sec.molecules && (
+              <div style={{ marginBottom: 4 }}>
+                {m.molecules.map((mol, i) => (
+                  <div key={i} style={{ display: "flex", gap: 10, marginBottom: 7, paddingLeft: 8, borderLeft: `2px solid ${T.accent}50`, alignItems: "flex-start" }}>
+                    {mol.period && <span style={{ color: T.accent, fontSize: 10, minWidth: 64, flexShrink: 0, paddingTop: 2, fontFamily: FONT_MONO }}>[{mol.period}]</span>}
+                    <span style={{ color: T.textSoft, lineHeight: 1.55, fontSize: 12 }}>{mol.summary}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ── Section 19: Milestones ── */}
+        {m?.milestones?.length > 0 && (
+          <>
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "1.2px", textTransform: "uppercase", color: T.accent, marginTop: 10, marginBottom: 6, paddingBottom: 5, borderBottom: `1px solid ${T.border}`, fontFamily: FONT_MONO }}>
+              Milestones <span style={{ color: T.textDim, fontWeight: 400 }}>({m.milestones.length})</span>
+            </div>
+            {m.milestones.map((ms, i) => {
+              const ev = typeof ms === "string" ? ms : ms.event;
+              const cat = typeof ms === "object" ? ms.category : null;
+              return (
+                <div key={i} style={{ color: T.textSoft, fontSize: 12, paddingLeft: 8, marginBottom: 4, borderLeft: `2px solid ${T.border}`, lineHeight: 1.5 }}>
+                  — {ev}{cat && <span style={{ color: T.textDim, fontSize: 10, marginLeft: 6, fontFamily: FONT_MONO }}>[{cat}]</span>}
+                </div>
+              );
+            })}
+          </>
+        )}
+
+        {/* ── Section 20: Phase 6 Health Summary ── */}
+        {phase6Summary && (
+          <>
+            <D />
+            <SecBtn label="Relationship Health" sk="phase6" />
+            {sec.phase6 && (
+              <div style={{ marginBottom: 4 }}>
+                {phase6Summary.health && (
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 16px", marginBottom: 8 }}>
+                    <KV label="at-risk" value={phase6Summary.health.atRisk ? "YES" : "no"} accent={phase6Summary.health.atRisk} />
+                    {phase6Summary.health.signals && (
+                      <>
+                        <KV label="session freq" value={phase6Summary.health.signals.sessionFrequency?.toFixed?.(1)} />
+                        <KV label="msg length" value={phase6Summary.health.signals.avgMessageLength?.toFixed?.(0)} />
+                        <KV label="spt velocity" value={phase6Summary.health.signals.sptVelocity?.toFixed?.(2)} />
+                        <KV label="callback rate" value={phase6Summary.health.signals.callbackConsumptionRate?.toFixed?.(2)} />
+                        <KV label="elaboration" value={phase6Summary.health.signals.unsolicitedElaboration?.toFixed?.(2)} />
+                      </>
+                    )}
+                    {phase6Summary.health.avgCPS != null && <KV label="avg CPS" value={phase6Summary.health.avgCPS?.toFixed?.(2)} />}
+                    {phase6Summary.health.cpsTrajectory && <KV label="CPS trend" value={phase6Summary.health.cpsTrajectory} />}
+                  </div>
+                )}
+                {phase6Summary.attachment && phase6Summary.attachment.style !== "insufficient_data" && (
+                  <KV label="attachment" value={`${phase6Summary.attachment.style} (${(phase6Summary.attachment.confidence * 100).toFixed(0)}%)`} />
+                )}
+                {phase6Summary.presence && (
+                  <KV label="presence" value={`${(phase6Summary.presence.presenceScore * 100).toFixed(0)}%`} />
+                )}
+                {phase6Summary.tom?.currentPhase && (
+                  <KV label="ToM phase" value={phase6Summary.tom.currentPhase} />
+                )}
+                {phase6Summary.tom?.trajectoryNarrative && (
+                  <div style={{ color: T.textSoft, fontSize: 11, fontStyle: "italic", lineHeight: 1.5, marginTop: 6, paddingLeft: 10, borderLeft: `2px solid #f59e0b40` }}>{phase6Summary.tom.trajectoryNarrative}</div>
+                )}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ── Section 21: Session History Used ── */}
+        {m?.sessionContextUsed?.length > 0 && (
+          <>
+            <SecBtn label="Session History Used" count={m.sessionContextUsed.length} sk="history" />
+            {sec.history && (
+              <div style={{ marginBottom: 4 }}>
+                {m.sessionContextUsed.map((ex, i) => (
+                  <div key={i} style={{ marginBottom: 10, paddingLeft: 8, borderLeft: `2px solid ${T.border}` }}>
+                    <div style={{ display: "flex", gap: 8, marginBottom: 3, alignItems: "flex-start" }}>
+                      <span style={{ color: T.textDim, fontSize: 10.5, minWidth: 24, flexShrink: 0, paddingTop: 1 }}>you</span>
+                      <span style={{ color: T.textSoft, fontSize: 12, lineHeight: 1.5 }}>{ex.user}</span>
+                    </div>
+                    <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+                      <span style={{ color: T.accent, fontSize: 10.5, minWidth: 24, flexShrink: 0, paddingTop: 1 }}>her</span>
+                      <span style={{ color: T.textSoft, fontSize: 12, lineHeight: 1.5 }}>{ex.assistant}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ── Personality Tags ── */}
+        <D />
+        <SL>What You've Gathered</SL>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
+          {(() => {
+            const tags = [];
+            const totalDisclosed = (disclosedAtoms || []).length;
+            if (totalDisclosed > 0) {
+              tags.push(...[...new Set((disclosedAtoms || []).flatMap(a => a.topics || []))]);
+            }
+            if (meta?.somaticMarker?.emotionalRegister) tags.push(meta.somaticMarker.emotionalRegister);
+            if (moodReflection?.moodLabel && !tags.includes(moodReflection.moodLabel)) tags.push(moodReflection.moodLabel);
+            if (meta?.goalState && meta.goalState !== "neutral") tags.push(meta.goalState);
+            if (meta?.disclosureDepth?.label) tags.push(`${meta.disclosureDepth.label} disclosure`);
+            if (meta?.crisisDetection?.safeHavenActive) tags.push("crisis mode");
+            if (meta?.atRisk) tags.push("at-risk");
+            const trustLabels = ["stranger", "acquaintance", "maybe-friend", "friend", "close friend", "trusted", "bonded"];
+            if (m.trustLevel != null) tags.push(trustLabels[m.trustLevel] || "unknown");
+            const unique = [...new Set(tags)].slice(0, 14);
+            return unique.length > 0 ? unique.map(tag => (
+              <span key={tag} style={{ fontFamily: FONT_MONO, fontSize: 9, color: T.text, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, padding: "4px 9px" }}>{tag}</span>
+            )) : (
+              <span style={{ fontFamily: FONT_MONO, fontSize: 11, color: T.textDim, opacity: 0.5 }}>send a message to start reading her</span>
+            );
+          })()}
+        </div>
+
+        {/* Empty state before first message */}
+        {!meta && (
+          <div style={{ padding: "20px 0", textAlign: "center", color: T.textDim, fontSize: 11, fontFamily: FONT_MONO, lineHeight: 1.6 }}>
+            send a message to see her thoughts
+          </div>
+        )}
+      </div>
     </div>
   );
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// SMALL COMPONENTS
+// ═══════════════════════════════════════════════════════════════════
+
+function FormatMessage({ text, bold }) {
+  if (!text) return null;
+  const wrapStyle = bold ? { fontWeight: 600 } : {};
+  return (
+    <span style={wrapStyle}>
+      {text.split(/(\*[^*]+\*)/g).map((part, i) =>
+        part.startsWith("*") && part.endsWith("*")
+          ? <em key={i} style={{ color: T.textSoft, fontStyle: "italic", opacity: 0.85, fontWeight: bold ? 500 : "normal" }}>{part.slice(1,-1)}</em>
+          : <span key={i}>{part}</span>
+      )}
+    </span>
+  );
+}
+
 
 function AuthScreen({ onAuth }) {
   const [phrase,  setPhrase]  = useState("");
@@ -1675,6 +1618,7 @@ export default function App() {
   const [morriganPresent, setMorriganPresent] = useState(false);
   const [proactiveTyping, setProactiveTyping] = useState(false);
   const [disclosedAtoms, setDisclosedAtoms] = useState([]);
+  const [phase6Summary, setPhase6Summary] = useState(null);
   const messagesEndRef = useRef(null);
   const inputRef       = useRef(null);
   const justCreated    = useRef(false);
@@ -1748,6 +1692,30 @@ export default function App() {
       .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
       .then(data => { if (data.disclosedAtoms?.length) setDisclosedAtoms(data.disclosedAtoms); })
       .catch(() => {});
+  }, [authed]);
+
+  // Phase 6 periodic fetch — health, attachment, ToM, presence
+  useEffect(() => {
+    if (!authed) return;
+    const fetchPhase6 = async () => {
+      try {
+        const [h, a, t, p] = await Promise.allSettled([
+          fetch(`${API}/api/phase6/health`, { headers: hdrs() }).then(r => r.ok ? r.json() : null),
+          fetch(`${API}/api/phase6/attachment`, { headers: hdrs() }).then(r => r.ok ? r.json() : null),
+          fetch(`${API}/api/phase6/tom`, { headers: hdrs() }).then(r => r.ok ? r.json() : null),
+          fetch(`${API}/api/phase6/presence`, { headers: hdrs() }).then(r => r.ok ? r.json() : null),
+        ]);
+        setPhase6Summary({
+          health: h.status === "fulfilled" ? h.value : null,
+          attachment: a.status === "fulfilled" ? a.value : null,
+          tom: t.status === "fulfilled" ? t.value : null,
+          presence: p.status === "fulfilled" ? p.value : null,
+        });
+      } catch {}
+    };
+    fetchPhase6();
+    const iv = setInterval(fetchPhase6, 300000);
+    return () => clearInterval(iv);
   }, [authed]);
 
   useEffect(() => {
@@ -1927,7 +1895,6 @@ export default function App() {
         <ExplainPanel onClose={() => setShowExplain(false)} token={token()} user={user} conversations={conversations} messages={messages} status={status} />
       )}
 
-      <InfoSidebar mood={currentMood} moodReflection={moodReflection} latestMeta={latestMeta} disclosedAtoms={disclosedAtoms} />
 
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, position: "relative", zIndex: 1 }}>
 
@@ -2044,7 +2011,7 @@ export default function App() {
         </div>
       </div>
 
-      <CharacterPanel mood={currentMood} speaking={!!streamText} latestMeta={latestMeta} moodReflection={moodReflection} />
+      <BrainPanel mood={currentMood} speaking={!!streamText} latestMeta={latestMeta} moodReflection={moodReflection} disclosedAtoms={disclosedAtoms} proactiveTyping={proactiveTyping} morriganPresent={morriganPresent} phase6Summary={phase6Summary} />
 
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&family=Playfair+Display:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@300;400;500&display=swap');
