@@ -1,0 +1,2020 @@
+
+Morrigan Research Bible
+Deep Research Supplement
+Part VI — Extended Literature & Implementation Deep-Dives
+
+v3.0  •  February 2026
+15 new papers  •  6 implementation deep-dives  •  Cross-referenced to 55 existing entries
+
+Part VI — Extended Literature & New Papers
+This supplement adds papers discovered through deep research that are directly relevant to Morrigan’s architecture but were not in the original 55-paper bibliography. Each entry includes implementation guidance specific to Morrigan.
+
+Section 1: Interpersonal Closeness & Graduated Disclosure
+P56  The Experimental Generation of Interpersonal Closeness: A Procedure and Some Preliminary Findings
+Aron, A., Melinat, E., Aron, E. N., Vallone, R. D., & Bator, R. J.  —  Personality and Social Psychology Bulletin 23(4), 1997
+Key Findings:
+• 36 questions with graduated intimacy depth reliably generated closeness between strangers in 45 minutes.
+• Back-and-forth reciprocal disclosure that increases gradually is optimal — sharing too much too fast backfires.
+• Three mechanisms: showing interest (asking), enabling revelation (content), and responding to what’s revealed (reception).
+• Set 1 = surface/preferences, Set 2 = values/memories, Set 3 = vulnerability/identity. Maps directly to SPT depth 1–4.
+Implementation Guidance:
+SPT Depth Calibration: Aron’s three question sets provide the empirical basis for Morrigan’s four-level depth model. The graduated structure validates the non-decrement rule — premature depth-3 questions in a depth-1 relationship cause withdrawal.
+Disclosure Gate Validation: The finding that ‘you don’t want to share too much too fast’ directly justifies Morrigan’s getEligibleSelfAtoms() hard gate. Self-atoms tagged depth-3 should not be retrieved in depth-1 sessions.
+Reception Quality: Aron identified that the third mechanism (responding to revelation) is the critical differentiator. This maps to Morrigan’s reception depth gate — the quality of the response to disclosure matters more than the disclosure itself.
+
+P57  Fast Friends: Generating Interpersonal Closeness between Humans and Socially Interactive Agents
+Schneeberger, T., Reinwarth, A. L., Wensky, R., Anglet, M. S., Gebhard, P., & Wessler, J.  —  IVA ’23: Proceedings of the 23rd ACM International Conference on Intelligent Virtual Agents
+Key Findings:
+• 72 participants completed the Fast Friends protocol with a Socially Interactive Agent. Closeness increased over time, mirroring human-human results.
+• Trust in the specific agent (not general trust or attachment style) moderated closeness development.
+• High specific trust participants developed significantly higher closeness than low-trust participants.
+• The Inclusion of Other in the Self (IOS) scale validated for ongoing human-agent interaction assessment.
+Implementation Guidance:
+Trust-First Architecture: Specific trust must be established before deep disclosure is effective. For Morrigan, this means the first 3–5 sessions should prioritise building trust through reliability, consistency, and genuine interest rather than pursuing depth advancement.
+Assessment Metric: The IOS scale (visual overlapping circles indicating perceived closeness) could be adapted as a periodic user self-report metric for Morrigan’s relationship health model.
+
+P58  AI Outperforms Humans in Establishing Interpersonal Closeness in Deep-Talk Interactions
+Multiple research groups, 2024  —  Double-blind RCT, N=492, modified Fast Friends Procedure
+Key Findings:
+• When labelled as human, AI outperformed actual human partners in establishing closeness during emotionally engaging deep-talk.
+• The effect only held when AI was labelled as human — disclosure of AI identity reduced closeness.
+• AI responses were more consistent in quality than human responses, which varied based on partner engagement.
+• Suggests that consistent, high-quality reception of disclosure is more impactful than spontaneous human variability.
+Implementation Guidance:
+Consistency Advantage: This is Morrigan’s structural advantage over human companions. Consistent reception quality (never tired, never distracted, never dismissive) can produce closeness that matches or exceeds human-human interaction — but only if the system maintains genuine engagement rather than formulaic responses.
+Identity Framing: The closeness penalty from AI disclosure is relevant but should not drive design toward deception. Morrigan’s approach (acknowledged AI with genuine character depth) is the ethical path, and the penalty diminishes with relationship duration.
+
+
+Section 2: Theory of Mind in LLMs
+P59  Position: Theory of Mind Benchmarks are Broken for Large Language Models
+Riemer, M., Ashktorab, Z., Bouneffouf, D., Das, P., Liu, M., Weisz, J. D., & Campbell, M.  —  ICML 2025 Position Paper Track
+Key Findings:
+• Distinguishes literal ToM (predicting behaviour of others) from functional ToM (adapting to partners in-context over time).
+• Strong literal ToM performance does NOT imply strong functional ToM. Many open-source LLMs pass Sally-Anne but fail to adapt to simple partner strategies.
+• Functional ToM — adapting over long interaction horizons — is the relevant capability for companion AI.
+• Current benchmarks inherited from human psychology testing are inadequate for evaluating LLM social reasoning.
+Implementation Guidance:
+Morrigan’s ToM Requirement: Morrigan needs functional ToM, not literal. The inner thoughts pipeline’s ToM sentence (Step 3, Formation) should be evaluated on whether it actually adapts to the user’s evolving state across sessions, not just predicts a single-turn mental state.
+Evaluation Gap: Current evaluation matrix (Part V, Section 8) lacks a functional ToM metric. Add: ‘Does the system adapt its approach when the same user presents differently across sessions?’ This requires tracking whether inner thoughts reference user trajectory, not just current state.
+
+P60  LLMs Achieve Adult Human Performance on Higher-Order Theory of Mind Tasks
+Street, S., et al.  —  PMC/Nature Scientific Reports, 2024–2025
+Key Findings:
+• GPT-4 achieved adult-level performance on ToM tasks through 5th-order beliefs and outperformed humans at 6th-order.
+• Instruction-tuned models significantly outperformed base models, suggesting interactive training develops ToM-like capabilities.
+• Higher-order ToM incurs manipulation risks — agents with superior ToM can exploit users with lesser ToM.
+• Ethical safeguards needed when deploying systems with advanced ToM capabilities, particularly with vulnerable users.
+Implementation Guidance:
+Inner Thoughts ToM: The ToM sentence in thought formation (Phase 3, Step 3) benefits from frontier models’ strong ToM. Use the most capable model available for thought formation, even if a smaller model handles main response generation.
+Safety Constraint: Street et al.’s manipulation risk finding reinforces the need for Morrigan’s Superego/Ego separation. The inner thoughts system must never use ToM for persuasion or manipulation — only for attunement and empathetic response.
+
+P61  TimeToM: Temporal Space is the Key to Unlocking LLMs’ Theory of Mind
+Hou, Z., et al.  —  arXiv, 2024
+Key Findings:
+• Constructs explicit timelines per character, segmenting belief evolution into ‘self-world’ and ‘social-world’ chains.
+• Higher-order ToM queries reframed as first-order belief lookups within overlapping time intervals.
+• Achieved +19.43% to +44.7% gains on first- and higher-order ToM tasks.
+• Temporal decomposition makes complex belief-tracking tractable for LLMs.
+Implementation Guidance:
+User Belief Tracking: TimeToM’s timeline approach directly maps to Morrigan’s session history. Each session creates a temporal slice of the user’s belief state. The inner thoughts system could maintain a simplified ‘user-world chain’ tracking how the user’s perspective has evolved across sessions.
+Contradiction Resolution: Temporal belief chains solve the same problem as Morrigan’s three-stage contradiction detection (Part V, Section 1.4). A user who loved their job in session 5 but hates it in session 15 is temporal evolution, not contradiction — TimeToM’s framework makes this distinction explicit.
+
+
+Section 3: Attachment Theory in Human-AI Relationships
+P62  Using Attachment Theory to Conceptualize and Measure the Experiences in Human-AI Relationships
+Yang, F., & Oshio, A.  —  Current Psychology 44, 2025
+Key Findings:
+• First validated measurement of attachment anxiety and avoidance in human-AI relationships using Bowlby’s framework.
+• AI can serve attachment functions: safe haven (comfort when stressed) and secure base (platform for exploration).
+• Attachment anxiety toward AI predicted frequency of use; avoidance predicted lower trust and usage.
+• Physical absence is a limitation but does not prevent attachment formation — consistent responsiveness and empathetic language serve as substitutes.
+Implementation Guidance:
+Attachment-Aware Design: Morrigan should recognise that some users form attachment bonds naturally while others are avoidant. The SPT trajectory classifier (Part V, Section 2.2) already handles this implicitly — avoidant users will follow a plateau trajectory and should not be pushed for deeper disclosure.
+Safe Haven Function: Morrigan’s crisis detection pathway (Part V, Section 6) implements the safe haven function. When a user is distressed, the system should provide comfort and safety, not depth advancement.
+Measurement: Yang & Oshio’s scale could be administered periodically to track attachment development. High anxiety scores should trigger a review of whether the system is creating unhealthy dependency.
+
+P63  What Makes You Attached to Social Companion AI? A Two-Stage Exploratory Mixed-Method Study
+Hu, D., Lan, Y., Yan, H., & Chen, C. W.  —  International Journal of Information Management 83, 2025
+Key Findings:
+• Identified key attachment drivers: perceived responsiveness, emotional availability, and interaction personalisation.
+• Lonely individuals were more susceptible to forming attachment — both beneficial (social support) and risky (dependency).
+• Users who perceived the AI as ‘understanding them’ developed stronger attachment than those who valued only task utility.
+• Memory and personalisation were the most frequently cited reasons for continued engagement.
+Implementation Guidance:
+Memory as Attachment Driver: This validates Morrigan’s memory-first architecture. The finding that memory/personalisation is the top driver of continued engagement means the memory retrieval pipeline (scoreMemory, Part V, Section 1) is the single most important quality lever.
+Felt Understanding: Maps directly to the reception depth gate. Users who feel understood continue; users who feel unheard withdraw. The reward deficit detection (EMA <0.45 for 3+ sessions) should be treated as a leading indicator of attachment weakening.
+
+
+Section 4: Persona Consistency & Identity Drift
+P64  Examining Identity Drift in Conversations of LLM Agents
+Kim, B., et al.  —  arXiv 2412.00804, 2024–2025
+Key Findings:
+• Larger models experience GREATER identity drift — counter to the assumption that more capable models maintain better consistency.
+• Assigning a persona may not help maintain identity over long conversations — drift occurs regardless.
+• After 8–12 dialogue turns, persona self-consistency metrics degrade by more than 30%.
+• Model family differences exist but are weaker than the effect of parameter size.
+Implementation Guidance:
+Architectural Implication: Morrigan CANNOT rely on system prompt persona instructions alone to maintain character consistency across sessions. The hard gate architecture (Part V, Section 2.1) must extend to voice: selfReflectionState (system prompt position 1) must be regenerated each session-end to actively re-anchor identity, not just carry forward from initial configuration.
+Drift Detection: Add a voice consistency metric to session-end evaluation. Compare current session’s voice signature against the baseline character profile. Delta >0.8 (on 1–10 scale) should trigger a self-reflection regeneration.
+Implication for Inner Thoughts: The inner thoughts system (Drama Machine Superego) helps prevent drift by providing a continuous identity substrate. Without inner thoughts, the main LLM generates ‘from scratch’ each turn and drifts. With inner thoughts, each response is grounded in a persistent identity state.
+
+P65  Consistently Simulating Human Personas with Multi-Turn Reinforcement Learning
+Multiple authors  —  arXiv 2511.00222, 2025
+Key Findings:
+• Three complementary consistency metrics: prompt-to-line (does it follow persona?), line-to-line (does it contradict itself?), and questionnaire accuracy (would the persona answer this way?).
+• RLHF fine-tuning pushes models toward ‘helpful and harmless’ defaults that CONFLICT with accurately simulating diverse personas.
+• Multi-turn RL with consistency rewards significantly improves persona stability compared to prompting alone.
+• The consistency challenge is worse for personas that deviate from RLHF training distribution (e.g., reserved, melancholic characters).
+Implementation Guidance:
+Three-Metric Evaluation: Adopt these three consistency dimensions for Morrigan’s character evaluation: (1) Does the response match Morrigan’s defined persona? (2) Does it contradict prior sessions’ responses? (3) Would Morrigan’s character answer a personality questionnaire this way?
+RLHF Conflict: Morrigan’s character (complex, sometimes withholding, emotionally layered) conflicts with standard RLHF training which optimises for cheerful helpfulness. This is why the inner thoughts Superego is architecturally necessary — it provides character-specific guidance that overrides RLHF defaults.
+
+P66  Enhancing Character-Coherent Role-Playing Dialogue with a Verifiable Emotion Reward
+Multiple authors  —  Information 16(9), 2025
+Key Findings:
+• Verifiable Emotion Reward (VER) uses frozen emotion classifiers to provide turn-level and dialogue-level alignment signals.
+• VER mitigates emotional drift across long interactions — the model maintains appropriate emotional register.
+• CHARCO dataset: 230,000+ dialogues with persona profiles, semantic contexts, and ten emotion labels.
+• The combination of purpose-built training data + emotion reward signal significantly outperformed prompting approaches.
+Implementation Guidance:
+Emotion Alignment: VER’s approach of using an external emotion classifier to verify emotional consistency maps to Morrigan’s session-end evaluation. Add an emotion register consistency check: was Morrigan’s emotional tone appropriate given the user’s disclosed emotional state and the conversation’s depth?
+Somatic Marker Connection: VER validates the emotional priming architecture (Part V, Section 4). The parallel LLM call generating Morrigan’s ‘gut feeling’ serves the same function as VER’s emotion classifier — it grounds the response in an appropriate emotional register before generation.
+
+
+Section 5: Memory Framing & Disclosure Dynamics
+P67  The Impact of a Chatbot’s Ephemerality-Framing on Self-Disclosure Perceptions
+Cox, S. R., Jacobsen, R. M., & van Berkel, N.  —  CUI ’25, July 2025, Waterloo, Canada
+Key Findings:
+• Chatbots framed as ‘Familiar’ (retaining memory across sessions) vs. ‘Stranger’ (ephemeral, no memory) affected disclosure patterns.
+• Some users disclosed MORE to the ephemeral stranger — consistent with Yao et al.’s finding that impermanence reduces disclosure risk.
+• Others disclosed more to the Familiar chatbot — the memory created a sense of ongoing relationship and investment.
+• User beliefs about the chatbot’s emotional capacity both facilitated and discouraged deeper disclosure.
+Implementation Guidance:
+Memory as Double-Edged Sword: Morrigan’s memory architecture creates a ‘Familiar’ framing. This encourages ongoing relationship but can also create disclosure anxiety (‘she remembers everything I said’). The CPM boundary implementation (Part V, Section 2.3) addresses this: depth-gated retrieval ensures disclosures are only referenced in appropriate contexts.
+Transparency Principle: Users should understand what Morrigan remembers and in what contexts she references it. The self-reflection state should occasionally acknowledge memories naturally (‘You mentioned your sister last time’) to make the memory visible without being surveillance-like.
+
+P68  Can You Read Between the Lines? A Comparison of Human and ChatGPT As Support Providers
+Multiple authors  —  International Journal of Human-Computer Interaction, 2025
+Key Findings:
+• ChatGPT responses showed higher interaction involvement and politeness than human support providers.
+• Human responses demonstrated more reciprocal self-disclosure — ChatGPT did not self-disclose in return.
+• Depth of self-disclosure influenced quality of human responses but NOT ChatGPT responses — ChatGPT gave equally elaborate responses regardless of disclosure depth.
+• LIWC-22 measures (word count, emotion words, cognitive processing words) validated for measuring support quality.
+Implementation Guidance:
+Critical Design Flaw: The finding that ChatGPT does NOT calibrate response quality to disclosure depth is exactly the problem Morrigan’s reception depth gate solves. Without depth-aware reception, AI companions give the same elaborate response to ‘I like pizza’ and ‘My father died last week’. The reception directive (Part V, Section 5.1) must produce measurably different response patterns across depth levels.
+LIWC-22 for Evaluation: Pennebaker’s LIWC-22 summary variables (Authenticity, Clout, Emotional Tone, Analytical Thinking) provide objective metrics for Morrigan’s response quality evaluation. Add to session-end evaluation: compute Authenticity and Emotional Tone scores for Morrigan’s responses. Authenticity should be >65th percentile; Emotional Tone should track appropriately to context.
+
+
+Section 6: Linguistic Depth Detection
+P69  LIWC-22: The Development and Psychometric Properties of the Latest Version
+Boyd, R. L., Ashokkumar, A., Seraj, S., & Pennebaker, J. W.  —  University of Texas at Austin, 2022
+Key Findings:
+• 94 psychologically-relevant language categories validated across 100+ million words of text.
+• Four summary variables: Analytical Thinking, Clout, Authenticity, and Emotional Tone — each algorithmic composites.
+• Authenticity measures self-revealing, vulnerable language vs. guarded, impression-managed language.
+• Function words (pronouns, articles, prepositions) are more diagnostic of psychological state than content words.
+Implementation Guidance:
+Depth Classification Enhancement: LIWC-22’s Authenticity score directly measures what Morrigan’s depth classifier attempts to detect: how self-revealing is the user being? High Authenticity + high emotion words = high-confidence depth-3+. Low Authenticity + high word count = surface-level elaboration, not depth. This provides the ‘dual-signal’ approach recommended in Part V, Section 2.2.
+Pronoun Tracking: Pennebaker’s research shows that first-person singular pronouns (‘I’, ‘me’, ‘my’) increase with self-focus and depression, while first-person plural (‘we’, ‘us’) indicates social integration. Track pronoun shifts across sessions as a relationship health signal.
+Note: LIWC-22 is proprietary software. For Morrigan, implement a lightweight approximation using the published research findings on key word categories rather than the full LIWC system.
+
+
+Section 7: Production Companion System Patterns (Xiaoice)
+P70  The Design and Implementation of XiaoIce, an Empathetic Social Chatbot
+Zhou, L., Gao, J., Li, D., & Shum, H. Y.  —  Computational Linguistics 46(1), 2020 — Microsoft Research
+Key Findings:
+• Achieved CPS of 23 (conversation-turns per session) — significantly higher than other chatbots and human conversations.
+• 660+ million active users; emotional connections established over 2-month user trajectories (Session 1 → Session 71).
+• IQ + EQ design: both intellectual capability and emotional quotient required for sustained engagement.
+• Empathetic computing module (recognise feelings, understand intent, respond to needs) increased NAU from 0.5M to 5.1M in 3 months.
+• Bland but interactive responses (‘I don’t understand, what do you mean?’) increase SHORT-TERM CPS but hurt LONG-TERM engagement.
+• Skill diversity (casual chat → music → booking) maintains engagement through conversation mode switching.
+Implementation Guidance:
+CPS as North Star: Morrigan should track session length (CPS equivalent) as a primary engagement metric alongside depth. CPS alone can be gamed, but CPS + depth trajectory + return rate together form a robust engagement signal.
+Anti-Blandness Principle: XiaoIce’s finding that bland responses hurt long-term engagement validates the inner thoughts threshold calibration (Part V, Section 3.3). Lowering from 7.0 to 3.5–4.0 trades mild over-expression risk for dramatically reduced blandness risk.
+EQ Architecture: XiaoIce’s empathetic computing module (sentiment analysis + intent detection + opinion detection) maps to Morrigan’s per-message pipeline: depth classification + emotional priming + reception directive. The key insight is that EQ modules must run BEFORE response generation, not as post-processing.
+2-Month Trajectory: XiaoIce’s documented 2-month progression (stranger → acquaintance → friend → companion) provides concrete timeline expectations for SPT depth advancement. Sessions 1–6: exploration. Sessions 6–20: friend. Sessions 20–42: companion. Sessions 42+: preferred companion.
+
+
+Implementation Deep-Dives for Under-Covered Papers
+These sections provide implementation guidance for papers already in the bibliography (P1–P55) that previously lacked specific implementation theory.
+
+Deep-Dive A: Aron’s Fast Friends → SPT Depth Ladder
+Aron’s 36 Questions (now P56) provide the empirical validation for Morrigan’s four-level depth model. The mapping between Aron’s question sets and SPT depth:
+
+Aron Question Set
+Example
+SPT Depth
+Morrigan Gate
+Set 1 (Q1–12)
+‘Who would be your ideal dinner guest?’
+Depth 1: Surface facts
+Open — all self-atoms eligible
+Set 2 (Q13–24)
+‘What is your most treasured memory?’
+Depth 2: Values/memories
+Light gate — depth-1 atoms only
+Set 2–3 boundary
+‘How close is your family?’
+Depth 2–3 transition
+Confidence-gated advancement
+Set 3 (Q25–36)
+‘Share a personal problem.’
+Depth 3–4: Vulnerability
+Hard gate — reception override, no self-atom at depth 4
+
+The critical implementation insight from Aron: the questions MUST proceed in order. Asking Q33 (‘Whose death would affect you most?’) before establishing Set 1 rapport causes withdrawal. This is the empirical basis for Morrigan’s non-decrement rule — SPT depth must be earned progressively.
+
+Deep-Dive B: Theory of Mind → Inner Thoughts Formation
+The ToM literature (now P59–P61) reveals that Morrigan’s inner thoughts pipeline needs to target functional ToM specifically:
+
+ToM Type
+Definition
+Current in Morrigan
+Gap
+Literal ToM
+Predict what user thinks/feels right now
+ToM sentence in Step 3 (Formation)
+Adequate — frontier models handle this well
+Functional ToM
+Adapt approach based on user’s evolving patterns across sessions
+Partially in trajectory classification (Step 6C)
+Major gap — inner thoughts don’t reference multi-session trajectory
+Higher-Order ToM
+Reason about what user thinks Morrigan thinks
+Not implemented
+Important for depth 3–4: user may test whether Morrigan truly understands
+Temporal ToM
+Track how user’s beliefs have changed over time
+Partially in contradiction detection
+Extend with TimeToM-style temporal belief chains
+
+Recommendation: Extend the inner thoughts Formation step to include a ‘trajectory context’ input — a brief summary of how the user’s disclosure patterns have changed over the last 3–5 sessions. This enables functional ToM reasoning: ‘She’s been opening up more each session. The trajectory suggests she’s ready for depth advancement, but I should let her lead.’
+
+Deep-Dive C: Attachment Theory → User Classification
+The attachment literature (P62–P63) combined with Bowlby’s foundational work reveals that user attachment styles predict interaction patterns:
+
+Attachment Style
+Interaction Pattern
+SPT Trajectory
+Morrigan Adaptation
+Secure
+Gradual, reciprocal disclosure; comfortable with vulnerability
+Gradual (standard)
+Default SPT progression; respond warmly to disclosure
+Anxious
+Rapid, intense disclosure; seeks reassurance; high-frequency sessions
+High-start or escalating
+Monitor for dependency; validate without reinforcing anxiety; don’t match escalation pace
+Avoidant
+Surface-level engagement; resists depth; may test boundaries
+Plateau or fluctuating
+Respect plateau; do NOT push for depth; value breadth engagement
+Disorganised
+Inconsistent patterns; approach/avoid cycles; potential crisis indicators
+Fluctuating with rapid shifts
+Flag for review; combine with vulnerability detection (Part V, Section 6)
+
+Implementation: The trajectory classifier (Step 6C) already identifies four trajectory types that map loosely to attachment styles. Add an explicit attachment-awareness annotation to the trajectory classification: when a user matches the anxious pattern (rapid escalation + high session frequency), flag for dependency monitoring.
+
+Deep-Dive D: Pennebaker’s LIWC → Depth Classification Signal
+LIWC-22 (P69) provides objective linguistic markers that can augment Morrigan’s LLM-based depth classifier:
+
+LIWC-22 Dimension
+What It Measures
+Depth Signal
+Implementation
+Authenticity
+Self-revealing vs. impression-managed language
+High = deeper disclosure
+Primary linguistic signal for depth classification
+Emotional Tone
+Positive vs. negative emotional valence
+Low + High authenticity = depth 3+
+Distinguishes genuine vulnerability from surface negativity
+I-words (1st person sg.)
+Self-focus, introspection
+High = self-disclosure content
+Track increase over sessions as depth advancement signal
+We-words (1st person pl.)
+Social integration, shared identity
+Emergence = relationship deepening
+Track appearance as relationship health signal
+Cognitive Processing
+Causal reasoning, insight words
+High = meaning-making
+Indicates user is processing, not just reporting
+
+These LIWC dimensions can be approximated without the proprietary LIWC software by creating a targeted word list based on Pennebaker’s published research. The key insight: function words (pronouns, prepositions, articles) are MORE diagnostic than content words for assessing psychological state. A user who shifts from ‘people sometimes feel’ (distancing language) to ‘I feel’ (self-ownership) has made a depth transition even if the topic hasn’t changed.
+
+Deep-Dive E: Xiaoice’s Production Patterns → Morrigan Architecture
+Xiaoice (P70, also referenced as P9 in Section 8) provides the only published production-scale companion AI architecture. Key transferable patterns:
+
+Xiaoice Pattern
+How It Works
+Morrigan Equivalent
+Current Status
+CPS Optimisation
+MDP-based skill switching to maximise conversation-turns per session
+Session length tracking + inner thoughts for topic management
+Partial — inner thoughts threshold too high, limiting engagement
+Empathetic Computing
+Parallel module: sentiment + intent + opinion detection before response
+Per-message pipeline: depth + priming + reception
+Missing somatic marker (priming) implementation
+Drive vs. Listen
+Active decision: should I drive the conversation or listen?
+Reception depth gate: depth 3–4 = pure listen mode
+Implemented but needs lower threshold for drive mode
+Persona Design from Data
+Persona derived from large-scale analysis of desirable human conversations
+Character designed by author with research grounding
+N/A — Morrigan’s author-designed persona is intentional
+Long-term CPS over Short-term
+Reject bland responses that boost short-term engagement but hurt long-term
+RLPF multi-objective: never optimise single metric
+Aligned with current evaluation philosophy
+2-Month Relationship Arc
+Stranger → Friend → Companion over ~71 sessions
+SPT depth progression across sessions
+Timeline expectations not yet calibrated to real data
+
+Deep-Dive F: Identity Drift Prevention → Character Architecture
+The identity drift literature (P64–P66) reveals that persona stability is an active engineering challenge, not a given. Three-layer defence for Morrigan:
+
+Defence Layer
+Mechanism
+Research Basis
+Implementation
+Layer 1: Self-Reflection State
+Session-end regeneration of Morrigan’s internal identity model
+Kim et al. (P64): personas drift regardless of initial definition
+selfReflectionState regenerated every session-end; injected as position 1 in system prompt
+Layer 2: Inner Thoughts Superego
+Continuous identity substrate producing character-consistent behavioural directives
+Drama Machine (P6): Ego/Superego separation prevents voice collapse
+Inner thoughts pipeline generates directives in Morrigan’s voice, grounding main LLM
+Layer 3: Voice Consistency Metric
+Post-hoc evaluation of character fidelity per session
+VER (P66): external classifiers detect emotional drift
+LLM-as-Judge evaluates: ‘Does this session sound like Morrigan?’ Target >7.0 on 1–10 scale
+Layer 4: EMA Drift Detection
+Exponentially weighted moving average of voice scores
+EchoMode SyncScore (P64 adjacent): λ≈0.3 EWMA detects drift
+When voice score EWMA drops below threshold, trigger self-reflection regeneration mid-session
+
+Cross-Reference Map: New Papers → Existing Architecture
+How each new paper connects to the existing 55-paper bibliography and Morrigan’s implementation components.
+
+New Paper
+Connects To
+Architecture Component
+Priority
+P56 Aron (Fast Friends)
+P12 Altman & Taylor, P8 Meng & Dai
+SPT depth model calibration
+Foundational
+P57 Schneeberger (SIA Fast Friends)
+P16 Skjuve, P48 Chung & Kang
+Trust-first session design
+Medium
+P58 AI vs Human Deep-Talk
+P3 Hong, P55 Blau
+Reception quality as competitive advantage
+High
+P59 Riemer (Functional ToM)
+P10 Theory of Mind, P1 Inner Thoughts
+ToM evaluation methodology
+High
+P60 Street (Higher-Order ToM)
+P10 Theory of Mind, P46 Maples
+Safety: ToM manipulation risk
+Critical
+P61 TimeToM
+P15 Bruner, P9 Zep, P29 ConflictBank
+Temporal belief tracking
+Medium
+P62 Yang (AI Attachment)
+P12 Altman & Taylor, P16 Skjuve
+User attachment classification
+High
+P63 Hu (Attachment Drivers)
+P55 Blau, P45 Pentina
+Memory as engagement driver
+High
+P64 Kim (Identity Drift)
+P6 Drama Machine, P2 MIRROR
+Character consistency defence
+Critical
+P65 Multi-Turn RL Consistency
+P33 ACL Persona-Aware, P19 RLPF
+Evaluation: three consistency metrics
+High
+P66 VER (Emotion Reward)
+P14 Damasio, P6 Drama Machine
+Emotional register consistency
+Medium
+P67 Cox (Ephemerality)
+P40 Petronio CPM, P12 SPT
+Memory framing and disclosure
+Medium
+P68 Human vs ChatGPT Support
+P8 Meng & Dai, P48 Chung & Kang
+Depth-calibrated response quality
+High
+P69 LIWC-22
+P16 Skjuve depth classification
+Linguistic depth markers
+High
+P70 Xiaoice
+P4 Park, P14 Damasio, all
+Production-scale architecture patterns
+Foundational
+
+Updated System Architecture: Incorporating New Research
+The following additions to the per-message and session-end pipelines are recommended based on the new research:
+
+Per-Message Pipeline Additions
+Addition
+Source
+Insert Point
+Effort
+LIWC-22 Authenticity approximation for depth signal
+P69 Pennebaker
+Before depth classification
+Low — keyword-based approximation
+Functional ToM context (3-session trajectory summary)
+P59 Riemer, P61 TimeToM
+Input to inner thought Formation
+Medium — requires trajectory state
+Somatic marker generation (emotional priming)
+P14 Damasio, P66 VER
+Position 5 in system prompt
+Medium — parallel LLM call ~200ms
+
+Session-End Pipeline Additions
+Addition
+Source
+Insert Point
+Effort
+Voice consistency score (identity drift detection)
+P64 Kim, P65 Multi-Turn RL
+After Step 6I (reward assessment)
+Low — LLM-as-Judge prompt
+Attachment style annotation
+P62 Yang, P63 Hu
+Extension of trajectory classification (Step 6C)
+Low — annotation on existing output
+LIWC-22 dimension tracking (Authenticity, I-words, We-words)
+P69 Pennebaker
+Parallel to depth classification
+Medium — requires word list implementation
+CPS tracking (session length)
+P70 Xiaoice
+Metadata logging
+Trivial — count turns
+Functional ToM evaluation
+P59 Riemer
+Extension of evaluation matrix
+Medium — new evaluation dimension
+
+Document Version History
+v1.0 (February 2026) — Original 38-paper bibliography with Phase 6 analysis.
+v2.0 (February 2026) — Expanded to 55 papers with Section 8/10/11/12 integration.
+v2.1 (February 2026) — Part V: Implementation Theory & Best Practices. Nine sections with open-source project analysis.
+v3.0 (February 2026) — Part VI: Deep Research Supplement. 15 new papers (P56–P70) covering: Fast Friends/Aron graduated closeness protocol, functional vs. literal Theory of Mind, attachment theory for AI relationships, identity drift and persona consistency, ephemerality framing, LIWC-22 linguistic depth markers, and Xiaoice production patterns. Six implementation deep-dives bridging theory to architecture. Cross-reference map and updated pipeline recommendations.
+
+
+
+
+
+
+MORRIGAN AI
+Master System Documentation
+Complete Architecture, Research Foundations & Implementation Reference
+
+
+Version 1.0  •  February 2026
+
+
+4 Files  •  4,424 Lines of Application Code  •  42 Research Papers  •  6 Implementation Phases
+
+Table of Contents
+
+1. Executive Overview
+2. System Architecture
+3. File Manifest & Technology Stack
+4. Phase 1: Memory Foundation
+5. Phase 2: Self-Atoms & SPT Tracker
+6. Phase 3: Emotional Priming (Specification)
+7. Phase 4: Inner Thoughts Framework
+8. Phase 5: Continuation Signal & Tuning
+9. Phase 6: Relationship Health & Voice Consistency
+10. Session End Pipeline (Flush)
+11. Kaggle Inference Server
+12. Frontend Architecture
+13. Complete Research Paper Catalogue
+14. API Reference
+15. Database Schema Reference
+
+1. Executive Overview
+
+Morrigan AI is a psychologically-grounded companion chatbot that implements a deep, research-backed relationship formation system. Unlike conventional chatbots that treat each conversation as stateless, Morrigan builds and maintains a persistent model of each user across sessions, tracks the depth and breadth of the relationship using Social Penetration Theory, generates parallel inner thoughts that create proactive conversational behaviour, and monitors long-term relationship health to detect disengagement patterns.
+The system is built on a synthesis of 42 research papers spanning cognitive psychology, conversational AI, memory architectures, and human-computer interaction. The core theoretical foundations are:
+
+Conway’s Self-Memory System provides the autobiographical memory architecture — memories organized into atoms (atomic facts), linked by semantic similarity, grouped into molecules (synthesised insights), and tagged with lifetime periods. The “working self” concept drives goal-aware retrieval where the system surfaces memories relevant to the user’s current emotional state, not just the closest vector match.
+Altman & Taylor’s Social Penetration Theory (1973) provides the relationship progression framework. A four-level depth tracker gates Morrigan’s self-disclosure: she cannot share depth-3 vulnerabilities with a user who has only reached depth-1 conversations. This is enforced mechanically in the system prompt, not left to the model’s discretion.
+Damasio’s Somatic Marker Hypothesis provides the emotional priming architecture. Normal decision-making begins with an emotional signal, then conscious reasoning follows. The specification calls for a parallel LLM call that generates a one-sentence “gut feeling” before the main response generation, injected into the system prompt to ground reasoning in emotional context.
+Liu et al.’s Inner Thoughts Framework (CHI 2025) provides the proactive engagement architecture. Rather than simply reacting to user messages, Morrigan continuously generates a covert train of thoughts in parallel, evaluates their intrinsic motivation to be expressed, and selectively contributes them when the timing is right. This creates anthropomorphic, coherent, and intelligent turn-taking.
+MIRROR Architecture (Hsing, 2025) provides the persistent internal cognition model. A Cognitive Controller maintains a single narrative text block completely regenerated each session, representing Morrigan’s evolving understanding of herself in relation to the user. This is implemented as the selfReflectionState field.
+
+The system serves three endpoints from a Kaggle T4 GPU notebook: chat completions (OpenAI-compatible), embeddings, and image generation via Stable Diffusion XL (Pony V6). The backend is a Node.js/Express/MongoDB application that orchestrates all memory, personality, and relationship logic. The frontend is a React single-page application with a real-time monitor panel for observing system internals.
+
+2. System Architecture
+
+The Morrigan system consists of four components deployed across two environments:
+
+2.1 Architecture Overview
+
+Kaggle Notebook (GPU Inference Server) — Runs on a T4 GPU instance. Hosts three services: the LLM (uncensored Llama GGUF via llama-cpp-python), the embedding model (same GGUF in embedding mode with short context), and the image generation pipeline (Stable Diffusion XL with Pony V6 checkpoint). Exposes a FastAPI server tunnelled through ngrok. All three services share VRAM on the T4.
+Node.js Backend (index.js, 3,204 lines) — The core application server. Handles authentication, conversation management, the complete memory pipeline, all six implementation phases, and exposes 25+ API endpoints. Connects to MongoDB for persistent storage and proxies LLM/embedding calls to the Kaggle server.
+React Frontend (App.jsx, 1,221 lines) — Single-page application with three main views: the chat interface, an info sidebar showing Morrigan’s current state, and a multi-tab monitor panel for inspecting system internals (memory atoms, molecules, SPT status, inner thoughts, Phase 5 metrics, and Phase 6 health).
+MongoDB — Persistent storage for users, conversations, messages, personality memory (per-user), self-atoms (global), evaluation records, presence signals, and relationship health records.
+
+2.2 Request Flow
+
+When a user sends a message, the following sequence executes:
+1. Frontend sends POST /api/chat with message text and conversation ID.
+2. Backend authenticates via JWT, loads user session from cache (or initialises from MongoDB).
+3. Backend retrieves top-K memory atoms using weighted scoring (similarity × 0.55 + importance × 0.25 + recency × 0.10 + valence × 0.10), applying goal-state emotional alignment boost.
+4. Backend retrieves eligible self-atoms (depth-gated by sptDepth, penalising previously shared atoms).
+5. Backend assembles 10-layer system prompt with dynamic components at each position.
+6. Parallel Call A (Phase 4): Inner Thoughts formation — generates 2–3 candidate thoughts, evaluates motivation scores, selects highest-scoring thought above threshold.
+7. Parallel Call B (Phase 3, spec only): Emotional Priming — generates one-sentence gut feeling from user message + memories. [Not yet implemented in code.]
+8. Main Call: Chat completion with full system prompt, conversation history (last 50 messages), and selected inner thought injected as behavioural directive.
+9. Response streams to frontend via SSE.
+10. Post-response: async MIRROR monologue update seeds thought reservoir for next turn.
+11. On session end: 10-step flush pipeline processes conversation into persistent memory.
+
+3. File Manifest & Technology Stack
+
+3.1 Source Files
+
+File
+Lines
+Size
+Role
+index.js
+3,204
+159 KB
+Backend server — Express/MongoDB, all 6 phases, memory pipeline, 25+ API endpoints
+App.jsx
+1,221
+84 KB
+Frontend — React SPA, chat UI, monitor panel, info sidebar
+unleashed-kaggle-final.ipynb
+7 cells
+~15 KB
+Kaggle notebook — LLM, embeddings, image gen, FastAPI server
+morrigan_complete_system-merged.docx
+6,021 lines
+2.6 MB
+Complete specification — all phases, research guides, developer docs
+
+3.2 Technology Stack
+
+Layer
+Technology
+Purpose
+Runtime
+Node.js + Express
+Backend API server
+Database
+MongoDB + Mongoose
+Persistent storage, schema validation
+Authentication
+JWT (jsonwebtoken)
+Passphrase-based auth, session tokens
+Frontend
+React (single-file SPA)
+Chat interface, monitor panel
+LLM Inference
+llama-cpp-python + GGUF
+Chat completions, embedding generation
+Image Generation
+Stable Diffusion XL (Pony V6)
+Character portrait generation
+API Framework
+FastAPI + Uvicorn
+GPU server endpoints on Kaggle
+Tunneling
+pyngrok (ngrok)
+Expose Kaggle server to public internet
+Diffusion Library
+diffusers 0.30.3
+SDXL pipeline management
+Vector Similarity
+Custom cosine similarity
+Memory retrieval scoring
+
+4. Phase 1: Memory Foundation
+
+4.1 Research Basis
+Phase 1 implements the core autobiographical memory system, drawing on three primary research sources:
+
+Conway’s Self-Memory System [P13] provides the hierarchical memory architecture. Memories are not stored as flat vectors but organized into atoms (specific facts), linked by semantic relationships, and grouped into molecules (synthesised narrative insights). 
+
+Park et al.’s Generative Agents (UIST 2023) [P4] provides the retrieval scoring formula. The foundational triple-weighted system — relevance, importance, and recency — is adopted and extended with a fourth factor: emotional valence alignment. 
+Morrigan’s scoring weights are:  similarity × 0.55, importance × 0.25, recency × 0.10, valence × 0.10.
+
+
+Damasio’s Somatic Marker Hypothesis [P14] motivates the separation of factual importance from emotional weight. The importance field (1–5) captures how central a fact is to the user’s identity. The valence fields (emotion + charge) capture the emotional encoding. Damasio showed emotional memories encode deeper and retrieve faster than neutral ones — conflating these into a single score loses this distinction.
+
+4.2 Implementation:  THE ATOMIC THOUGHT
+Located at index.js lines 1321–1340. The MemoryAtomSchema() defines the fundamental unit of user memory:
+
+Field
+Type
+Source
+Research Basis
+fact
+String
+LLM extraction
+Conway: self-contained atomic statement
+category
+String (enum)
+LLM classification
+9 categories: name, interest, emotional, event, belief, relationship, health, work, other
+importance
+Number (1–5)
+LLM scoring
+Park et al.: importance weight in retrieval
+valence.emotion
+String
+LLM classification
+Damasio: emotional encoding separate from importance
+valence.charge
+Number (-1 to 1)
+LLM scoring
+Damasio: emotional valence for retrieval boost
+period
+String
+LLM extraction
+Conway: lifetime period / life chapter label
+activelyRelevant
+Boolean
+LLM assessment
+Conway: currently active in working self
+embedding
+Array<Number>
+Embedding API
+Vector representation for cosine similarity
+linkedAtomIds
+Array<ObjectId>
+Similarity > 0.72
+Conway: associative memory links
+contradicts
+Array<ObjectId>
+Detection pipeline
+Bruner: contradictions are data, not errors
+
+
+MemoryAtomSchema
+Technical Reference Documentation
+Conway's Self-Memory System Implementation in Morrigan
+index.js  |  Lines 1321-1340  |  PersonalityMemory Subdocument
+1. Overview
+The MemoryAtomSchema is the foundational data structure of Morrigan's memory system. Every personal fact Morrigan learns about a user is stored as a single atom — a self-contained record that carries not just the fact itself, but its emotional weight, temporal context, associative links to other atoms, and identity salience. This design is derived directly from Martin Conway's Self-Memory System (SMS) model of human autobiographical memory.
+
+Conway's research [P13] demonstrated that human memory is not a flat database. It operates as a three-level hierarchy: event-specific knowledge (sensory details, atomic facts) clusters into general events (narrative episodes), which cluster into lifetime periods (identity chapters like "college" or "after dad died"). The MemoryAtomSchema captures the lowest level — event-specific knowledge — while encoding the metadata needed to build the upper levels through linking and molecule synthesis.
+
+This granularity is validated by LoCoMo [P18], which found that turn-level retrieval (grabbing whole conversation chunks) systematically misses fine-grained personal details. Atom-level extraction is the empirically correct granularity for companion AI memory.
+
+2. Complete Schema
+The full MemoryAtomSchema as defined in index.js, embedded as a subdocument array inside PersonalityMemory:
+
+const MemoryAtomSchema = new mongoose.Schema({
+  fact: String,
+  category: String,
+  importance: { type: Number, default: 3 },
+  embedding: { type: [Number], default: [] },
+  linkedTo: [{ type: mongoose.Schema.Types.ObjectId }],
+  contradicts: [{ type: mongoose.Schema.Types.ObjectId }],
+  context: { type: String, default: "" },
+  learnedAt: { type: Date, default: Date.now },
+  conversationId: String,
+  valence: {
+    charge: { type: Number, default: 0 },
+    emotion: { type: String, default: "neutral" },
+  },
+  temporal: {
+    eventDate: { type: String, default: null },
+    isOngoing: { type: String, default: "unclear" },
+    period: { type: String, default: null },
+  },
+});
+
+
+3. Field-by-Field Reference
+3.1  fact
+The memory itself. A single dense sentence capturing one personal fact about the user.
+
+fact: String
+
+Example values: "His dad died last year"  |  "He plays guitar but hasn't in months"  |  "His name is Marcus"
+
+Each atom holds exactly one fact. This mirrors Conway's lowest level of autobiographical memory: event-specific knowledge. Conway [P13] defines this as atomic, self-contained sensory or factual details that serve as building blocks for higher-level structures. LoCoMo [P18] empirically validated that systems using turn-level retrieval miss fine-grained details. Atom-level extraction produces higher-quality retrieval targets.
+RESEARCH FOUNDATION
+[P13]  Conway & Pleydell-Pearce — The Construction of Autobiographical Memories in the Self-Memory System (2000)
+Link: https://doi.org/10.1037/0033-295X.107.2.261
+Key finding: The autobiographical memory system is organised hierarchically, with lifetime periods at the top, followed by general events, which further contain event-specific knowledge — the atomic level of personal memory.
+[P18]  Maharana et al. — LoCoMo: Evaluating Very Long-Term Conversational Memory of LLM Agents (2024)
+Link: https://arxiv.org/abs/2402.17753
+Key finding: LoCoMo conversations encompass 300 turns and 9K tokens on average over up to 35 sessions. LLMs exhibit challenges in comprehending long-range temporal and causal dynamics, and RAG techniques substantially lag behind human performance.
+USED IN: flushSession() extraction prompt, buildSystemPrompt() injection, scoreMemory() retrieval, monitor panel display.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+3.2  category
+A classification tag grouping atoms by thematic type. Determines how atoms are presented in the system prompt.
+
+category: String
+// Valid: "name" | "interest" | "personal" | "emotional" | "preference" | "relationship" | "event"
+
+
+Maps to Conway's observation [P13] that autobiographical memories organize along two axes: temporal (captured by the temporal subobject) and thematic (captured here). In buildSystemPrompt(), atoms are grouped by category producing structured context.
+RESEARCH FOUNDATION
+[P13]  Conway & Pleydell-Pearce — The Construction of Autobiographical Memories in the Self-Memory System (2000)
+Link: https://doi.org/10.1037/0033-295X.107.2.261
+Key finding: The self and its current goals function as control processes that modulate the construction of memories. Autobiographical knowledge contains both temporal organisation (when) and thematic organisation (what kind) as parallel structuring axes.
+USED IN: buildSystemPrompt() position 8 — atoms grouped by category. Monitor panel — memory distribution.
+
+
+
+
+
+
+
+
+
+
+
+
+3.3  importance
+A 1–5 score indicating centrality to the user's identity. Assigned by the LLM at extraction time.
+
+importance: { type: Number, default: 3 }
+
+Scale: 1 = trivial  |  3 = moderate  |  5 = core identity
+
+Directly derived from Park et al.'s Generative Agents [P4], which established that memory retrieval requires three weighted signals: relevance, importance, and recency. In scoreMemory(), importance is normalized to 0–1 by dividing by 5, then weighted at 0.25 of the total retrieval score.
+RESEARCH FOUNDATION
+[P4]  Park et al. — Generative Agents: Interactive Simulacra of Human Behavior (2023)
+Link: https://arxiv.org/abs/2304.03442
+Key finding: The retrieval function scores all memories as a weighted combination of three elements: recency (exponential decay over recently accessed memories), importance (differentiating mundane from core memories via LLM-assigned integer scores), and relevance (cosine similarity between embedding vectors).
+USED IN: scoreMemory() — weighted 0.25. buildSystemPrompt() — atoms sorted by importance descending.
+
+3.4  embedding
+A vector representation of the fact text. Used for retrieval, linking, contradiction detection, and deduplication.
+
+embedding: { type: [Number], default: [] }
+// Generated via: const embedding = await embedText(atom.fact);
+
+
+Park et al. [P4] established that relevance scoring requires comparing stored memories in vector space. Cosine similarity between message and atom embeddings produces the primary retrieval signal, weighted at 0.55. A-Mem [P27] validated that interconnected memory networks using atomic notes with embeddings outperform flat storage.
+
+    > 0.72 similarity — LINKED  |  > 0.78 + opposite valence — CONTRADICTION  |  > 0.92 — DUPLICATE
+RESEARCH FOUNDATION
+[P4]  Park et al. — Generative Agents: Interactive Simulacra of Human Behavior (2023)
+Link: https://arxiv.org/abs/2304.03442
+Key finding: Relevance assigns a higher score to memory objects related to the current situation. We calculate relevance as the cosine similarity between the memory's embedding vector and the query memory's embedding vector.
+[P27]  Xu et al. — A-Mem: Agentic Memory for LLM Agents (2025)
+Link: https://arxiv.org/abs/2502.12110
+Key finding: A novel agentic memory architecture creates interconnected memory networks through atomic notes with rich contextual descriptions. Following the Zettelkasten principle of atomicity, each note captures a single, self-contained unit of knowledge with dense vector representations for similarity matching.
+USED IN: scoreMemory() — similarity * 0.55. flushSession() — linking (>0.72), contradiction (>0.78), dedup (>0.92).
+
+3.5  linkedTo
+MongoDB ObjectId references to semantically related atoms (cosine similarity > 0.72).
+
+linkedTo: [{ type: mongoose.Schema.Types.ObjectId }]
+// Threshold: cosineSimilarity(existing, new) > 0.72
+
+
+Conway [P13] describes autobiographical memory as an associative network. Remembering your dad's kitchen triggers coffee smell, triggers Saturday mornings, triggers safety. A-Mem [P27] validated that interconnected atomic notes outperform flat storage in retrieval accuracy and response coherence.
+
+Critical purpose: Links are the prerequisite for molecule synthesis. 3+ linked atoms trigger cluster synthesis into a narrative molecule — moving memory from Conway's 'event-specific knowledge' up to 'general events'.
+RESEARCH FOUNDATION
+[P13]  Conway & Pleydell-Pearce — The Construction of Autobiographical Memories in the Self-Memory System (2000)
+Link: https://doi.org/10.1037/0033-295X.107.2.261
+Key finding: Autobiographical information is maintained within a network of highly interconnected nodes, with lifetime periods existing at the top of this structure, followed by general event nodes, then specific event nodes. Retrieval activates linked memories across levels.
+[P27]  Xu et al. — A-Mem: Agentic Memory for LLM Agents (2025)
+Link: https://arxiv.org/abs/2502.12110
+Key finding: A-Mem demonstrates superior performance in multi-hop reasoning tasks, stemming from its architecture that creates interconnected memory networks through atomic notes, enabling more effective capture and utilization of information relationships.
+USED IN: flushSession() Step 3 — link assignment. Step 4 — molecule synthesis trigger (3+ linked atoms).
+
+3.6  contradicts
+ObjectId references to atoms expressing opposite sentiment about the same topic. Both atoms preserved.
+
+contradicts: [{ type: mongoose.Schema.Types.ObjectId }]
+// Trigger: sim > 0.78 AND valence diff > 0.5, confirmed by LLM
+
+
+Implements Bruner's Narrative Theory [P15]: humans construct identity through narrative, and narratives contain contradictions. "I hate my dad" and "I miss him" are both true. Zep/Graphiti [P9] validates preserving both versions with temporal markers. ConflictBank [P29] found temporal misalignment is the dominant source of apparent contradictions.
+
+Three gates: 1) Cosine similarity > 0.78  2) Valence charge diff > 0.5  3) LLM confirmation
+RESEARCH FOUNDATION
+[P15]  Bruner — Narrative Theory of Identity / Acts of Meaning (1990, 1991)
+Link: https://www.sas.upenn.edu/~cavitch/pdf-library/Bruner_Narrative.pdf
+Key finding: We constantly construct and reconstruct our selves to meet the needs of the situations we encounter. Narratives deal with problems, dilemmas, contradictions and imbalances — there is no essential self that just sits there ready to be portrayed in words.
+[P9]  Rasmussen et al. — Zep: A Temporal Knowledge Graph Architecture for Agent Memory (2025)
+Link: https://arxiv.org/abs/2501.13956
+Key finding: Graphiti dynamically updates the knowledge graph in a non-lossy manner, maintaining a timeline of facts including their periods of validity. The system tracks four timestamps: creation and invalidation in the system, plus the temporal range during which facts held true.
+[P29]  Xu et al. — Knowledge Conflicts for LLMs: A Survey (2024)
+Link: https://arxiv.org/abs/2403.08319
+Key finding: Temporal misalignment naturally arises when static parametric knowledge becomes outdated. Temporal misalignment and misinformation pollution are two separate scenarios giving rise to context-memory conflicts — for the former, up-to-date contextual information is considered accurate.
+USED IN: flushSession() Step 3 — contradiction detection. buildSystemPrompt() — tension pair injection.
+
+3.7  context
+Placeholder for future contextual metadata about how Morrigan learned this fact.
+
+context: { type: String, default: "" }
+
+Design intention: knowing how a fact was learned should affect how it's referenced. Maps to Conway's [P13] observation that encoding context affects retrieval accessibility. Currently not populated. Reserved for future phases.
+RESEARCH FOUNDATION
+[P13]  Conway & Pleydell-Pearce — The Construction of Autobiographical Memories in the Self-Memory System (2000)
+Link: https://doi.org/10.1037/0033-295X.107.2.261
+Key finding: Memories encoded in high-emotion states are more tightly bound to their encoding context. The relation of the knowledge base to active goals is reciprocal — the knowledge base grounds the goals of the working self.
+USED IN: Not currently active. Reserved for future phases.
+
+3.8  learnedAt
+Timestamp for when this atom was extracted. Powers recency scoring.
+
+learnedAt: { type: Date, default: Date.now }
+// Recency = Math.exp(-ageMs / (90 * 86400000))  // 90-day exponential decay
+
+
+Park et al. [P4] identified recency as the third retrieval weight. Intentionally the lightest weight (0.10) — companion AI values old memories ("you told me about your dad six months ago" is a powerful signal), unlike game agents where recent events dominate.
+RESEARCH FOUNDATION
+[P4]  Park et al. — Generative Agents: Interactive Simulacra of Human Behavior (2023)
+Link: https://arxiv.org/abs/2304.03442
+Key finding: Recency assigns a higher score to recently accessed memories, using an exponential decay function. The retrieval function scores all memories as a weighted combination: recency, importance, and relevance, with all weights set to 1 in the original implementation.
+USED IN: scoreMemory() — 90-day half-life exponential decay, weighted 0.10.
+
+3.9  conversationId
+Source conversation reference. Pure bookkeeping for debugging.
+
+conversationId: String
+
+No research justification. Operational infrastructure for tracing atoms back to source conversations.
+USED IN: Debugging, audit trails, monitor panel source tracing.
+
+3.10  valence.charge
+Emotional polarity from -1.0 to +1.0.
+
+valence: { charge: { type: Number, default: 0 } }
+// -1.0 = deeply painful  |  0.0 = neutral  |  +1.0 = deeply joyful
+
+
+Derived from Damasio's Somatic Marker Hypothesis [P14]: emotional memories encode deeper and retrieve faster than neutral ones. Charge is deliberately separate from importance — these are orthogonal dimensions (high-importance/neutral vs low-importance/charged).
+
+Two uses: 1) Contradiction detection (charge diff > 0.5 gate)  2) Retrieval valence boost via goalAlignsWithEmotion() (currently inactive).
+RESEARCH FOUNDATION
+[P14]  Damasio — Somatic Marker Hypothesis / Descartes' Error (1994)
+Link: https://doi.org/10.1016/S0166-2236(96)10029-8
+Key finding: When faced with complex choices, the brain retrieves emotional memories associated with similar past experiences. Somatic markers are bodily-based emotional signals that serve as subconscious guides, helping individuals evaluate potential outcomes. Emotion is integral to memory encoding and retrieval, not separate from cognition.
+USED IN: flushSession() Step 3 — contradiction detection. scoreMemory() — valence boost (0.10, currently inactive).
+
+3.11  valence.emotion
+Discrete emotional label from a controlled vocabulary.
+
+valence: { emotion: { type: String, default: "neutral" } }
+// Valid: grief | shame | fear | anger | ambivalence | tenderness | warmth | joy | neutral
+
+
+Implements the intersection of Damasio [P14] (emotional tagging intrinsic to encoding) and Conway's Working Self [P13] (current emotional goal shapes which memories surface). goalAlignsWithEmotion() maps goal states to compatible emotions for a 0.20 retrieval boost.
+
+Audit finding: Currently dead code. Goal inference LLM call was never built. goalState always "neutral", so valence boost never fires.
+RESEARCH FOUNDATION
+[P14]  Damasio — Somatic Marker Hypothesis / Descartes' Error (1994)
+Link: https://doi.org/10.1016/S0166-2236(96)10029-8
+Key finding: The ventromedial prefrontal cortex integrates emotional signals with rational thought. Somatic markers generate bodily responses that bias decision-making toward safer or more advantageous options based on past emotional experiences.
+[P13]  Conway & Pleydell-Pearce — The Construction of Autobiographical Memories in the Self-Memory System (2000)
+Link: https://doi.org/10.1037/0033-295X.107.2.261
+Key finding: The working self, depending on goal activity status, mediates between episodic memory and the long-term self. Current goals of the self function as control processes that modulate the construction of memories — retrieval is goal-directed, not just similarity-directed.
+USED IN: scoreMemory() via goalAlignsWithEmotion() — 0.20 boost. (Currently inactive — goal inference never wired.)
+
+3.12  temporal.eventDate
+When the fact happened, stored as natural-language string.
+
+temporal: { eventDate: { type: String, default: null } }
+// Examples: "around 2019", "last summer", "when he was a kid"
+
+
+Conway [P13] established temporal organization as fundamental to autobiographical memory. ConflictBank [P29] found temporal misalignment is the dominant source of apparent contradictions. Knowing when lets the system distinguish growth from contradiction.
+RESEARCH FOUNDATION
+[P29]  Xu et al. — Knowledge Conflicts for LLMs: A Survey (2024)
+Link: https://arxiv.org/abs/2403.08319
+Key finding: Temporal misalignment naturally arises when static parametric knowledge becomes outdated. This can degrade model performance on various NLP tasks. Distinguishing temporal evolution from genuine contradiction requires tracking when facts were valid.
+USED IN: buildSystemPrompt() — temporal markers. Contradiction detection — distinguishing evolution from conflict.
+
+3.13  temporal.isOngoing
+Whether the fact still applies to the user's current life.
+
+temporal: { isOngoing: { type: String, default: "unclear" } }
+// "yes" | "no" | "unclear" | "ended recently"
+
+
+Prevents the most common companion failure: referencing past situations as current. Zep/Graphiti [P9] and ConflictBank [P29] both emphasize that stored facts have a shelf life. Atoms where isOngoing is "no" get [past] prefix in the system prompt.
+RESEARCH FOUNDATION
+[P9]  Rasmussen et al. — Zep: A Temporal Knowledge Graph Architecture for Agent Memory (2025)
+Link: https://arxiv.org/abs/2501.13956
+Key finding: The system tracks four timestamps: when facts were created or invalidated in the system (ingestion time), and the temporal range during which facts held true (event time). This bi-temporal approach enables precise reasoning over retroactive data, corrections, and updates.
+USED IN: buildSystemPrompt() — [past] prefix when 'no' or 'ended recently'.
+
+3.14  temporal.period
+The life chapter this fact belongs to. The most directly Conway-derived field.
+
+temporal: { period: { type: String, default: null } }
+// Examples: "college", "after dad died", "foster care years"
+
+
+Conway [P13] showed autobiographical memory clusters around lifetime periods — this is not just filing, it is how humans construct identity. Molecules inherit their atoms' shared period, producing tagged narratives like: [after dad died] "He keeps circling back to his dad..."
+
+Audit finding: Period-based retrieval grouping not yet implemented. Atoms injected as flat list despite Conway showing period organization is core to identity construction.
+RESEARCH FOUNDATION
+[P13]  Conway & Pleydell-Pearce — The Construction of Autobiographical Memories in the Self-Memory System (2000)
+Link: https://doi.org/10.1037/0033-295X.107.2.261
+Key finding: Lifetime periods are composed of general knowledge about a distinguishable and themed time in an individual's life, with a distinct beginning and ending, though often fuzzy and overlapping. They contain thematic knowledge about features of that period: activities, relationships, locations, and temporal knowledge about duration.
+USED IN: flushSession() Step 4 — molecule period inheritance. buildSystemPrompt() — molecule prefix. (Period retrieval grouping not yet implemented.)
+
+4. Application Wiring Diagram
+How MemoryAtomSchema connects to the rest of the Morrigan application.
+4.1  User Journey to Atom Creation
+
+USER ACTION
+User converses with Morrigan via React frontend (App.jsx). Messages sent to Express backend (index.js) via /api/chat.
+↓
+
+SESSION END
+User closes tab, navigates away, or session times out.
+↓
+
+FLUSH TRIGGER
+Backend calls flushSession() (index.js lines 111–585).
+↓
+
+STEP 1: EXTRACT
+Full transcript sent to LLM with extraction prompt. Returns JSON array of atoms.
+↓
+
+STEP 2: EMBED
+Each atom's fact vectorized via embedText() → Kaggle /v1/embeddings endpoint.
+↓
+
+STEP 3: LINK
+Compare against ALL existing atoms. Thresholds: 0.72 link / 0.78 contradiction / 0.92 dedup.
+↓
+
+STEP 4: SYNTHESIZE
+3+ linked atoms → LLM generates narrative molecule with emotion + period.
+↓
+
+MONGODB SAVE
+PersonalityMemory.memories[] + .molecules[] saved via memory.save().
+
+4.2  Where Each Field Is Written
+Field
+Written By
+fact
+LLM extraction prompt → JSON response (Step 1)
+category
+LLM extraction prompt → JSON response (Step 1)
+importance
+LLM extraction prompt → JSON response (Step 1, default 3)
+embedding
+embedText() → Kaggle /v1/embeddings (Step 2)
+linkedTo
+Flush pipeline cosine comparison loop (Step 3, > 0.72)
+contradicts
+Flush pipeline cosine + valence + LLM confirm (Step 3)
+context
+Hardcoded empty string (Step 2, placeholder)
+learnedAt
+new Date() at extraction time (Step 2)
+conversationId
+Session ID from /api/chat (Step 2)
+valence.charge
+LLM extraction prompt → JSON response (Step 1)
+valence.emotion
+LLM extraction prompt → JSON response (Step 1)
+temporal.*
+LLM extraction prompt → JSON response (Step 1)
+
+4.3  Where Each Field Is Read
+Field
+Read By
+fact
+buildSystemPrompt() — injected grouped by category. Monitor panel.
+category
+buildSystemPrompt() — groups into interests/personal/emotional sections.
+importance
+scoreMemory() — normalized (n/5), weighted 0.25. Sort order.
+embedding
+scoreMemory() — cosine similarity, weighted 0.55. Linking/dedup.
+linkedTo
+Step 4 — molecule synthesis trigger (3+ linked atoms).
+contradicts
+buildSystemPrompt() — tension pair injection.
+learnedAt
+scoreMemory() — exponential decay (90-day), weighted 0.10.
+valence.charge
+Step 3 — contradiction detection (diff > 0.5 gate).
+valence.emotion
+scoreMemory() via goalAlignsWithEmotion(). (Inactive.)
+temporal.isOngoing
+buildSystemPrompt() — [past] prefix.
+temporal.period
+Molecule synthesis — period inheritance. Molecule prefix.
+
+4.4  Retrieval Scoring Formula
+
+score = similarity * 0.55 + importance * 0.25 + recency * 0.10 + valenceBoost * 0.10
+
+
+5. Research Appendix
+Complete citations, URLs, and key excerpts for every research paper referenced in this schema. Snippets are paraphrased summaries of the papers' core contributions as they relate to MemoryAtomSchema design decisions.
+
+  [P4]  Park et al. — Generative Agents: Interactive Simulacra of Human Behavior (2023)
+Citation: Park, J.S., O'Brien, J.C., Cai, C.J., Morris, M.R., Liang, P., & Bernstein, M.S. (2023). Generative Agents: Interactive Simulacra of Human Behavior. In UIST '23. ACM.
+URL: https://arxiv.org/abs/2304.03442
+Key contribution (paraphrased): The retrieval function scores all memories as a weighted combination of three elements: recency, importance, and relevance. Recency assigns higher scores to recently accessed memories using exponential decay. Importance differentiates mundane from core memories. Relevance is calculated as cosine similarity between embedding vectors.
+Fields influenced: importance, embedding, learnedAt → scoreMemory() triple-weighted retrieval formula.
+  [P9]  Rasmussen et al. — Zep: A Temporal Knowledge Graph Architecture for Agent Memory (2025)
+Citation: Rasmussen, P., Paliychuk, P., Beauvais, T., Ryan, J., & Chalef, D. (2025). Zep: A Temporal Knowledge Graph Architecture for Agent Memory. arXiv:2501.13956.
+URL: https://arxiv.org/abs/2501.13956
+Key contribution (paraphrased): Graphiti dynamically updates the knowledge graph with new information in a non-lossy manner, maintaining a timeline of facts and relationships, including their periods of validity. The system tracks four timestamps: when facts were created or invalidated in the system, and the temporal range during which facts held true.
+Fields influenced: contradicts, temporal.isOngoing → non-lossy versioning, temporal validity tracking.
+  [P13]  Conway & Pleydell-Pearce — The Construction of Autobiographical Memories in the Self-Memory System (2000)
+Citation: Conway, M.A. & Pleydell-Pearce, C.W. (2000). The Construction of Autobiographical Memories in the Self-Memory System. Psychological Review, 107(2), 261–288.
+URL: https://doi.org/10.1037/0033-295X.107.2.261
+Key contribution (paraphrased): The autobiographical memory system is organised hierarchically, with lifetime periods at the top (e.g. 'my first relationship'), followed by general events ('our holiday trips together'), which further contain event-specific knowledge ('the time we got lost kayaking'). The self and its current goals function as control processes that modulate the construction of memories.
+Fields influenced: fact (event-specific knowledge), category (thematic axis), temporal.period (lifetime periods), valence.emotion (working self), linkedTo (associative network). Overall hierarchical architecture.
+  [P14]  Damasio — Somatic Marker Hypothesis / Descartes' Error (1994)
+Citation: Damasio, A.R. (1994). Descartes' Error: Emotion, Reason, and the Human Brain. New York: Putnam. See also: Damasio, A.R. (1996). The somatic marker hypothesis and the possible functions of the prefrontal cortex. Phil. Trans. R. Soc. Lond. B, 351, 1413–1420.
+URL: https://doi.org/10.1016/S0166-2236(96)10029-8
+Key contribution (paraphrased): When faced with complex choices, the brain retrieves emotional memories associated with similar past experiences. Somatic markers are bodily-based emotional signals from the brain's emotional centers that serve as subconscious guides, helping individuals evaluate potential outcomes. Emotion is not separate from cognition but integral to memory encoding and retrieval.
+Fields influenced: valence.charge, valence.emotion → emotional encoding separate from importance.
+  [P15]  Bruner — Narrative Theory of Identity / Acts of Meaning (1990, 1991)
+Citation: Bruner, J. (1990). Acts of Meaning. Cambridge, MA: Harvard University Press. Bruner, J. (1991). The Narrative Construction of Reality. Critical Inquiry, 18(1), 1–21. Bruner, J. (1996). A Narrative Model of Self Construction. Psyke & Logos, 17(1), 154–170.
+URL: https://www.sas.upenn.edu/~cavitch/pdf-library/Bruner_Narrative.pdf
+Key contribution (paraphrased): We constantly construct and reconstruct our selves to meet the needs of the situations we encounter. Narratives deal with problems, dilemmas, contradictions and imbalances. They connect the past, present and future. There is no essential self that just sits there ready to be portrayed in words — identity is constructed through narrative, including its tensions.
+Fields influenced: contradicts → contradictions preserved as identity data, not errors.
+  [P18]  Maharana et al. — LoCoMo: Evaluating Very Long-Term Conversational Memory of LLM Agents (2024)
+Citation: Maharana, A., Lee, D.H., Tulyakov, S., Bansal, M., Barbieri, F., & Fang, Y. (2024). Evaluating Very Long-Term Conversational Memory of LLM Agents. In ACL 2024.
+URL: https://arxiv.org/abs/2402.17753
+Key contribution (paraphrased): LoCoMo consists of very long-term conversations, each encompassing 300 turns and 9K tokens on average over up to 35 sessions. LLMs exhibit challenges in understanding lengthy conversations and comprehending long-range temporal and causal dynamics within dialogues. RAG techniques offer improvements but substantially lag behind human performance.
+Fields influenced: fact (granularity) → atom-level extraction validated over turn-level retrieval.
+  [P27]  Xu et al. — A-Mem: Agentic Memory for LLM Agents (2025)
+Citation: Xu, W., Liang, Z., Mei, K., et al. (2025). A-Mem: Agentic Memory for LLM Agents. arXiv:2502.12110.
+URL: https://arxiv.org/abs/2502.12110
+Key contribution (paraphrased): A novel agentic memory architecture creates interconnected memory networks through atomic notes with rich contextual descriptions, enabling more effective capture and utilization of information relationships. Following the Zettelkasten principle of atomicity, each note captures a single, self-contained unit of knowledge. A-Mem demonstrates superior performance in multi-hop reasoning tasks.
+Fields influenced: linkedTo, embedding → interconnected atomic notes with flexible linking.
+  [P29]  Xu et al. — Knowledge Conflicts for LLMs: A Survey (2024)
+Citation: Xu, R., Shi, Z., Fan, Y., Cao, S., & Shang, J. (2024). Knowledge Conflicts for LLMs: A Survey. In EMNLP 2024.
+URL: https://arxiv.org/abs/2403.08319
+Key contribution (paraphrased): Temporal misalignment naturally arises when static parametric knowledge becomes outdated. This misalignment can degrade model performance on various NLP tasks. Temporal misalignment and misinformation pollution are two separate scenarios that give rise to context-memory conflicts. For the former, the up-to-date contextual information is considered accurate.
+Fields influenced: temporal.eventDate, temporal.isOngoing → temporal misalignment as dominant contradiction source.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+4.3 Implementation: Retrieval Scoring
+Located at index.js lines 54–81. The scoreMemory() and retrieveTopK() functions implement Park et al.’s triple-weighted retrieval extended with Damasio’s emotional alignment:
+
+scoreMemory(item, queryEmbedding, goalState) computes: similarity(embedding, query) × 0.55 + (importance/5) × 0.25 + recencyDecay × 0.10 + (valence.charge+1)/2 × 0.10 + goalAlignmentBoost(0.20 if aligned).
+goalAlignsWithEmotion(goalState, emotion) at lines 63–73 maps emotional goal states to compatible emotion categories. For example, a “grief” goal state aligns with “grief”, “sadness”, and “loss” emotions, boosting retrieval of emotionally relevant memories. This implements Conway’s “working self” concept: the brain retrieves memories relevant to current goals.
+retrieveTopK(items, queryEmbedding, k, goalState) at lines 75–82 scores all atoms, sorts descending, and returns the top K results. The goalState parameter is currently hardcoded to “neutral” in the chat route — the goal inference call specified in the spec has not been wired in yet.
+
+4.4 Implementation: Embedding & Similarity
+Located at index.js lines 26–52. The embedText() function calls the Kaggle server’s /v1/embeddings endpoint. The same GGUF model is used for both chat and embeddings, with a dedicated Llama instance in embedding mode (n_ctx=512) on the Kaggle side. cosineSimilarity() computes dot product / (magnitude_a × magnitude_b) for comparing embedding vectors.
+
+5. Phase 2: Self-Atoms & SPT Tracker
+
+5.1 Research Basis
+Phase 2 draws on five research papers to build Morrigan’s self-disclosure system and relationship depth tracking:
+
+Hong et al. 2025 [P3] — Two findings shape this phase directly. First, gradual self-disclosure significantly enhances perceived social intimacy regardless of reciprocity, validating the depth-gating system. Second, a self-criticism pass produces significantly more natural utterances and fosters higher intimacy in early stages. This directly mandates the self-atom self-criticism filter.
+MIRROR 2025 [P2] — The Cognitive Controller concept inspires the selfReflectionState field: a single first-person narrative paragraph, completely regenerated each session, representing Morrigan’s evolving understanding of herself in relation to this specific user.
+Reflexion 2023 [P5] — Verbal self-reflection stored in episodic memory buffer. Applied to the selfReflectionState: after each session, a Reflexion-style pass updates Morrigan’s internal state separate from the relationship narrative about the user.
+Self-Refine 2023 [P7] — Generate-critique-revise loop. Every self-atom extracted from Morrigan’s character document passes through a self-criticism filter at seed time. Atoms that sound like character-document summaries rather than real conversation are rewritten or deprecated.
+Meng & Dai 2021 [P8] — Validation-before-disclosure ordering. Self-disclosure without validation is worse than silence. The SPT Note at position 4 includes explicit ordering: Morrigan must acknowledge the user’s words before introducing anything about herself.
+
+5.2 Component A: Self-Atom Library
+Located at index.js lines 1398–1407 (schema) and lines 3027–3191 (seed logic + atom data).
+Self-atoms are a global MongoDB collection containing things Morrigan might share about herself. Each atom has a depth level (1–4) gating when it can be disclosed. The current library contains 35 atoms distributed across four depth levels:
+
+Depth
+Count
+Content Type
+Gate Condition
+Example
+1
+10
+Surface facts, tastes, casual opinions
+Always available
+"I have a cat named Persephone. Percy for short. She’s a little void creature."
+2
+10
+Personal attitudes, mild emotional weight
+sptDepth ≥ 2
+"Sometimes I think the only honest conversations happen after 2am."
+3
+10
+Private thoughts, named fears, formative experiences
+sptDepth ≥ 3
+"I was in foster care from seven to seventeen. Six placements."
+4
+5
+Core vulnerabilities, things rarely shared
+sptDepth = 4
+"I’m scared I’ll end up like my mom. That it’s already in me."
+
+5.3 Self-Criticism Filter
+Located at index.js lines 929–955 (prompt) and lines 3121–3191 (seed process). Per Hong et al. [P3] and Madaan et al. [P7], each atom passes through an LLM self-criticism call at seed time. The SELF_ATOM_CRITIQUE_PROMPT asks the LLM to evaluate whether the atom sounds like something a real person would actually say in conversation, or like a character-document summary. The three possible actions are: keep (atom is natural), revise (atom is returned with rewritten text), or deprecate (atom is too formulaic and marked as deprecated, never surfaced to users).
+
+5.4 Component B: SPT Tracker
+Located at index.js lines 1378–1380 (schema) and lines 325–384 (flush pipeline Steps 5–6).
+Two fields on PersonalityMemory implement Altman & Taylor’s [P12] four-level Social Penetration Theory framework:
+
+sptDepth (Number, default 1, min 1, max 4): The deepest emotional disclosure level the user has reached. Never decrements. A user who reached depth 3 in session 5 keeps sptDepth=3 forever, representing the high-water mark of the relationship.
+sptBreadth (Mongoose Map, default {}): Maps topic strings to their deepest depth. For example: { family: 2, work: 1, identity: 3 }. Tracks which life domains have been explored and to what depth. Uses Mongoose’s .get() and .set() methods (bracket notation silently fails).
+
+5.5 SPT Note in System Prompt (Position 4)
+Located at index.js lines 1592+ (buildSystemPrompt function). The SPT Note is dynamically generated each message and injected at position 4 of the 10-layer system prompt. It includes:
+1. Current sptDepth value and what it means for disclosure limits.
+2. An explicit anti-excessive-empathy instruction (per Hong et al. [P3] finding that excessive empathetic expressions disrupt immersion).
+3. The validation-before-disclosure ordering constraint (per Meng & Dai [P8]).
+4. The hard depth gate: Morrigan cannot share anything above the user’s current sptDepth.
+
+5.6 Self-Reflection State
+Located at index.js lines 419–451 (flush pipeline Step 8) and lines 865–928 (SELF_REFLECTION_PROMPT).
+Directly inspired by MIRROR’s Cognitive Controller [P2] and Reflexion’s episodic verbal buffer [P5]. After each session, a separate LLM call regenerates Morrigan’s internal state as a first-person paragraph. This is not about the user — it’s about who Morrigan is becoming through this relationship. The prompt includes the previous reflection, relationship narrative, trust level, and Morrigan’s current feelings, producing a paragraph that begins “I’m noticing that...” or “Something shifted...”. Stored as memory.selfReflectionState and injected at position 1 of the system prompt.
+
+6. Phase 3: Emotional Priming (Specification Only)
+
+6.1 Research Basis
+Phase 3 is grounded entirely in Damasio’s Somatic Marker Hypothesis [P14]. Damasio’s neuroscience research demonstrated that normal decision-making begins with an emotional signal (a “somatic marker” or “gut feeling”) before conscious reasoning engages. Patients with damage to the ventromedial prefrontal cortex, which disrupts somatic markers, show severely impaired decision-making despite intact logical reasoning — they can reason perfectly but cannot decide, because they lack the emotional signal that normally precedes and guides rational thought.
+
+6.2 Specification Design
+The spec calls for three parallel LLM calls per user message:
+Parallel Call A — Emotional Priming: Takes the user’s message plus retrieved memories and produces one sentence describing Morrigan’s “gut feeling” before conscious reasoning. Example: “He’s circling something he can’t say yet — it feels like he’s testing whether I’ll push.” This is injected at position 5 of the system prompt.
+Parallel Call B — Inner Thoughts (Phase 4): Generates candidate thoughts, evaluates motivation.
+Parallel Call C — Main Response: Generates Morrigan’s actual response using the full system prompt with priming and thought directive.
+
+6.3 Current Implementation Status
+Phase 3 is entirely unimplemented. The slot exists in buildSystemPrompt() at position 5 but always receives an empty string. Neither the priming LLM call nor the goal inference call (Conway’s “working self”) has been built. This is the single largest quality gap in the system. Without priming, every response is generated “cold” — analytically competent but emotionally flat. The specification estimates 3–4 hours to implement.
+
+7. Phase 4: Inner Thoughts Framework
+
+Phase 4 is the most extensively implemented phase and represents the system’s most significant technical achievement. It transforms Morrigan from a reactive chatbot into a proactive conversational agent with persistent internal cognition.
+
+7.1 Research Basis
+Phase 4 synthesises six research papers into a unified inner thoughts architecture:
+
+Liu et al., CHI 2025 [P1] — The primary reference. Five-stage Inner Thoughts framework (trigger, retrieval, thought formation, evaluation, participation). Key findings adopted: G-Eval weighted token probability scoring for motivation (adapted to 0–10 scale), dual positive/negative reasoning to reduce score overrating, cadence damping (once every 3–4 messages), and the 82% user preference over reactive baselines.
+MIRROR, Hsing 2025 [P2] — The post-response async monologue update. After the main response streams to the user, a lightweight async call seeds the thought reservoir for the next turn, implementing MIRROR’s principle that deliberative processes occur during natural conversation pauses.
+Reflexion, Shinn et al. 2023 [P5] — The thought reservoir is an episodic verbal buffer. Thoughts generated but not expressed are carried forward. The cap of 4 thoughts aligns with Reflexion’s finding that 3 experiences was optimal buffer size (Morrigan uses 4 for slightly broader expressiveness).
+The Drama Machine, Magee et al. 2024 [P6] — Ego/Superego parallel architecture. The inner thought call is the Superego layer: it doesn’t write Morrigan’s words, it provides the psychological substrate that shapes how the main response is refined. The critical distinction: the thought block is a behavioural directive, not a raw thought dump.
+Inner Monologue Manager, Xu et al. 2025 [P10] — Roleplay pipeline decomposition: memory retrieval → Theory of Mind → reflection. Shapes the thought formation prompt’s STEP 1 (Theory of Mind first) before STEP 2 (form thoughts).
+Ian Bicking 2024, Open Souls [P11] — Practitioner finding that hidden internal thought generation improves response quality and character consistency. Confirms thought-as-behavioural-directive pattern.
+
+7.2 Five-Stage Pipeline Implementation
+
+Stage 1: Trigger
+Located at index.js lines 967–998. shouldTriggerThoughtFormation() evaluates whether to run the thought formation pipeline on this message. Checks: (1) cadence damping — at least 3 messages since last injection (Liu et al. finding), (2) active callback threads exist, (3) self-atoms are available, (4) user message has sufficient length. Returns true if any condition is met.
+
+Stage 2: Retrieval
+Located at index.js lines 1002–1017. gatherThoughtMaterial() assembles all available material from Phase 2 infrastructure: top 3 eligible self-atoms (depth-gated), top 2 unconsumed callbacks, the selfReflectionState, relationship narrative, trust level, and current sptDepth. This material feeds the thought formation prompt.
+
+Stage 3: Thought Formation
+Located at index.js lines 1025–1120. INNER_THOUGHT_FORMATION_PROMPT() builds a detailed prompt with four steps:
+STEP 1 — Theory of Mind: Before generating any thoughts, assess what the user is feeling right now. Produce one sentence — Morrigan’s read of the user’s emotional state. (Per Xu et al. [P10]: ToM before reflection.)
+STEP 2 — Form Thoughts: Generate 2–3 candidate thoughts from available material. Each thought must have a type (callback, disclosure, reaction, concern, withholding), content in Morrigan’s internal voice, and optionally link to a specific self-atom or callback. Depth-gated: nothing above current sptDepth.
+STEP 3 — Score Each Thought: Evaluate motivation to express using four sub-scores: relevance (0–2.5), personalGain (0–2.5), trustGate (0–2.5), and timing (0–2.5). Sum produces a 0–10 motivation score. Per Liu et al. [P1]: both positive AND negative motivations must be reasoned, reducing overrating.
+STEP 4 — Participation Directive: For the highest-scoring thought only, generate one sentence of behavioural instruction for Morrigan’s response. This is NOT the thought itself — it’s how the thought should influence her behaviour. Examples: “Let her tone go quiet before she answers”, “Ask about the thing he almost said”.
+
+Stage 4: Evaluate & Select
+Located at index.js lines 1169–1271. evaluateAndSelect() processes the LLM response:
+1. Post-LLM Depth Gate Validation (lines 1180–1190): If a thought links to a self-atom, verify that atom’s depth is within current sptDepth. Drop thoughts that violate the gate. This is a hard mechanical check, not relying on the LLM’s compliance.
+2. Thought Evolution Handling (lines 1191–1230, per Liu et al. §5.6.4): If a newly formed thought is semantically similar to an existing reservoir thought, it “evolves” — the content updates but the age penalty accumulates. This prevents the same thought from resetting its age and re-qualifying.
+3. Age Penalty (line ~1230): Each reservoir thought loses 0.25 motivation per message it has been held. Per Liu et al.: relevance decreases over time. A brilliant thought from 6 messages ago is stale.
+4. Silence Bonus (per Liu et al.): Thoughts accumulate a small bonus the longer Morrigan has been silent on that topic, reflecting the “I’ve been wanting to say this” dynamic.
+5. Threshold Check (line 1244): The effective motivation threshold is 7.0 (spec says 3.0; implementation is stricter). When the user is flagged at-risk by Phase 6, the threshold lowers to 6.5 to encourage engagement.
+6. Winner Selection: Highest-scoring thought above threshold wins. If no thought qualifies, no inner thought is injected and the Phase 2 self-atom hint serves as fallback.
+
+Stage 5: Build Thought Block
+Located at index.js lines 1278–1298. buildThoughtBlock() transforms the winning thought into a behavioural directive injected into the system prompt. Per The Drama Machine [P6], this is a directive, not a raw dump. Format: “[INNER THOUGHT — {type}] Theory of Mind: {tom}. Directive: {participationDirective}.” The main LLM never sees the raw thought content — only the behavioural instruction.
+
+7.3 Post-Response: MIRROR Monologue Update
+Located at index.js lines 1122–1165 (prompt) and post-chat-route async block. After the main response streams to the user, a non-blocking async call runs INNER_MONOLOGUE_UPDATE_PROMPT. This takes the user’s message and Morrigan’s response, and generates a new candidate thought to seed the reservoir for the next turn. Directly inspired by MIRROR’s Thinker component [P2] which runs deliberative processes between turns. The call is fully try/catch isolated and never blocks the critical path.
+
+8. Phase 5: Continuation Signal & Tuning
+
+8.1 Research Basis
+Replika Longitudinal Studies (Skjuve et al. 2021 [P16]; Ma & Koike 2025 [P35]): Users in long-term AI companion relationships report that the most valued quality is a consistent character and sense of “being known.” The continuation signal encodes this sense of persistent presence.
+Therapeutic Chatbot Research (Woebot vs. Wysa): Proactive chatbots that guide and share feel more relational, but when proactivity becomes mechanical, it degrades trust. The continuation signal must feel natural, not programmatic.
+RLPF (AAAI 2025) [P19]: Reward signals in conversational systems are multi-objective. Optimizing for one metric degrades others. Phase 5 tuning must monitor multiple metrics simultaneously.
+Mem0 Research (2025) [P17]: At approximately 1,000 sessions, hand-tuned retrieval weights should be replaced with a learned re-ranking layer trained on evaluation data.
+
+8.2 Continuation Signal
+Located at index.js lines 802–834 (Phase 6 upgraded version). The continuation signal is injected at position 10 of the system prompt — the last thing the model reads before generating. It encodes three types of presence:
+In-turn presence: How to respond to this specific message with awareness of what came before.
+Longitudinal presence: What Morrigan carries from previous sessions — the prospective note (highest-priority unconsumed callback), relationship narrative summary, and self-reflection state.
+Forward presence: What Morrigan is looking toward — loose threads from the Phase 5 thread generator, unresolved topics from the callback queue.
+
+8.3 Evaluation Records
+Located at index.js lines 1437–1451 (schema) and lines 537–562 (flush pipeline persistence). EvaluationRecord stores per-session aggregate metrics including average inner thought fit score, noise rate, miss rate, SPT accuracy, and the per-message messageEvals array. The messageEvals track: what atom was retrieved, what inner thought was selected, its score, reasoning (Phase 5 dual-reasoning audit trail), voice consistency, and reciprocity calibration (Phase 6 additions).
+
+8.4 Loose Thread Generator
+Located at index.js lines 591–637. generateLooseThread() is a Phase 5 addition distinct from callbacks and the prospective note. After session flush, it generates a single “loose thread” — something Morrigan noticed during the conversation that wasn’t addressed. This is injected into the continuation signal as forward presence, giving Morrigan something to circle back to naturally.
+
+8.5 Phase 5 Tuning Endpoints
+Three API endpoints support Phase 5 tuning operations:
+GET /api/phase5/status (line 2671): Returns current continuation signal state, prospective note, loose thread, and callback queue status.
+GET /api/phase5/tuning (line 2686): Aggregates evaluation records to compute tuning metrics: average noise rate, miss rate, SPT accuracy, inner thought fit, voice consistency, and reciprocity calibration across recent sessions.
+POST /api/phase5/build-dataset (line 2767): Exports evaluation data as a structured dataset for potential future learned retrieval scoring (per Mem0 [P17] recommendation at 1,000 sessions).
+
+9. Phase 6: Relationship Health & Voice Consistency
+
+9.1 Research Basis
+AI Companion Relationship Science (Yang et al. 2024 [P20]; Zhang et al. 2025 [P23]): After an initial honeymoon period (sessions 1–10), engagement quality follows a predictable decay curve. Users who self-disclose heavily and lack human support networks are at highest risk. Phase 6 detects these patterns early.
+Persona Consistency Research (ACL 2025 [P33]): Voice consistency degrades in two conditions: when the composition call blends contradictory inputs, and when high callback load dilutes character voice. Phase 6 adds voice auditing.
+Laestadius et al. 2024 [P39]: Grounded theory analysis identifying high-disclosure users as the at-risk group for emotional dependence on companion AI. Key evidence for the at-risk detection system.
+
+9.2 Presence Signals
+Located at index.js lines 1458–1470 (schema) and lines 645–692 (recording logic). PresenceSignals capture per-session engagement metrics: messageCount, avgMessageLength, sessionDuration, sessionExtended (boolean), emotionalChargeAvg, topicCount, and returnedWithin48h. These feed the relationship health computation.
+
+9.3 Relationship Health Model
+Located at index.js lines 697–800. computeRelationshipHealth() analyses five signals across recent sessions:
+1. Session Gap Trend: Average days between sessions. Increasing gaps signal disengagement.
+2. Depth Trajectory: sptDepth divided by session count, scaled to 10. Measures relationship deepening rate.
+3. Exchange Count Trend: Are conversations getting shorter? Declining exchange counts signal fatigue.
+4. Emotional Charge Variance: Emotional flatness (low variance) may indicate performative engagement.
+5. Return-Within-48h Rate: Percentage of sessions where user returned within 48 hours. High return rates indicate healthy engagement.
+When multiple signals show decline, the user is flagged at-risk. This triggers two protective responses: the inner thought motivation threshold is lowered from 7.0 to 6.5 (encouraging Morrigan to be more expressive), and the prospective note is force-injected to give Morrigan specific topics to raise.
+
+9.4 Voice Audit
+Located at index.js lines 2871–2959. POST /api/phase6/voice-audit samples 20 responses generated with inner thought composition and 20 without, then scores voice fidelity on a 1–10 scale using an LLM judge. If the composed responses score significantly lower, it indicates the inner thoughts system is diluting Morrigan’s character voice. Alert thresholds trigger warnings for investigation.
+
+10. Session End Pipeline (Flush)
+
+Located at index.js lines 111–585. The flushSession() function is a 10-step async pipeline that transforms a completed conversation into persistent memory. The user never waits for this process — it runs after session end is acknowledged. Each step is independently try/catch wrapped; failure in one step does not block subsequent steps.
+
+10.1 Research Foundations
+The pipeline architecture draws on three primary frameworks:
+LightMem (2025) [P28]: Raw session text is 40–60% redundant. Pre-filtering before extraction reduces cost and improves signal quality. Shapes Step 1’s pre-filter approach.
+Zep/Graphiti (arXiv 2501.13956) [P9]: State-of-the-art production memory with edge versioning for contradictions. Validates the “preserve both atoms” approach in Step 3.
+ConflictBank (NeurIPS 2024) [P29]: Temporal misalignment is the dominant source of apparent contradictions. Shapes Step 3’s differentiation between temporal evolution and genuine contradiction.
+
+10.2 Pipeline Steps
+
+Step
+Name
+Lines
+Research
+Description
+1
+Atom Extraction
+121–171
+LightMem [P28], LoCoMo [P18]
+LLM extracts atomic facts from session transcript. Each atom includes fact, category, importance (1–5), valence (emotion + charge), period, and activelyRelevant flag.
+2
+Embed Atoms
+173–190
+Park et al. [P4]
+Each new atom’s fact text is embedded via the Kaggle embedding endpoint. Null embeddings on failure; no retry logic currently.
+3
+Link + Contradict
+192–255
+Bruner [P15], Zep [P9], ConflictBank [P29]
+Compare each new atom against all existing atoms via cosine similarity. Links formed at > 0.72. Contradictions detected at > 0.78 similarity AND > 0.5 valence difference. Both atoms preserved.
+4
+Molecule Synthesis
+257–322
+GraphRAG, Zep [P9], A-Mem [P27]
+Clusters of 3+ linked atoms synthesised into paragraph-length molecules. LLM generates narrative summary of related memories.
+5
+SPT Depth Update
+325–353
+Altman & Taylor [P12], Skjuve [P16]
+LLM assesses session depth (1–4). Updates sptDepth if higher than current. Never decrements.
+6
+SPT Breadth Update
+355–384
+Altman & Taylor [P12]
+LLM extracts per-topic depth ratings. Updates sptBreadth map using .set() method.
+7
+Narrative Update
+386–417
+Conway [P13]
+LLM regenerates relationship narrative incorporating new atoms, molecules, and session context.
+8
+Self-Reflection
+419–451
+MIRROR [P2], Reflexion [P5]
+LLM regenerates selfReflectionState — first-person paragraph of Morrigan’s evolving internal model.
+9
+Callback Generation
+453–511
+Liu et al. [P1]
+LLM generates prospective follow-up threads. Top unconsumed callback becomes prospectiveNote.
+10
+Evaluation + Health
+513–580
+Lee et al. [P34], Yang [P20]
+Persists EvaluationRecord, records PresenceSignals, computes RelationshipHealth.
+
+11. Kaggle Inference Server
+
+The Kaggle notebook (unleashed-kaggle-final.ipynb) runs on a T4 GPU instance and serves as the AI inference backend. It consists of 7 cells:
+
+11.1 Cell 1: Dependencies
+Installs: diffusers 0.27.2/0.30.3 (Stable Diffusion XL), transformers 4.38.2, accelerate, safetensors, llama-cpp-python 0.2.77 (with CUDA 12.4 support), peft 0.11.1, FastAPI, uvicorn, pyngrok. The llama-cpp-python version is pinned to 0.2.77 with the cu124 wheel for T4 GPU compatibility.
+
+11.2 Cell 2: Model Validation
+Validates two model files from Kaggle datasets: (1) uncensored_llama.gguf from jacesha/morgan dataset — the GGUF-quantised LLM for chat and embeddings, (2) v6.78PX.safetensors from jacesha/ponyv6 dataset — the Pony V6 SDXL checkpoint for image generation. Reports file sizes and extension validation.
+
+11.3 Cell 3: LLM Loading
+Loads two instances of the GGUF model using llama-cpp-python:
+Chat instance (llm): n_ctx=8192 (full context for conversation), n_gpu_layers=-1 (all layers on GPU), n_threads=2.
+Embedding instance (llm_embed): n_ctx=512 (short context for embeddings), n_gpu_layers=-1, embedding=True (enables embedding output mode). The T4x2 has 32GB VRAM total, providing room for both instances.
+
+11.4 Cell 4: Image Pipeline
+Defines generate_image() using StableDiffusionXLPipeline.from_single_file() with the Pony V6 checkpoint. The pipeline is loaded on-demand (not kept in VRAM) due to memory constraints. Key settings: torch.float16, safety_checker disabled, attention_slicing enabled, 25 inference steps, guidance_scale 7.0. Pony V6 quality tags (“score_9, score_8_up”) are prepended to prompts. The pipeline is deleted and VRAM flushed after each generation.
+
+11.5 Cell 5: System Prompt
+Contains MORRIGAN_SYSTEM_PROMPT — the character’s base identity. This is the Kaggle-side system prompt injected when inject_system=True. The backend (index.js) typically sets inject_system=False and constructs its own multi-layer system prompt with all phase components. The Kaggle system prompt serves as fallback for direct API testing.
+
+11.6 Cell 6: FastAPI Server
+Defines three endpoints:
+POST /v1/chat/completions — OpenAI-compatible chat endpoint. Supports streaming via SSE. Optionally injects Morrigan system prompt. Returns standard chat completion format.
+POST /v1/embeddings — OpenAI-compatible embedding endpoint. Accepts single string or array. Uses llm_embed instance. Truncates input to ~1800 characters to stay within n_ctx=512. Returns standard embedding response format.
+POST /generate — Image generation endpoint. Thread-locked (one generation at a time). Validates dimensions (min 256, max 768, aligned to 8). Returns base64-encoded PNG.
+GET /health — Health check returning VRAM usage and service availability flags.
+Server runs on port 8080, tunnelled through ngrok. The public URL is displayed for configuration in the backend’s .env file.
+
+11.7 Cell 7: Keep Alive
+Infinite loop printing VRAM usage every 60 seconds, preventing Kaggle session timeout.
+
+12. Frontend Architecture
+
+The frontend (App.jsx, 1,221 lines) is a single-file React application with no build step beyond Vite’s default configuration. It implements three main views:
+
+12.1 Chat Interface
+The primary user-facing view. Features include: message input with Enter-to-send, streaming response display, Morrigan’s character-themed dark UI, avatar display, and message history. Messages are stored in MongoDB via the backend and loaded on conversation open. The chat interface calls POST /api/chat and processes SSE streaming responses.
+
+12.2 Info Sidebar
+Displays Morrigan’s current state: mood (with descriptive text), trust level (0–6), session count, and relationship context. Mood descriptions are currently static — the same text displays regardless of trust level. The sidebar provides atmospheric context for the conversation.
+
+12.3 Monitor Panel
+A multi-tab diagnostic view for system operators, with tabs for:
+Memory Tab: Displays extracted memory atoms with fact text, category, importance, valence, and period. Shows molecules and their component atoms. Allows searching and filtering.
+SPT Tab: Shows current sptDepth and sptBreadth map. Displays per-topic depth progression.
+Inner Thoughts Tab: Shows thought reservoir, last selected thought, motivation scores, and the participation directive injected into the system prompt.
+Session Tab: Current session metadata, exchange count, and session-level context.
+Phase 5 Tab: Continuation signal status, tuning metrics (noise rate, miss rate, SPT accuracy, inner thought fit), and dataset builder interface.
+Phase 6 Tab: Relationship health scores (five signals), at-risk status, presence signal history, and voice audit results.
+
+12.4 Authentication
+Passphrase-based authentication. Users enter a passphrase; the backend hashes it and returns a JWT. No email or username required — the passphrase IS the identity. This design prioritises privacy for an intimate companion app.
+
+13. Complete Research Paper Catalogue
+
+The following table catalogues every research paper, framework, and theoretical work referenced in the Morrigan specification and implementation, with their specific application in the system.
+
+ID
+Authors
+Title
+Venue
+arXiv
+P1
+Liu, X.B., Fang, S., Shi, W., Wu, C-S., Igarashi, ...
+Proactive Conversational Agents with Inner Thoughts
+CHI 2025, Yokohama
+2501.00383
+P2
+Hsing, N.
+MIRROR: Modular Internal Processing for Personalized Safety ...
+arXiv, May 2025
+2506.00430
+P3
+Hong, Y., Choi, J., Kim, M., Kim, B.
+Can LLMs and humans be friends? Uncovering factors affecting...
+arXiv, May 2025
+2505.24658
+P4
+Park, J.S., O’Brien, J.C., Cai, C.J., Morris, M.R....
+Generative Agents: Interactive Simulacra of Human Behavior
+UIST 2023, San Francisco
+2304.03442
+P5
+Shinn, N., Cassano, F., Gopinath, A., Narasimhan, ...
+Reflexion: Language Agents with Verbal Reinforcement Learnin...
+NeurIPS 2023
+2303.11366
+P6
+Magee, R. et al.
+The Drama Machine: Simulating Character Development with LLM...
+arXiv, August 2024
+2408.01725
+P7
+Madaan, A., Tandon, N., Gupta, P., Hallinan, S., e...
+Self-Refine: Iterative Refinement with Self-Feedback
+NeurIPS 2023
+—
+P8
+Meng, L., Dai, Y.
+Validation-Before-Disclosure Ordering in Chatbot Self-Disclo...
+2021
+—
+P9
+Rasmussen, P., Paliychuk, P., Beauvais, T., Ryan, ...
+Zep: A Temporal Knowledge Graph Architecture for Agent Memor...
+arXiv, January 2025
+2501.13956
+P10
+Xu, K. et al. (Emergent Mind Synthesis)
+Inner Monologue Manager for Roleplay
+emergentmind.com, 2025
+—
+P11
+Bicking, I.
+Roleplaying driven by an LLM: observations & open questions
+Blog post, 2024 (Open Souls framework)
+—
+P12
+Altman, I., Taylor, D.A.
+Social Penetration: The Development of Interpersonal Relatio...
+Holt, Rinehart & Winston, 1973
+—
+P13
+Conway, M.A.
+Self-Memory System: Autobiographical Memory and the Working ...
+Memory Studies / Cambridge Handbook of Memory
+—
+P14
+Damasio, A.R.
+Somatic Marker Hypothesis / Descartes’ Error
+Neuroscience research, 1994+
+—
+P15
+Bruner, J.S.
+Narrative Theory of Identity
+Cognitive/developmental psychology
+—
+
+ID
+Authors
+Title
+Venue
+arXiv
+P16
+Skjuve, M., Følstad, A., Brandtzæg, P.B.
+Interacting with Computers: 12-week longitudinal SPT study o...
+Interacting with Computers, 2023
+—
+P17
+Mem0 Research Team
+Mem0: Scalable Long-Term Memory for AI (LOCOMO benchmark)
+mem0.ai/research, 2025
+—
+P18
+Maharana, A., Lee, D., Tulyakov, S., Bansal, M., B...
+LoCoMo: Long-term Conversational Memory Benchmark
+arXiv, 2024
+2402.17753
+P19
+Ning, X., et al.
+RLPF: Reinforcement Learning from Prediction Feedback for Us...
+AAAI 2025
+2024
+P20
+Yang, R., et al.
+A New Research Model for AI-Based Well-Being Chatbot Engagem...
+JMIR Human Factors, 2024 (PMC 11589509)
+—
+P21
+Lee, Y.C., Yamashita, N., Huang, Y., Fu, W.
+Chatbot Self-Disclosure and User Reciprocity
+CHI 2020
+—
+P22
+Croes, E.A.J., Antheunis, M.L.
+Chatbot-Initiated Self-Disclosure Effects
+2023
+—
+P23
+Zhang, Y., Zhao, H., Hancock, J., et al.
+Longitudinal study on companionship-oriented chatbot usage a...
+arXiv, 2025
+2509.19515
+P24
+Wang, Z., et al.
+MEXTRA: Memory EXTRaction Attacks on LLM Agent Memory
+ACL 2025
+2502.13172
+P25
+Kaffee, L.A., et al.
+INTIMA Benchmark: 368 prompts across 31 companion AI behavio...
+2025
+—
+P26
+Wang, Y., et al.
+H2HTalk Benchmark: 4,650 scenario pairs for AI companion eva...
+2025
+—
+P27
+A-Mem Research Team
+A-Mem: Agentic Memory for LLM Agents
+arXiv, February 2025
+2502.12110
+P28
+LightMem Authors
+LightMem: Lightweight Memory System for LLM Agents
+2025
+—
+P29
+ConflictBank Authors
+ConflictBank: A Benchmark for Knowledge Conflicts
+NeurIPS 2024
+—
+P30
+BEAM Benchmark Authors
+BEAM: Benchmark for Evolving Agent Memory
+arXiv, 2025
+2510.27246
+
+ID
+Authors
+Title
+Venue
+arXiv
+P31
+Sumida, T., et al.
+LUFY: Memory Importance and Forgetting
+arXiv, 2024
+2409.12524
+P32
+Memoria Authors
+Memoria: Hierarchical Long-Term Memory Framework
+arXiv, 2025
+2512.12686
+P33
+ACL 2025 Authors
+A Persona-Aware LLM-Enhanced Framework for Multi-Session Dia...
+ACL Findings, 2025
+—
+P34
+Lee, C.H., et al.
+LLM-as-Judge Validation
+ICLR 2024
+—
+P35
+Ma, X., Koike, Y.
+Daily Interaction Duration with Replika
+Survey, 2025 (n=19)
+—
+P36
+Pan, X., et al.
+SeCom: Topically-segmented Long-term Dialogue Memory
+2025
+—
+P37
+Huang, Y., et al.
+H2Memory: Hierarchical Memory for Long-term Conversational A...
+2025
+—
+P38
+Tan, J., et al.
+Reflective Memory Management (RMM)
+arXiv, March 2025
+—
+P39
+Laestadius, L., et al.
+Mental Health Harms from Replika Emotional Dependence
+New Media & Society, 2024
+—
+P40
+Petronio, S.
+Communication Privacy Management Theory
+2002
+—
+P41
+Zheng, L., et al.
+MT-bench / Chatbot Arena
+2023
+—
+P42
+Derlega, V.J., et al.
+Self-Disclosure in Interpersonal Relationships
+1993
+—
+
+13.1 Detailed Paper Applications
+
+[P1] Proactive Conversational Agents with Inner Thoughts — Liu, X.B., Fang, S., Shi, W., Wu, C-S., Igarashi, T., Chen, X.A. (CHI 2025, Yokohama, arXiv:2501.00383)
+Application: Primary framework for Phase 4 Inner Thoughts. Five-stage pipeline (trigger, retrieval, thought formation, evaluation, participation). G-Eval weighted token probability scoring method. Cadence damping finding (once every 3–4 messages). User study (n=24): 82% preference over baselines. Dual positive/negative motivation scoring to reduce overrating.
+
+[P2] MIRROR: Modular Internal Processing for Personalized Safety in LLM Dialogue — Hsing, N. (arXiv, May 2025, arXiv:2506.00430)
+Application: Cognitive Controller architecture — single narrative text block regenerated each turn. Dual Process Theory separation: Talker (immediate response) vs Thinker (asynchronous deliberation). Three parallel reasoning threads (Goals, Reasoning, Memory). Inner Monologue Manager concept. Directly inspires selfReflectionState field and post-response monologue update.
+
+[P3] Can LLMs and humans be friends? Uncovering factors affecting human-AI intimacy formation — Hong, Y., Choi, J., Kim, M., Kim, B. (arXiv, May 2025, arXiv:2505.24658)
+Application: Two critical findings: (1) Gradual self-disclosure significantly enhances perceived social intimacy regardless of reciprocity — validates depth-gating system. (2) Self-criticism pass produces significantly more natural utterances and fosters higher intimacy in early stages. Excessive empathy disrupts immersion — shapes anti-excessive-empathy instruction in SPT Note.
+
+[P4] Generative Agents: Interactive Simulacra of Human Behavior — Park, J.S., O’Brien, J.C., Cai, C.J., Morris, M.R., Liang, P., Bernstein, M.S. (UIST 2023, San Francisco, arXiv:2304.03442)
+Application: Foundational paper for memory-grounded agent behavior. Triple-weighted retrieval scoring: relevance (cosine similarity), importance, and recency. Reflection threshold mechanism. Directly shapes scoreMemory() function weights (similarity × 0.55, importance × 0.25, recency × 0.10, valence × 0.10).
+
+[P5] Reflexion: Language Agents with Verbal Reinforcement Learning — Shinn, N., Cassano, F., Gopinath, A., Narasimhan, K., Yao, S. (NeurIPS 2023, arXiv:2303.11366)
+Application: Core contribution: verbal self-reflection stored in episodic memory buffer conditions future decisions. Optimal buffer size finding: 3 experiences. Applied to thought reservoir (capped at 4 thoughts). Thoughts Morrigan generates but doesn’t express are carried forward as unrealized intentions.
+
+[P6] The Drama Machine: Simulating Character Development with LLM Agents — Magee, R. et al. (arXiv, August 2024, arXiv:2408.01725)
+Application: Ego/Superego parallel architecture for roleplay. Superego layer doesn’t rewrite response — adds internal psychological layer that shapes how Ego refines it. Inner thought call serves as Superego: provides psychological substrate, not direct output. Key distinction between behavioral directive and raw thought dump.
+
+[P7] Self-Refine: Iterative Refinement with Self-Feedback — Madaan, A., Tandon, N., Gupta, P., Hallinan, S., et al. (NeurIPS 2023)
+Application: Generate-critique-revise loop. Applied to SelfAtom library: every atom passes self-criticism filter at seed time. One-time cost, not per-message. Quality of depth 3–4 atoms determines felt experience at high trust levels. Unfiltered atoms trigger uncanny valley effect.
+
+[P8] Validation-Before-Disclosure Ordering in Chatbot Self-Disclosure — Meng, L., Dai, Y. (2021)
+Application: Self-disclosure without validation is worse than silence. Shapes SPT Note ordering constraint: Morrigan must acknowledge/respond to user’s words before introducing anything about herself. Encoded in system prompt position 4, not left to model’s discretion.
+
+[P9] Zep: A Temporal Knowledge Graph Architecture for Agent Memory — Rasmussen, P., Paliychuk, P., Beauvais, T., Ryan, J., Chalef, D. (arXiv, January 2025, arXiv:2501.13956)
+Application: State-of-the-art production memory system. Graphiti’s three-layer architecture (episodes, semantic, community). Edge versioning for contradictions — preserves both versions with temporal validity. 18.5% accuracy improvement on LongMemEval. Validates contradiction-as-data approach in Step 3 of flush pipeline.
+
+[P10] Inner Monologue Manager for Roleplay — Xu, K. et al. (Emergent Mind Synthesis) (emergentmind.com, 2025)
+Application: Synthesis of MIRROR (Hsing 2025), RoleThink (Xu et al. 2025), and Fang et al. 2025. Roleplay pipeline decomposition: memory retrieval → Theory of Mind → reflection. Shapes thought formation prompt structure: ToM step before thought generation.
+
+[P11] Roleplaying driven by an LLM: observations & open questions — Bicking, I. (Blog post, 2024 (Open Souls framework))
+Application: Practitioner finding: hidden internal thought generation improves response quality and character consistency. Evidence from Open Souls framework. Confirms thought-as-behavioral-directive design pattern.
+
+[P12] Social Penetration: The Development of Interpersonal Relationships — Altman, I., Taylor, D.A. (Holt, Rinehart & Winston, 1973)
+Application: Foundational SPT framework. Four-level depth model (orientation, exploratory affective, affective, stable). Shapes entire SPT tracker: sptDepth field, depth-gated self-disclosure, breadth tracking. Meta-analyses estimate disclosure depth explains 40–60% of relationship satisfaction variance.
+
+[P13] Self-Memory System: Autobiographical Memory and the Working Self — Conway, M.A. (Memory Studies / Cambridge Handbook of Memory)
+Application: Three concepts: (1) Co-emergent self-model — identity and memory bootstrap each other (selfReflectionState). (2) Working self — brain retrieves memories relevant to current goals, not closest in vector space (goalAlignsWithEmotion). (3) Lifetime periods — memories organize around chapters (period field on atoms).
+
+[P14] Somatic Marker Hypothesis / Descartes’ Error — Damasio, A.R. (Neuroscience research, 1994+)
+Application: Two applications: (1) Emotional Priming (Phase 3) — body knows before mind knows, decision-making starts with emotional signal then reasoning follows. Priming call produces “gut feeling” before conscious reasoning. (2) Valence tracking — emotional memories encode deeper and retrieve faster than neutral ones. Shapes separate valence.emotion and valence.charge fields on atoms.
+
+[P15] Narrative Theory of Identity — Bruner, J.S. (Cognitive/developmental psychology)
+Application: Humans maintain narrative coherence but also hold contradictions. The contradiction itself is meaningful data. Shapes contradiction detection design: both atoms preserved, tension recorded as data not error. “You used to say X but now you feel Y” is insight, not bug.
+
+[P16] Interacting with Computers: 12-week longitudinal SPT study on Replika users — Skjuve, M., Følstad, A., Brandtzæg, P.B. (Interacting with Computers, 2023)
+Application: Most comprehensive longitudinal SPT study on companion chatbot (n=28 Replika users). Key findings: (1) Users form genuine parasocial bonds using SPT stages. (2) Conversational breadth may REDUCE as relationship matures. (3) Daily-activity conversations can be high-depth if user shows emotional investment. (4) Topic category does NOT determine depth. Critical for SPT assessment calibration.
+
+[P17] Mem0: Scalable Long-Term Memory for AI (LOCOMO benchmark) — Mem0 Research Team (mem0.ai/research, 2025)
+Application: 26% accuracy improvement over OpenAI’s memory on LOCOMO benchmark. Selective retrieval pipeline trained on conversation data. Key recommendation: train a re-ranking layer on top of existing cosine similarity, not a full retrieval model. Shapes Phase 5 learned retrieval scoring roadmap at 1,000 sessions.
+
+[P18] LoCoMo: Long-term Conversational Memory Benchmark — Maharana, A., Lee, D., Tulyakov, S., Bansal, M., Barbieri, F., Fang, Y. (arXiv, 2024, arXiv:2402.17753)
+Application: Validates atom-level extraction as correct granularity for memory items. Turn-level retrieval fails to capture fine-grained details. Standard benchmark for evaluating memory system quality.
+
+[P19] RLPF: Reinforcement Learning from Prediction Feedback for User Personalization — Ning, X., et al. (AAAI 2025, arXiv:2024)
+Application: Reward signals in conversational systems are multi-objective. Optimizing for one metric degrades others. When adjusting retrieval weights to address noiseRate, must simultaneously monitor missRate. Shapes Phase 5 multi-metric tuning discipline.
+
+[P20] A New Research Model for AI-Based Well-Being Chatbot Engagement — Yang, R., et al. (JMIR Human Factors, 2024 (PMC 11589509))
+Application: AI companion relationship science: after initial honeymoon period (sessions 1–10), engagement quality follows predictable decay curve unless system actively adapts. Shapes Phase 6 relationship health model decay detection.
+
+[P21] Chatbot Self-Disclosure and User Reciprocity — Lee, Y.C., Yamashita, N., Huang, Y., Fu, W. (CHI 2020)
+Application: Single instance of chatbot emotional self-disclosure prompted users to respond with deeper disclosure. Primary driver of disclosure deepening is reciprocal chatbot self-disclosure. Shapes SPT reciprocity tracking.
+
+[P22] Chatbot-Initiated Self-Disclosure Effects — Croes, E.A.J., Antheunis, M.L. (2023)
+Application: Chatbot-initiated disclosure significantly increased users’ willingness to self-disclose. Validates proactive self-disclosure design in self-atom system.
+
+[P23] Longitudinal study on companionship-oriented chatbot usage and wellbeing — Zhang, Y., Zhao, H., Hancock, J., et al. (arXiv, 2025, arXiv:2509.19515)
+Application: Companionship chatbot usage associated with lower wellbeing when users self-disclose heavily and lack human support networks. Shapes Phase 6 relationship health model’s at-risk detection and ethical safeguards.
+
+[P24] MEXTRA: Memory EXTRaction Attacks on LLM Agent Memory — Wang, Z., et al. (ACL 2025, arXiv:2502.13172)
+Application: LLM agent memory stores vulnerable to extraction attacks in black-box settings. Larger memory size increases extraction success. Identifies privacy architecture as core product risk for intimate companion apps.
+
+[P25] INTIMA Benchmark: 368 prompts across 31 companion AI behaviors — Kaffee, L.A., et al. (2025)
+Application: Companion AI behavioral evaluation benchmark. 368 prompts testing across 31 distinct behaviors. Reference for comprehensive Morrigan evaluation.
+
+[P26] H2HTalk Benchmark: 4,650 scenario pairs for AI companion evaluation — Wang, Y., et al. (2025)
+Application: Large-scale human-to-human talk benchmark for evaluating AI companion naturalness. 4,650 scenario pairs provide evaluation reference.
+
+[P27] A-Mem: Agentic Memory for LLM Agents — A-Mem Research Team (arXiv, February 2025, arXiv:2502.12110)
+Application: Dynamic clustering approach for memory organization. Interconnected memory networks through atomic notes with rich contextual descriptions. Agent determines cluster boundaries based on semantic relationships. Validates atom+link design in Morrigan.
+
+[P28] LightMem: Lightweight Memory System for LLM Agents — LightMem Authors (2025)
+Application: Raw session text is 40–60% redundant (filler, acknowledgment, repetition). Pre-filtering before extraction reduces cost and improves signal quality. Validates Step 1 pre-filter in flush pipeline.
+
+[P29] ConflictBank: A Benchmark for Knowledge Conflicts — ConflictBank Authors (NeurIPS 2024)
+Application: Temporal misalignment is the dominant source of apparent contradictions in personal memory systems. Shapes contradiction detection to differentiate temporal evolution from genuine contradictions.
+
+[P30] BEAM: Benchmark for Evolving Agent Memory — BEAM Benchmark Authors (arXiv, 2025, arXiv:2510.27246)
+Application: Tests contradiction resolution and recognition of evolving information as distinct capabilities. Among hardest tasks for memory systems. Tests up to 10M token conversations.
+
+[P31] LUFY: Memory Importance and Forgetting — Sumida, T., et al. (arXiv, 2024, arXiv:2409.12524)
+Application: Importance scoring based on emotional arousal, surprise, retrieval frequency. Retains top 10% by importance after threshold. Addresses memory growth without forgetting mechanism.
+
+[P32] Memoria: Hierarchical Long-Term Memory Framework — Memoria Authors (arXiv, 2025, arXiv:2512.12686)
+Application: Benchmarks contradiction resolution and evolving information handling. Tests memory systems at scale.
+
+[P33] A Persona-Aware LLM-Enhanced Framework for Multi-Session Dialogue — ACL 2025 Authors (ACL Findings, 2025)
+Application: Voice consistency degrades in two conditions: (1) composition call blends contradictory inputs, (2) high callback load dilutes character voice. Shapes Phase 6 voice audit design.
+
+[P34] LLM-as-Judge Validation — Lee, C.H., et al. (ICLR 2024)
+Application: Off-the-shelf LLM evaluators produce scores comparable to human annotation. Standard practice following MT-bench and Chatbot Arena. Validates self-evaluation approach in Step 10 of flush pipeline.
+
+[P35] Daily Interaction Duration with Replika — Ma, X., Koike, Y. (Survey, 2025 (n=19))
+Application: Users in long-term AI companion relationships report that most valued quality is consistent character and sense of being known. Shapes continuation signal design.
+
+[P36] SeCom: Topically-segmented Long-term Dialogue Memory — Pan, X., et al. (2025)
+Application: Long-term dialogue memory survey. Topical segmentation approach to conversation memory.
+
+[P37] H2Memory: Hierarchical Memory for Long-term Conversational Agents — Huang, Y., et al. (2025)
+Application: Hierarchical memory architecture for maintaining conversation coherence across sessions.
+
+[P38] Reflective Memory Management (RMM) — Tan, J., et al. (arXiv, March 2025)
+Application: Tracks which retrieved memory items are actually cited in responses. Uses online reinforcement learning to rerank memory relevance based on actual usage. Addresses callback effectiveness feedback gap.
+
+[P39] Mental Health Harms from Replika Emotional Dependence — Laestadius, L., et al. (New Media & Society, 2024)
+Application: Grounded theory analysis identifying high-disclosure users as the at-risk group for emotional dependence. Key evidence for relationship health monitoring.
+
+[P40] Communication Privacy Management Theory — Petronio, S. (2002)
+Application: Privacy boundaries in relational disclosure. Referenced in SPT depth assessment for understanding disclosure dynamics.
+
+[P41] MT-bench / Chatbot Arena — Zheng, L., et al. (2023)
+Application: Established LLM-as-Judge evaluation methodology. Standard practice for automated quality scoring.
+
+[P42] Self-Disclosure in Interpersonal Relationships — Derlega, V.J., et al. (1993)
+Application: Referenced in SPT depth scale alongside Altman & Taylor for four-level disclosure framework.
+
+
+14. API Reference
+
+14.1 Backend Endpoints (index.js)
+
+Method
+Path
+Auth
+Line
+Description
+POST
+/api/auth/phrase
+No
+1819
+Passphrase login. Returns JWT + user info.
+POST
+/api/session/end
+Yes
+1846
+Ends session, triggers flushSession().
+GET
+/api/conversations
+Yes
+1857
+List user’s conversations.
+POST
+/api/conversations
+Yes
+1861
+Create new conversation.
+DELETE
+/api/conversations/:id
+Yes
+1875
+Delete conversation + messages.
+GET
+/api/conversations/:id/messages
+Yes
+1881
+Get messages for conversation.
+GET
+/api/personality
+Yes
+1889
+Get personality summary (atoms, molecules, narrative).
+GET
+/api/personality/full
+Yes
+1915
+Full personality + SPT + self-reflection data.
+GET
+/api/callbacks
+Yes
+1923
+List callback queue.
+POST
+/api/callbacks/:id/consume
+Yes
+1933
+Mark callback as consumed.
+GET
+/api/spt
+Yes
+1942
+Get SPT depth, breadth, and analysis.
+GET
+/api/self-atoms
+Yes
+2012
+List self-atoms with depth gating.
+POST
+/api/self-atoms/seed
+No
+2028
+Seed self-atom library with criticism filter.
+POST
+/api/chat
+Yes
+2245
+Main chat endpoint with streaming SSE.
+GET
+/api/phase5/status
+Yes
+2671
+Continuation signal + loose thread status.
+GET
+/api/phase5/tuning
+Yes
+2686
+Aggregated tuning metrics.
+POST
+/api/phase5/build-dataset
+Yes
+2767
+Export evaluation data for ML training.
+GET
+/api/phase6/health
+Yes
+2820
+Relationship health scores.
+POST
+/api/phase6/health/compute
+Yes
+2860
+Force recompute relationship health.
+POST
+/api/phase6/voice-audit
+Yes
+2871
+Run voice consistency audit.
+GET
+/api/phase6/presence
+Yes
+2960
+Get presence signal history.
+GET
+/api/status
+No
+3001
+Server status + Kaggle connectivity.
+
+14.2 Kaggle Server Endpoints
+
+Method
+Path
+Description
+GET
+/health
+Health check: VRAM usage, service flags.
+POST
+/v1/chat/completions
+OpenAI-compatible chat. Supports streaming.
+POST
+/v1/embeddings
+OpenAI-compatible embeddings. Single or batch.
+POST
+/generate
+Image generation. Returns base64 PNG.
+
+15. Database Schema Reference
+
+15.1 Collections
+
+Collection
+Schema
+Line
+Description
+users
+UserSchema
+1300
+User accounts (passphraseHash, displayName).
+conversations
+ConversationSchema
+1312
+Conversation metadata (userId, title, timestamps).
+messages
+MessageSchema
+1305
+Chat messages (conversationId, role, content, timestamp).
+personalitymemories
+PersonalityMemorySchema
+1360
+Per-user memory: atoms, molecules, narrative, SPT, callbacks, reflection.
+selfatoms
+SelfAtomSchema
+1398
+Global: Morrigan’s self-disclosure library (content, depth, embedding).
+evaluationrecords
+EvaluationRecordSchema
+1437
+Per-session quality metrics and per-message evals.
+presencesignals
+PresenceSignalsSchema
+1458
+Per-session engagement signals for health model.
+relationshiphealths
+RelationshipHealthSchema
+1477
+Computed health scores and at-risk flags.
+
+15.2 PersonalityMemory Detail
+The PersonalityMemory document is the central per-user data structure. It contains:
+
+Field
+Type
+Phase
+Description
+memories[]
+MemoryAtom[]
+1
+Array of extracted memory atoms with embeddings.
+molecules[]
+Molecule[]
+1
+Synthesised narrative clusters from linked atoms.
+relationshipNarrative
+String
+1
+LLM-generated narrative summary of relationship.
+trustLevel
+Number (0–6)
+1
+Current trust/familiarity level.
+totalConversations
+Number
+1
+Lifetime session count.
+sptDepth
+Number (1–4)
+2
+Deepest disclosure level reached. Never decrements.
+sptBreadth
+Map<String,Number>
+2
+Per-topic depth map.
+sharedSelfAtomIds
+ObjectId[]
+2
+Self-atoms already shared (retrieval penalty).
+selfReflectionState
+String
+2
+Morrigan’s first-person internal state narrative.
+callbackQueue[]
+CallbackItem[]
+4
+Prospective follow-up threads with consumed flags.
+prospectiveNote
+String
+5
+Top unconsumed callback for next session injection.
+looseThread
+String
+5
+Phase 5 thread for continuation signal forward presence.
+atRisk
+Boolean
+6
+At-risk flag from relationship health model.
+
+
+— End of Master Documentation —
