@@ -4751,7 +4751,7 @@ app.post("/api/chat", auth, async (req, res) => {
     const llmRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
-      body: JSON.stringify({ model: CHAT_MODEL, messages, stream: true, temperature: 0.7, max_tokens: -1 }),
+      body: JSON.stringify({ model: CHAT_MODEL, messages, stream: true, temperature: 0.7, max_tokens: 4096 }),
     }, 120_000); // 120s for streaming — allows longer responses
 
     if (!llmRes.ok) {
