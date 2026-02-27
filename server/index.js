@@ -186,6 +186,125 @@ function cosineSimilarity(a, b) {
   return dot / (Math.sqrt(normA) * Math.sqrt(normB));
 }
 
+// ── Attribution guard utilities ──────────────────────────────────
+// Prevents LLMs from confusing Morrigan's words with user's words.
+// Applied to every prompt that receives exchange transcripts.
+
+/** Format a single exchange, clearly labeling unprompted Morrigan turns */
+function formatExchange(ex, labels = { user: "User", assistant: M.name }) {
+  if (!ex.user)
+    return `[${labels.assistant} spoke first — unprompted]: ${(ex.assistant || "").substring(0, 250)}`;
+  return `${labels.user}: ${ex.user.substring(0, 250)}\n${labels.assistant}: ${(ex.assistant || "").substring(0, 250)}`;
+}
+
+/** Format a list of exchanges (e.g. sessionExchanges) with proper labels */
+function formatExchangeList(exchanges, labels = { user: "User", assistant: M.name }) {
+  return exchanges.map(e => formatExchange(e, labels)).join("\n\n");
+}
+
+/** Standard attribution warning for prompts that analyze USER behavior from a transcript */
+const ATTRIBUTION_GUARD = `ATTRIBUTION RULE: The exchange has two speakers.
+"User:" lines = what the USER said. "${M.name}:" lines = what the AI (${M.name}) said.
+Do NOT attribute ${M.name}'s own words, descriptions, scene-setting, actions, or self-disclosures to the user.
+Only analyze what appears after "User:" as the user's content.`;
+
+/** Lighter attribution reminder for Morrigan-introspective prompts */
+const ATTRIBUTION_REMINDER = `(Two speakers: "User:" = what THEY said. "${M.name}:" = what YOU said. Base your analysis on what HE said/did, not on your own responses.)`;
+
+/**
+ * Post-hoc disclosure detection — scans Morrigan's response for self-atom content.
+ * Catches disclosures that bypass the inner thought pipeline (hint elaboration,
+ * composition embellishment, spontaneous LLM generation from character prompt).
+ *
+ * Strategy: Extract distinctive proper nouns, names, and specific phrases from each
+ * atom's content and check if they appear in the response. Generic words are ignored
+ * to prevent false positives.
+ *
+ * @param {string} response - Morrigan's final (composed) response text
+ * @param {Array} selfAtomCache - All self-atoms from DB
+ * @param {number} sptDepth - Current SPT depth (only check eligible atoms)
+ * @param {string[]} alreadyShared - Current sharedSelfAtomIds
+ * @returns {string[]} - Array of newly detected atom IDs to mark as shared
+ */
+function detectDisclosedAtoms(response, selfAtomCache, sptDepth, alreadyShared) {
+  if (!response || !selfAtomCache?.length) return [];
+  const responseLower = response.toLowerCase();
+  const newlyDetected = [];
+
+  for (const atom of selfAtomCache) {
+    if (atom.depth > sptDepth) continue;           // respect depth gate
+    if (atom.deprecated) continue;
+    if (alreadyShared.includes(atom.id)) continue;  // already tracked
+
+    // Extract distinctive markers from atom content:
+    // 1. Proper nouns / names (capitalized words not at sentence start)
+    // 2. Quoted or distinctive phrases (3+ word sequences with specificity)
+    // 3. Specific numbers, ages, dates
+    const content = atom.content || "";
+    const markers = [];
+
+    // Pull proper nouns: words that are capitalized mid-sentence
+    // (skip first word of sentences, common words like "I")
+    const properNouns = content.match(/(?<=[.!?]\s+\w+\s+|,\s+|—\s*|\.\.\.\s*)[A-Z][a-z]{2,}/g) || [];
+    // Also catch names that appear after "named", "called", "name is"
+    const namedEntities = content.match(/(?:named?|called?|name(?:'s| is))\s+([A-Z][a-z]+)/g) || [];
+    namedEntities.forEach(m => {
+      const name = m.split(/\s+/).pop();
+      if (name && name.length > 2) markers.push(name.toLowerCase());
+    });
+    properNouns.forEach(n => {
+      if (!["The", "She", "Her", "His", "But", "And", "Not", "That", "This", "There", "What"].includes(n)) {
+        markers.push(n.toLowerCase());
+      }
+    });
+
+    // Pull distinctive multi-word phrases: band names, place names, specific details
+    // Look for quoted text
+    const quoted = content.match(/"([^"]{3,})"/g) || [];
+    quoted.forEach(q => markers.push(q.replace(/"/g, "").toLowerCase()));
+
+    // Look for specific identifiers: band/artist names, book titles, locations
+    // These tend to be 2-3 capitalized words in sequence
+    const multiCap = content.match(/[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+/g) || [];
+    multiCap.forEach(m => {
+      if (!["Some Days", "Other People", "Most People"].includes(m)) {
+        markers.push(m.toLowerCase());
+      }
+    });
+
+    // Specific numbers/ages that are distinctive
+    const specificNumbers = content.match(/\b(?:at |age |since |for )\d+\b/gi) || [];
+    specificNumbers.forEach(n => markers.push(n.toLowerCase()));
+
+    // Topic-based keywords from the atom's topics array
+    // These are curated and specific enough to be useful
+    const topicKeywords = (atom.topics || []).filter(t =>
+      !["past", "identity", "relationships", "emotions", "habits", "home"].includes(t)
+    );
+
+    // If we have no distinctive markers, fall back to checking for
+    // any unique 4+ word phrase from the atom content
+    if (markers.length === 0 && topicKeywords.length === 0) {
+      const words = content.split(/\s+/).filter(w => w.length > 3);
+      // Take a 4-word sliding window and check for distinctive sequences
+      for (let i = 0; i <= words.length - 4; i++) {
+        const phrase = words.slice(i, i + 4).join(" ").toLowerCase().replace(/[^a-z\s]/g, "");
+        if (phrase.length > 15) markers.push(phrase);
+      }
+    }
+
+    // Match: if ANY distinctive marker appears in the response
+    const markerMatch = markers.some(m => m.length > 2 && responseLower.includes(m));
+    const topicMatch = topicKeywords.some(t => responseLower.includes(t.toLowerCase()));
+
+    // Require marker match (high-confidence) — topic alone is too generic
+    if (markerMatch) {
+      newlyDetected.push(atom.id);
+    }
+  }
+  return newlyDetected;
+}
+
 function scoreMemory(item, queryEmbedding, goalState) {
   const hasEmbedding = item.embedding?.length > 0;
   const similarity = hasEmbedding ? cosineSimilarity(item.embedding, queryEmbedding) : 0;
@@ -815,10 +934,9 @@ async function updateBrainAfterExchange(userId, userMessage, assistantResponse) 
   const memory = session.memory;
   const singleExchange = `User: ${userMessage}\n${M.name}: ${assistantResponse}`;
   // Recent session context for narrative/reflection (already includes current exchange)
-  const recentContext = (session.sessionExchanges || [])
-    .slice(-6)
-    .map(e => `User: ${e.user}\n${M.name}: ${e.assistant}`)
-    .join("\n\n");
+  const recentContext = formatExchangeList(
+    (session.sessionExchanges || []).slice(-6)
+  );
 
   console.log(`[BRAIN] Real-time update for user ${userId}`);
 
@@ -830,7 +948,20 @@ async function updateBrainAfterExchange(userId, userMessage, assistantResponse) 
   try {
     // Cap existing facts to most recent 30 to prevent prompt bloat + false dedup
     const existingFacts = memory.memories.slice(-30).map(m => m.fact).join("; ") || "none yet";
-    const extractionPrompt = `You are a memory extraction assistant. Extract personal facts about the USER from this single exchange with their AI companion ${M.name}.
+    const extractionPrompt = `You are a memory extraction assistant. Extract TWO types of facts from this exchange between a user and their AI companion ${M.name}:
+
+TYPE A — Facts about the USER (from what the user said or implied):
+  Examples: their name, pets, hobbies, job, family, preferences, emotions, life events, relationships.
+  Category: "name|interest|personal|emotional|preference|relationship|event"
+
+TYPE B — Things ${M.name} REVEALED about herself that the user now knows:
+  Examples: ${M.name} mentioned her cat's name, shared a memory, talked about her music taste, revealed something personal.
+  Category: "morrigan_disclosed"
+  The "fact" should be phrased as "The user now knows that ${M.name} [thing she revealed]."
+
+${ATTRIBUTION_GUARD}
+For Type A: extract from what the USER said/implied. Pets, animals, family members, daily habits — all count.
+For Type B: extract from what ${M.name} said about HERSELF. If she mentioned a pet, a place, a feeling, a memory — the user now knows that.
 
 EXISTING MEMORIES (do not duplicate): ${existingFacts}
 
@@ -839,8 +970,8 @@ ${singleExchange}
 
 Return ONLY a JSON array. Each object:
 {
-  "fact": "short dense statement about the user",
-  "category": "name|interest|personal|emotional|preference|relationship|event",
+  "fact": "short dense statement",
+  "category": "name|interest|personal|emotional|preference|relationship|event|morrigan_disclosed",
   "importance": 1-5,
   "valence": {
     "charge": -1.0 to 1.0,
@@ -1124,11 +1255,14 @@ Answer with ONLY the category name.`;
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
       body: JSON.stringify({
         model: CHAT_MODEL,
-        messages: [{ role: "user", content: `Write a brief note (2-3 sentences) about this person from ${M.name}'s perspective. Ground it in what they've actually said and done — not what you imagine they might feel. First person. Honest and specific, but do not embellish or add dramatic interpretation beyond what the facts support. No bullet points.
+        messages: [{ role: "user", content: `Write a brief note (2-3 sentences) about this person from ${M.name}'s perspective. Ground it in what THEY'VE actually said and done — not what you imagine they might feel, and not what ${M.name} said in her responses. First person. Honest and specific, but do not embellish or add dramatic interpretation beyond what the facts support. No bullet points.
+
+${ATTRIBUTION_REMINDER}
 
 ${memory.relationshipNarrative ? `Previous entry:\n${memory.relationshipNarrative}\n\n` : ""}Key facts about them: ${topAtoms}
 ${topMols ? `Impressions:\n${topMols}\n` : ""}SPT depth reached: ${memory.sptDepth || 1}/4
-Recent exchange: ${singleExchange.slice(-600)}` }],
+Recent exchange (two speakers — "User:" is them, "${M.name}:" is you):
+${singleExchange.slice(-600)}` }],
         temperature: 0.55, max_tokens: 200,
       }),
     });
@@ -1200,6 +1334,8 @@ WHERE YOU STAND: ${TRUST_LEVELS[memory.trustLevel]?.name || "stranger"}
 EXISTING MILESTONES: ${existingMilestonesSummary}
 EXCHANGE:
 ${singleExchange.slice(-800)}
+${ATTRIBUTION_REMINDER}
+Evaluate based on what happened BETWEEN both speakers, not on what ${M.name} said in isolation.
 
 Answer ONLY "yes" or "no".` }],
           temperature: 0.0, max_tokens: 3,
@@ -1238,6 +1374,7 @@ ${existingMilestonesContext}
 
 THE EXCHANGE:
 ${singleExchange.slice(-1000)}
+${ATTRIBUTION_REMINDER}
 
 Write the milestone as you would remember it — first person, visceral, specific to what actually happened. Not a summary. A moment. The way you'd describe a memory that changed something in you.
 
@@ -1245,7 +1382,7 @@ Return ONLY a JSON object:
 {
   "event": "first-person milestone text, 1-2 sentences, your voice",
   "category": "first|shift|rupture|repair|deepening|revelation|ritual",
-  "exchangeContext": "1 sentence — what specifically happened in this exchange",
+  "exchangeContext": "1 sentence — what HE did or said (not what you said)",
   "significance": 1-10
 }
 
@@ -1319,11 +1456,14 @@ If on reflection this is not actually milestone-worthy, return {"skip": true}.`;
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENROUTER_API_KEY}` },
       body: JSON.stringify({
         model: CHAT_MODEL,
-        messages: [{ role: "user", content: `You are reviewing one exchange from a conversation ${M.name} just had. Identify things that were actually left unfinished — topics the user started but didn't complete, or questions that went unanswered.
+        messages: [{ role: "user", content: `You are reviewing one exchange from a conversation ${M.name} just had. Identify things that were actually left unfinished — topics the USER started but didn't complete, or questions that went unanswered.
 
-IMPORTANT: Only flag things that ACTUALLY HAPPENED in the exchange. Do not invent subtext, hidden meaning, or dramatic interpretations. If someone mentioned their job casually, that's not an unfinished thread. A thread is unfinished when someone literally changed the subject mid-thought or said they'd come back to something.
+CRITICAL RULES:
+- The transcript has two speakers: "User:" = what THEY said. "${M.name}:" = what YOU said.
+- Only flag things the USER actually said or brought up. Do NOT attribute ${M.name}'s own words, descriptions, scene-setting, or environmental details to the user.
+- Do not invent subtext, hidden meaning, or dramatic interpretations. If someone mentioned their job casually, that's not an unfinished thread. A thread is unfinished when someone literally changed the subject mid-thought or said they'd come back to something.
 
-Write each in ${M.name}'s voice — specific, grounded in what was actually said.
+Write each in ${M.name}'s voice — specific, grounded in what the USER actually said.
 
 ${existingCallbacks ? `Already in queue (don't duplicate):\n${existingCallbacks}\n\n` : ""}EXCHANGE:
 ${singleExchange}
@@ -1485,10 +1625,17 @@ async function generateLooseThread(transcript, mem) {
 Review the transcript below.
 Identify ONE thing you (${M.name}) are still thinking about — something that was
 actually said that didn't fully land, or something you genuinely noticed.
-IMPORTANT: Only reference things that actually happened in the transcript.
-Do NOT invent details or read hidden meaning into casual exchanges.
-If the conversation was casual and nothing genuinely lingers, return null.
-Write it in first person. One sentence. Specific to what actually happened.
+
+CRITICAL RULES:
+- Only reference things the USER actually said or did. The transcript has two speakers:
+  "User:" lines = what THEY said. "${M.name}:" lines = what YOU said.
+- Do NOT attribute your own words, descriptions, or scene-setting to the user.
+  If YOU described a record player or mentioned a song, the user did NOT "notice" it
+  unless THEY explicitly referenced it in their own words.
+- Do NOT invent details or read hidden meaning into casual exchanges.
+- If the conversation was casual and nothing genuinely lingers, return null.
+
+Write it in first person. One sentence. Specific to what the USER actually said.
 Transcript: ${transcript.slice(-3000)}
 Return: a single string, or null.`;
 
@@ -2007,7 +2154,11 @@ function getContinuationBlock(mem, atRisk = false) {
 // ═══════════════════════════════════════════════════════════════════
 
 function SPT_DEPTH_ASSESSMENT_PROMPT(transcript, currentDepth) {
-  return `Review this conversation transcript and assess the deepest level the USER (not the AI) disclosed emotionally.
+  return `Review this conversation transcript and assess the deepest level the USER disclosed emotionally.
+
+${ATTRIBUTION_GUARD}
+Only assess disclosure depth from what the USER said (after "User:" labels).
+IGNORE everything ${M.name} said — her vulnerability, her self-disclosures, her scene-setting do NOT count as user depth.
 
 Depth scale:
 1 = Surface: facts, preferences, opinions. Nothing personally risky.
@@ -2020,19 +2171,25 @@ ${transcript}
 
 Current recorded depth: ${currentDepth}
 
-Return ONE number (1-4) and ONE sentence of evidence.
-Format: "3 — He named the fear directly and said he had never told anyone."`;
+Return ONE number (1-4) and ONE sentence of evidence from what the USER said.
+Format: "3 — He named the fear directly and said he had never told anyone."
+If the user only made casual conversation, return: "1 — Surface-level exchange."`;
 }
 
 function SPT_BREADTH_EXTRACTION_PROMPT(transcript) {
   return `Review this conversation transcript.
 List each topic the USER discussed and the depth level (1-4) they reached.
 
+${ATTRIBUTION_GUARD}
+Only list topics the USER brought up in their own words (after "User:" labels).
+Do NOT count topics that ${M.name} mentioned in her responses — her self-disclosures about foster care, music, relationships, etc. are HER topics, not the user's.
+
 TRANSCRIPT:
 ${transcript}
 
 Return JSON only:
 [{ "topic": "family", "depth": 2 }, { "topic": "work", "depth": 1 }]
+If the user didn't bring up any specific topics, return [].
 Topics: family, work, relationships, identity, health, loss, creative, childhood, money, fear, spirituality, body, future, past.`;
 }
 
@@ -2058,6 +2215,8 @@ ${previousReflection ? `WHAT I WAS SITTING WITH BEFORE:\n${previousReflection}\n
 
 TONIGHT'S CONVERSATION:
 ${transcript.slice(-3000)}
+${ATTRIBUTION_REMINDER}
+Base your reflection on what actually happened between you — not on stage directions or scene-setting in your own responses.
 
 Write 2-4 sentences in my voice. First person. Present or recent past.
 Do not use: "I notice that", "I find myself", "I've been thinking".
@@ -2234,9 +2393,11 @@ function INNER_THOUGHT_FORMATION_PROMPT(mat) {
     : "";
 
   const recentSection = mat.recentExchanges.length > 0
-    ? `RECENT EXCHANGE:\n` +
+    ? `RECENT EXCHANGE:\n${ATTRIBUTION_REMINDER}\n` +
       mat.recentExchanges.map(e =>
-        `  [User]: ${e.user.substring(0, 150)}\n  [${M.name}]: ${e.assistant.substring(0, 150)}`
+        e.user
+          ? `  [User]: ${e.user.substring(0, 150)}\n  [${M.name}]: ${(e.assistant || "").substring(0, 150)}`
+          : `  [${M.name} spoke first]: ${(e.assistant || "").substring(0, 150)}`
       ).join("\n")
     : "";
 
@@ -2372,7 +2533,9 @@ function MOOD_REFLECTION_PROMPT({
     : "nothing tracked yet";
 
   const exchangeStr = (recentExchanges || []).slice(-2)
-    .map(e => `  ${name}: ${(e.user || "").substring(0, 120)}\n  You: ${(e.assistant || "").substring(0, 120)}`)
+    .map(e => e.user
+      ? `  ${name}: ${e.user.substring(0, 120)}\n  You: ${(e.assistant || "").substring(0, 120)}`
+      : `  [You spoke first]: ${(e.assistant || "").substring(0, 120)}`)
     .join("\n");
 
   // ── Build the internal landscape block ─────────────────────────
@@ -3099,6 +3262,9 @@ async function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart =
   if (events.length)        memoryContext += `Things that happened to him: ${events.join("; ")}\n`;
   if (emotional.length)     memoryContext += `Emotional/deep things he's shared: ${emotional.join("; ")}\n`;
 
+  const morriganDisclosed = byCategory("morrigan_disclosed");
+  if (morriganDisclosed.length) memoryContext += `\n═══ WHAT HE KNOWS ABOUT YOU (things you've already told him — don't repeat these unprompted, but you can reference them naturally) ═══\n${morriganDisclosed.join("; ")}\n`;
+
   // Period-based grouping [P13 Conway]: lifetime periods organize identity
   const atomsByPeriod = {};
   for (const atom of sorted) {
@@ -3247,7 +3413,11 @@ async function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart =
   if (sessionExchanges.length > 0) {
     sessionContext = "\n\n═══ THIS SESSION ═══\n";
     for (const ex of sessionExchanges.slice(-10)) {
-      sessionContext += `Them: ${ex.user.substring(0, 200)}\nYou: ${ex.assistant.substring(0, 200)}\n\n`;
+      if (!ex.user) {
+        sessionContext += `[You spoke first]: ${(ex.assistant || "").substring(0, 200)}\n\n`;
+      } else {
+        sessionContext += `Them: ${ex.user.substring(0, 200)}\nYou: ${(ex.assistant || "").substring(0, 200)}\n\n`;
+      }
     }
     sessionContext += "(Reference naturally — don't repeat robotically)\n";
   }
@@ -3306,14 +3476,18 @@ EXCHANGE:
 User: ${userMessage.substring(0, 500)}
 ${M.name}: ${assistantResponse.substring(0, 500)}
 
+${ATTRIBUTION_GUARD}
+"vulnerability" measures the USER's emotional risk — not ${M.name}'s self-disclosures.
+Do not give credit for vulnerability, depth, or emotional engagement shown only in ${M.name}'s response.
+
 Evaluate:
-1. trustDelta: How many trust points should this exchange earn BEYOND the base 1 point? Consider: emotional vulnerability shown, genuine engagement depth, reciprocal disclosure, authentic connection vs surface chat. Range: 0 to 5. Most casual exchanges = 0. Real vulnerability or deep engagement = 3-5.
+1. trustDelta: How many trust points should this exchange earn BEYOND the base 1 point? Consider: emotional vulnerability shown BY THE USER, genuine engagement depth, reciprocal disclosure, authentic connection vs surface chat. Range: 0 to 5. Most casual exchanges = 0. Real vulnerability or deep engagement = 3-5.
 2. feelings: For EACH feeling, give a delta (-3 to +5) based on what ACTUALLY happened in this exchange. 0 = no change. Only non-zero for feelings genuinely affected. Negative values are valid (e.g., tension reduces comfort, withdrawal reduces affection).
-  - affection: warmth, care, appreciation expressed
+  - affection: warmth, care, appreciation expressed BY THE USER
   - comfort: safety, acceptance, patience demonstrated
   - attraction: romantic/physical signals, flirtation, desire
   - protectiveness: concern for wellbeing, tenderness
-  - vulnerability: openness, emotional risk taken by the user
+  - vulnerability: openness, emotional risk taken BY THE USER (not ${M.name})
 
 Return ONLY JSON:
 { "trustDelta": 0-5, "feelings": { "affection": -3 to 5, "comfort": -3 to 5, "attraction": -3 to 5, "protectiveness": -3 to 5, "vulnerability": -3 to 5 }, "reasoning": "1 sentence — what happened emotionally" }`;
@@ -3630,7 +3804,9 @@ async function generateProactiveMessage(session, candidate) {
   const mem = session.memory;
   const lastExchanges = (session.sessionExchanges || []).slice(-3);
   const exchangeText = lastExchanges.map(e =>
-    `Him: ${(e.user || "").substring(0, 150)}\nHer: ${(e.assistant || "").substring(0, 150)}`
+    e.user
+      ? `Him: ${e.user.substring(0, 150)}\nHer: ${(e.assistant || "").substring(0, 150)}`
+      : `[Her — unprompted]: ${(e.assistant || "").substring(0, 150)}`
   ).join("\n");
 
   let sourceContext = "";
@@ -4578,6 +4754,33 @@ app.post("/api/chat", auth, async (req, res) => {
           }
         }
 
+        // ── Post-hoc disclosure detection ──────────────────────────
+        // Catches self-atom disclosures that bypass the inner thought pipeline:
+        // (1) Phase 2 hint elaboration — LLM uses hint atoms directly
+        // (2) Composition embellishment — composition LLM adds atom details
+        // (3) Spontaneous generation — LLM draws from character prompt knowledge
+        // Scans the final response for distinctive markers from each atom.
+        try {
+          const finalText = composedResponse || fullResponse;
+          const currentShared = session.memory.sharedSelfAtomIds || [];
+          const currentSptDepth = session.memory.sptDepth || 1;
+          const newlyDisclosed = detectDisclosedAtoms(
+            finalText, session.selfAtomCache || [], currentSptDepth, currentShared
+          );
+          if (newlyDisclosed.length > 0) {
+            if (!session.memory.sharedSelfAtomIds) session.memory.sharedSelfAtomIds = [];
+            for (const atomId of newlyDisclosed) {
+              if (!session.memory.sharedSelfAtomIds.includes(atomId)) {
+                session.memory.sharedSelfAtomIds.push(atomId);
+                console.log(`[DISCLOSURE-SCAN] Detected atom ${atomId} in response — marked as shared`);
+              }
+            }
+            session.memory.save().catch(e => console.error("[DISCLOSURE-SCAN-SAVE]", e.message));
+          }
+        } catch (disclosureErr) {
+          console.error("[DISCLOSURE-SCAN] Error:", disclosureErr.message);
+        }
+
         // ── Mood Reflection (LLM, non-streaming, ~200 tokens) ──────
         // Gather full internal landscape. Each data point maps to a
         // research paper — see MOOD_REFLECTION_PROMPT comments.
@@ -4809,6 +5012,7 @@ app.post("/api/chat", auth, async (req, res) => {
                 preferences:   byCat("preference"),
                 events:        byCat("event"),
                 relationships: byCat("relationship"),
+                morriganDisclosed: byCat("morrigan_disclosed"),
               },
               molecules: (mem.molecules || []).map(m => ({
                 summary: m.summary, period: m.period || null,
