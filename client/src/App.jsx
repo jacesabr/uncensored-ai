@@ -916,36 +916,36 @@ function BrainPanel({ mood, speaking, latestMeta, moodReflection, disclosedAtoms
   const [sec, setSec] = useState({ reservoir: true, atoms: true, disclosed: true, knowledge: true, molecules: true, state: true, callbacks: true, history: true, disclosure: true, phase6: true });
   const tog = k => setSec(s => ({ ...s, [k]: !s[k] }));
 
-  const SL = ({ children, color }) => <p style={{ fontFamily: FONT_MONO, fontSize: 10, color: color || T.accent, margin: "0 0 8px", letterSpacing: "1.5px", fontWeight: 700, textTransform: "uppercase" }}>{children}</p>;
-  const D = () => <div style={{ height: 1, background: T.border, margin: "10px 0" }} />;
+  const SL = ({ children, color }) => <p style={{ fontFamily: FONT_MONO, fontSize: 12, color: color || T.accent, margin: "0 0 10px", letterSpacing: "1.5px", fontWeight: 700, textTransform: "uppercase" }}>{children}</p>;
+  const D = () => <div style={{ height: 1, background: T.border, margin: "12px 0" }} />;
 
   const Pill = ({ label, value, on }) => (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: on ? T.accentSoft : T.surface2, border: `1px solid ${on ? T.accent + "40" : T.border}`, borderRadius: 6, padding: "2px 8px", fontSize: 11, marginRight: 5, marginBottom: 4 }}>
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, background: on ? T.accentSoft : T.surface2, border: `1px solid ${on ? T.accent + "40" : T.border}`, borderRadius: 6, padding: "3px 10px", fontSize: 12.5, marginRight: 5, marginBottom: 5 }}>
       <span style={{ color: T.textDim }}>{label}</span>
       <span style={{ color: on ? T.accent : T.text, fontWeight: on ? 600 : 400 }}>{value}</span>
     </span>
   );
 
   const SecBtn = ({ label, count, sk }) => (
-    <div onClick={() => tog(sk)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 10, fontWeight: 700, letterSpacing: "1.2px", textTransform: "uppercase", color: T.accent, marginTop: 10, marginBottom: 6, paddingBottom: 5, borderBottom: `1px solid ${T.border}`, cursor: "pointer", userSelect: "none", fontFamily: FONT_MONO }}>
-      <span>{label}{count != null ? <span style={{ color: T.textDim, fontWeight: 400, fontSize: 10, marginLeft: 5 }}>({count})</span> : ""}</span>
-      <span style={{ color: T.textDim, fontSize: 11 }}>{sec[sk] ? "▲" : "▼"}</span>
+    <div onClick={() => tog(sk)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12, fontWeight: 700, letterSpacing: "1.2px", textTransform: "uppercase", color: T.accent, marginTop: 12, marginBottom: 8, paddingBottom: 6, borderBottom: `1px solid ${T.border}`, cursor: "pointer", userSelect: "none", fontFamily: FONT_MONO }}>
+      <span>{label}{count != null ? <span style={{ color: T.textDim, fontWeight: 400, fontSize: 12, marginLeft: 5 }}>({count})</span> : ""}</span>
+      <span style={{ color: T.textDim, fontSize: 13 }}>{sec[sk] ? "▲" : "▼"}</span>
     </div>
   );
 
   const KV = ({ label, value, italic, accent }) => value != null && String(value).trim() ? (
-    <div style={{ display: "flex", gap: 8, marginBottom: 4, alignItems: "flex-start" }}>
-      <span style={{ color: T.textDim, fontSize: 11, minWidth: 80, flexShrink: 0 }}>{label}</span>
-      <span style={{ color: accent ? T.accent : T.textSoft, fontSize: 12, flex: 1, fontStyle: italic ? "italic" : "normal", lineHeight: 1.55, wordBreak: "break-word", minWidth: 0 }}>{String(value)}</span>
+    <div style={{ display: "flex", gap: 8, marginBottom: 5, alignItems: "flex-start" }}>
+      <span style={{ color: T.textDim, fontSize: 13, minWidth: 90, flexShrink: 0 }}>{label}</span>
+      <span style={{ color: accent ? T.accent : T.textSoft, fontSize: 14, flex: 1, fontStyle: italic ? "italic" : "normal", lineHeight: 1.55, wordBreak: "break-word", minWidth: 0 }}>{String(value)}</span>
     </div>
   ) : null;
 
   const MemRow = ({ label, arr }) => arr?.length ? (
-    <div style={{ display: "flex", gap: 8, marginBottom: 4, alignItems: "flex-start" }}>
-      <span style={{ color: T.textDim, fontSize: 11, minWidth: 80, flexShrink: 0 }}>{label}</span>
-      <span style={{ color: T.textSoft, fontSize: 12, flex: 1, lineHeight: 1.55 }}>
+    <div style={{ display: "flex", gap: 8, marginBottom: 5, alignItems: "flex-start" }}>
+      <span style={{ color: T.textDim, fontSize: 13, minWidth: 90, flexShrink: 0 }}>{label}</span>
+      <span style={{ color: T.textSoft, fontSize: 14, flex: 1, lineHeight: 1.6 }}>
         {arr.map((x, i) => <React.Fragment key={i}>
-          {x.isPast && <span style={{ color: T.textDim, fontSize: 10 }}>[past] </span>}
+          {x.isPast && <span style={{ color: T.textDim, fontSize: 12 }}>[past] </span>}
           {x.fact}{i < arr.length - 1 && <span style={{ color: T.textDim }}> · </span>}
         </React.Fragment>)}
       </span>
@@ -953,12 +953,12 @@ function BrainPanel({ mood, speaking, latestMeta, moodReflection, disclosedAtoms
   ) : null;
 
   const Bar = ({ label, value, color }) => (
-    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
-      <span style={{ color: T.textDim, fontSize: 11, minWidth: 72, flexShrink: 0 }}>{label}</span>
-      <div style={{ flex: 1, height: 5, borderRadius: 3, background: T.surface3, overflow: "hidden", minWidth: 30 }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+      <span style={{ color: T.textDim, fontSize: 13, minWidth: 90, flexShrink: 0 }}>{label}</span>
+      <div style={{ flex: 1, height: 6, borderRadius: 3, background: T.surface3, overflow: "hidden", minWidth: 30 }}>
         <div style={{ height: "100%", width: `${value || 0}%`, background: color, borderRadius: 3, transition: "width 0.4s ease" }} />
       </div>
-      <span style={{ color: T.text, fontSize: 11, minWidth: 22, textAlign: "right", fontFamily: FONT_MONO }}>{value ?? 0}</span>
+      <span style={{ color: T.text, fontSize: 13, minWidth: 24, textAlign: "right", fontFamily: FONT_MONO }}>{value ?? 0}</span>
     </div>
   );
 
@@ -972,13 +972,13 @@ function BrainPanel({ mood, speaking, latestMeta, moodReflection, disclosedAtoms
       <div style={{ position: "absolute", inset: 0, background: `radial-gradient(ellipse at 50% 20%, rgba(155,45,94,0.07) 0%, transparent 70%)`, pointerEvents: "none" }} />
 
       {/* ── Section 1: Identity Header (sticky) ── */}
-      <div style={{ position: "sticky", top: 0, zIndex: 2, background: `linear-gradient(180deg, ${T.surface}f8, ${T.surface}e0)`, backdropFilter: "blur(10px)", borderBottom: `1px solid ${T.border}`, padding: "14px 16px", display: "flex", alignItems: "center", gap: 14 }}>
-        <div style={{ width: 72, height: 72, borderRadius: "50%", overflow: "hidden", border: `2px solid ${T.border}`, boxShadow: speaking ? `0 0 0 3px ${T.accentSoft}, 0 0 16px rgba(124,58,237,0.4)` : `0 0 0 3px ${T.accentSoft}`, transition: "box-shadow 0.5s ease", flexShrink: 0 }}>
+      <div style={{ position: "sticky", top: 0, zIndex: 2, background: `linear-gradient(180deg, ${T.surface}f8, ${T.surface}e0)`, backdropFilter: "blur(10px)", borderBottom: `1px solid ${T.border}`, padding: "16px 18px", display: "flex", alignItems: "center", gap: 16 }}>
+        <div style={{ width: 96, height: 96, borderRadius: "50%", overflow: "hidden", border: `2px solid ${T.border}`, boxShadow: speaking ? `0 0 0 3px ${T.accentSoft}, 0 0 16px rgba(124,58,237,0.4)` : `0 0 0 3px ${T.accentSoft}`, transition: "box-shadow 0.5s ease", flexShrink: 0 }}>
           <img src={morriganImg} alt={M.name} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center 15%", display: "block" }} />
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontFamily: FONT_DISPLAY, fontSize: 17, color: T.text, fontWeight: 400 }}>{M.name}</span>
+            <span style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: T.text, fontWeight: 400 }}>{M.name}</span>
             {speaking && (
               <div style={{ display: "flex", gap: 3 }}>
                 {[0,1,2].map(i => <div key={i} style={{ width: 5, height: 5, borderRadius: "50%", background: T.accent, animation: "speakBounce 0.6s ease-in-out infinite", animationDelay: `${i * 0.2}s` }} />)}
@@ -993,7 +993,7 @@ function BrainPanel({ mood, speaking, latestMeta, moodReflection, disclosedAtoms
               <div style={{ width: 6, height: 6, borderRadius: "50%", background: T.accent, opacity: 0.6, animation: "speakBounce 3s ease-in-out infinite" }} />
             )}
           </div>
-          <span style={{ fontFamily: FONT, fontSize: 11, color: T.textDim, fontStyle: "italic" }}>{M.age} · hollow vinyl</span>
+          <span style={{ fontFamily: FONT, fontSize: 13, color: T.textDim, fontStyle: "italic" }}>{M.age} · hollow vinyl</span>
           <div style={{ marginTop: 4 }}>
             <MoodBadge mood={mood} dynamicLabel={moodReflection?.moodLabel} />
           </div>
@@ -1001,23 +1001,47 @@ function BrainPanel({ mood, speaking, latestMeta, moodReflection, disclosedAtoms
       </div>
 
       {/* ── Scrollable content ── */}
-      <div style={{ position: "relative", zIndex: 1, padding: "14px 16px", display: "flex", flexDirection: "column", gap: 2 }}>
+      <div style={{ position: "relative", zIndex: 1, padding: "16px 18px", display: "flex", flexDirection: "column", gap: 2 }}>
 
-        {/* ── Section 2: Mood Reflection ── */}
-        {moodReflection?.reflection && (
-          <div style={{ marginBottom: 8 }}>
-            <p style={{ fontFamily: FONT, fontSize: 14, color: T.text, margin: 0, lineHeight: 1.8, fontStyle: "italic" }}>{moodReflection.reflection}</p>
-          </div>
+        {/* ── Section 0: Her Inner State (moved to top) ── */}
+        {(m.relationshipNarrative || m.prospectiveNote || m.looseThread || moodReflection?.reflection) && (
+          <>
+            <SL>Her Inner State</SL>
+            {/* Mood reflection — current emotional read */}
+            {moodReflection?.reflection && (
+              <div style={{ marginBottom: 10 }}>
+                <p style={{ fontFamily: FONT, fontSize: 15, color: T.text, margin: 0, lineHeight: 1.85, fontStyle: "italic" }}>{moodReflection.reflection}</p>
+              </div>
+            )}
+            {m.relationshipNarrative && (
+              <div style={{ marginBottom: 10, background: T.accentSoft, borderRadius: 10, border: `1px solid ${T.accent}20`, padding: "14px 16px" }}>
+                <div style={{ color: T.textDim, fontSize: 11, fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", marginBottom: 6, fontFamily: FONT_MONO }}>How She Sees You</div>
+                <p style={{ fontFamily: FONT, fontSize: 15, color: T.text, margin: 0, lineHeight: 1.85, fontStyle: "italic" }}>"{m.relationshipNarrative}"</p>
+              </div>
+            )}
+            {m.prospectiveNote && (
+              <div style={{ marginBottom: 10, paddingLeft: 12, borderLeft: "2px solid #f59e0b80" }}>
+                <div style={{ color: T.textDim, fontSize: 11, fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", marginBottom: 5, fontFamily: FONT_MONO }}>Sitting With</div>
+                <div style={{ color: T.textSoft, lineHeight: 1.7, fontSize: 14 }}>{m.prospectiveNote}</div>
+              </div>
+            )}
+            {m.looseThread && (
+              <div style={{ marginBottom: 10, paddingLeft: 12, borderLeft: "2px solid #0ea5e980" }}>
+                <div style={{ color: T.textDim, fontSize: 11, fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", marginBottom: 5, fontFamily: FONT_MONO }}>Loose Thread</div>
+                <div style={{ color: T.textSoft, lineHeight: 1.7, fontSize: 14 }}>{m.looseThread}</div>
+              </div>
+            )}
+          </>
         )}
 
         {/* ── Section 3: Crisis Detection ── */}
         {meta?.crisisDetection?.safeHavenActive && (
-          <div style={{ background: "#fef2f2", border: "2px solid #dc2626", borderRadius: 8, padding: "10px 14px", marginBottom: 8 }}>
-            <div style={{ color: "#dc2626", fontSize: 10, fontWeight: 700, letterSpacing: "1px", marginBottom: 5, fontFamily: FONT_MONO }}>CRISIS DETECTED — SAFE HAVEN MODE</div>
-            <div style={{ color: "#991b1b", fontSize: 11, lineHeight: 1.6, fontFamily: FONT_MONO }}>
+          <div style={{ background: "#fef2f2", border: "2px solid #dc2626", borderRadius: 10, padding: "12px 16px", marginBottom: 10 }}>
+            <div style={{ color: "#dc2626", fontSize: 12, fontWeight: 700, letterSpacing: "1px", marginBottom: 6, fontFamily: FONT_MONO }}>CRISIS DETECTED — SAFE HAVEN MODE</div>
+            <div style={{ color: "#991b1b", fontSize: 13, lineHeight: 1.6, fontFamily: FONT_MONO }}>
               Level: <strong>{meta.crisisDetection.level}</strong> · Signals: {meta.crisisDetection.signals?.join(", ") || "none"}
             </div>
-            <div style={{ color: "#7f1d1d", fontSize: 10.5, marginTop: 4, fontStyle: "italic" }}>Inner thoughts suppressed. Threads suppressed. Full presence mode.</div>
+            <div style={{ color: "#7f1d1d", fontSize: 12.5, marginTop: 5, fontStyle: "italic" }}>Inner thoughts suppressed. Threads suppressed. Full presence mode.</div>
           </div>
         )}
 
@@ -1314,30 +1338,7 @@ function BrainPanel({ mood, speaking, latestMeta, moodReflection, disclosedAtoms
 
         <D />
 
-        {/* ── Section 17: Her Inner State ── */}
-        {(m.relationshipNarrative || m.prospectiveNote || m.looseThread) && (
-          <>
-            <SL>Her Inner State</SL>
-            {m.relationshipNarrative && (
-              <div style={{ marginBottom: 8, background: T.accentSoft, borderRadius: 10, border: `1px solid ${T.accent}20`, padding: "12px 14px" }}>
-                <div style={{ color: T.textDim, fontSize: 9, fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", marginBottom: 5, fontFamily: FONT_MONO }}>How She Sees You</div>
-                <p style={{ fontFamily: FONT, fontSize: 13, color: T.text, margin: 0, lineHeight: 1.8, fontStyle: "italic" }}>"{m.relationshipNarrative}"</p>
-              </div>
-            )}
-            {m.prospectiveNote && (
-              <div style={{ marginBottom: 8, paddingLeft: 10, borderLeft: "2px solid #f59e0b80" }}>
-                <div style={{ color: T.textDim, fontSize: 9, fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", marginBottom: 4, fontFamily: FONT_MONO }}>Sitting With</div>
-                <div style={{ color: T.textSoft, lineHeight: 1.65, fontSize: 12 }}>{m.prospectiveNote}</div>
-              </div>
-            )}
-            {m.looseThread && (
-              <div style={{ marginBottom: 8, paddingLeft: 10, borderLeft: "2px solid #0ea5e980" }}>
-                <div style={{ color: T.textDim, fontSize: 9, fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", marginBottom: 4, fontFamily: FONT_MONO }}>Loose Thread</div>
-                <div style={{ color: T.textSoft, lineHeight: 1.65, fontSize: 12 }}>{m.looseThread}</div>
-              </div>
-            )}
-          </>
-        )}
+        {/* ── Section 17: Her Inner State — MOVED TO TOP ── */}
 
         {/* ── Section 18: Synthesised Impressions ── */}
         {m?.molecules?.length > 0 && (
