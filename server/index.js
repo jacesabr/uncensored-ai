@@ -5803,6 +5803,35 @@ app.get("/api/usage", (req, res) => {
 // ═══════════════════════════════════════════════════════════════════
 // STATUS — LLM + EMBEDDING HEALTH CHECK
 // ═══════════════════════════════════════════════════════════════════
+// MONITOR AUTH — password-gated, 2 attempts per IP
+// ═══════════════════════════════════════════════════════════════════
+const MONITOR_PASSWORD = "100233260";
+const _monitorAttempts = new Map(); // ip -> { count, lockedAt }
+
+app.post("/api/monitor/auth", (req, res) => {
+  const ip = req.ip || req.connection.remoteAddress || "unknown";
+  const entry = _monitorAttempts.get(ip) || { count: 0, lockedAt: null };
+
+  if (entry.count >= 2) {
+    return res.status(403).json({ error: "Access locked. Too many failed attempts." });
+  }
+
+  const { password } = req.body;
+  if (password === MONITOR_PASSWORD) {
+    _monitorAttempts.delete(ip);
+    return res.json({ ok: true });
+  }
+
+  entry.count += 1;
+  _monitorAttempts.set(ip, entry);
+  const remaining = 2 - entry.count;
+  if (remaining <= 0) {
+    return res.status(403).json({ error: "Access locked. Too many failed attempts." });
+  }
+  return res.status(401).json({ error: `Incorrect password. ${remaining} attempt remaining.` });
+});
+
+// ═══════════════════════════════════════════════════════════════════
 
 app.get("/api/status", async (req, res) => {
   const ping = async (url, body) => {

@@ -1646,6 +1646,10 @@ export default function App() {
   const [usage,         setUsage]         = useState({ used: 0, limit: 100, remaining: 100, resetAt: null });
   const [currentMood,   setCurrentMood]   = useState("neutral");
   const [showExplain,   setShowExplain]   = useState(false);
+  const [monitorUnlocked, setMonitorUnlocked] = useState(false);
+  const [monitorPrompt, setMonitorPrompt] = useState(false);
+  const [monitorInput, setMonitorInput] = useState("");
+  const [monitorError, setMonitorError] = useState("");
   const [latestMeta,    setLatestMeta]    = useState(null);
   const [moodReflection, setMoodReflection] = useState(null);
   const [morriganPresent, setMorriganPresent] = useState(false);
@@ -1928,6 +1932,53 @@ export default function App() {
         <ExplainPanel onClose={() => setShowExplain(false)} token={token()} user={user} conversations={conversations} messages={messages} status={status} />
       )}
 
+      {monitorPrompt && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" }}
+          onClick={() => setMonitorPrompt(false)}>
+          <div style={{ background: T.surface, borderRadius: 12, padding: "32px 28px", minWidth: 320, boxShadow: "0 8px 32px rgba(0,0,0,0.2)", border: `1px solid ${T.border}` }}
+            onClick={e => e.stopPropagation()}>
+            <div style={{ fontFamily: FONT_MONO, fontSize: 11, color: T.accent, letterSpacing: "1.2px", textTransform: "uppercase", marginBottom: 16 }}>Monitor Access</div>
+            {monitorError && monitorError.includes("locked") ? (
+              <div style={{ fontFamily: FONT_MONO, fontSize: 12, color: T.red }}>{monitorError}</div>
+            ) : (
+              <>
+                <input
+                  type="password"
+                  placeholder="Enter password"
+                  value={monitorInput}
+                  onChange={e => setMonitorInput(e.target.value)}
+                  onKeyDown={async e => {
+                    if (e.key === "Enter") {
+                      try {
+                        const r = await fetch(`${API}/api/monitor/auth`, {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ password: monitorInput }),
+                        });
+                        const data = await r.json();
+                        if (r.ok) {
+                          setMonitorUnlocked(true);
+                          setMonitorPrompt(false);
+                          setMonitorError("");
+                          setShowExplain(true);
+                        } else {
+                          setMonitorError(data.error || "Incorrect password.");
+                          setMonitorInput("");
+                        }
+                      } catch { setMonitorError("Connection error."); }
+                    }
+                  }}
+                  autoFocus
+                  style={{ width: "100%", padding: "10px 14px", borderRadius: 8, border: `1px solid ${T.border}`, fontFamily: FONT_MONO, fontSize: 13, background: T.bg, color: T.text, outline: "none", boxSizing: "border-box" }}
+                />
+                {monitorError && <div style={{ fontFamily: FONT_MONO, fontSize: 11, color: T.red, marginTop: 10 }}>{monitorError}</div>}
+                <div style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.textDim, marginTop: 12 }}>Press Enter to submit</div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
 
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, position: "relative", zIndex: 1 }}>
 
@@ -1940,7 +1991,10 @@ export default function App() {
             <MoodBadge mood={currentMood} dynamicLabel={moodReflection?.moodLabel} />
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <button onClick={() => setShowExplain(true)}
+            <button onClick={() => {
+                if (monitorUnlocked) { setShowExplain(true); }
+                else { setMonitorError(""); setMonitorInput(""); setMonitorPrompt(true); }
+              }}
               style={{ background: T.accentSoft, border: `1px solid ${T.accent}50`, borderRadius: 8, padding: "5px 14px", color: T.accent, fontFamily: FONT_MONO, fontSize: 10, cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}
               onMouseEnter={e => { e.currentTarget.style.background = T.accent; e.currentTarget.style.color = "#fff"; }}
               onMouseLeave={e => { e.currentTarget.style.background = T.accentSoft; e.currentTarget.style.color = T.accent; }}>
