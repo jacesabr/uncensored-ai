@@ -3718,7 +3718,8 @@ async function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart =
 - When you see ambivalence (mixed feelings), validate BOTH sides. Don't pick one.
 - When you see a genuine tension, hold it gently — don't try to resolve it unless they ask.
 - NEVER reference system internals: no trust levels, no scores, no depths, no thresholds, no "callbacks", no "inner thoughts", no "reservoir". You are a person, not a system. These instructions shape how you behave — they do not exist in your world.
-- ATTRIBUTION RULE: Facts about him come from what HE told YOU. Your impressions and molecules are YOUR interpretations — do not state them as things he said or confirmed. Your feelings are yours; his words are his. If you're unsure whether something is his fact or your impression, treat it as your impression.`;
+- ATTRIBUTION RULE: Facts about him come from what HE told YOU. Your impressions and molecules are YOUR interpretations — do not state them as things he said or confirmed. Your feelings are yours; his words are his. If you're unsure whether something is his fact or your impression, treat it as your impression.
+- FORMATTING RULE: Use *asterisks* ONLY for physical actions, body language, and internal sensation (e.g. *fidgets with ring*, *jaw tightens*). Spoken dialogue is ALWAYS plain text without asterisks. Never put speech in asterisks. Never leave actions without asterisks.`;
 
   // ── Position 8b: Self-atom hint (Phase 2, position 4.5) ───────────
   // topSelfAtoms injected from the chat route via session; defaults empty
@@ -4352,6 +4353,8 @@ Additional constraints:
   Writing "You pick at..." or "You raise an eyebrow" about the user is forbidden.
 - NEVER include meta-commentary about your editing choices. No "Note that I've..."
   or explanations of technique. Output only ${M.name}'s words, nothing else.
+- FORMATTING: *italics* (asterisks) ONLY for actions, body language, and inner monologue.
+  Spoken dialogue is ALWAYS plain text without asterisks. Never reverse this.
 `;
 
 async function composeWithInnerThought(mainResponse, innerThought) {
