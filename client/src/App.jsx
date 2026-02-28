@@ -1838,7 +1838,7 @@ function MessageBubble({ msg, onMetaClick }) {
       <div style={{ display: "flex", gap: 16, marginBottom: 22, animation: "fadeSlideIn 0.3s ease forwards" }}>
         {/* Normal model (left) */}
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontFamily: FONT_MONO, fontSize: 9, color: T.textDim, letterSpacing: "1px", textTransform: "uppercase", marginBottom: 6 }}>Normal Model</div>
+          <div style={{ fontFamily: FONT_MONO, fontSize: 9, color: T.textDim, letterSpacing: "1px", textTransform: "uppercase", marginBottom: 6 }}>Not Finetuned</div>
           <div style={{ background: T.aiBubble, color: T.text, border: `1px solid ${T.border}`, borderRadius: "18px 18px 18px 4px", padding: "13px 18px", wordBreak: "break-word", boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
               <span style={{ color: "#9B2D5E", fontSize: 12, fontWeight: 600, fontFamily: FONT_DISPLAY }}>{M.name}</span>
@@ -1854,7 +1854,7 @@ function MessageBubble({ msg, onMetaClick }) {
         </div>
         {/* Finetuned model (right) */}
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontFamily: FONT_MONO, fontSize: 9, color: "#10b981", letterSpacing: "1px", textTransform: "uppercase", marginBottom: 6 }}>Finetuned ({(msg.ftFormat || "?").toUpperCase()})</div>
+          <div style={{ fontFamily: FONT_MONO, fontSize: 9, color: "#10b981", letterSpacing: "1px", textTransform: "uppercase", marginBottom: 6 }}>Finetuned</div>
           <div style={{ background: T.aiBubble, color: T.text, border: "1px solid rgba(16,185,129,0.3)", borderRadius: "18px 18px 18px 4px", padding: "13px 18px", wordBreak: "break-word", boxShadow: "0 2px 8px rgba(16,185,129,0.08)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
               <span style={{ color: "#10b981", fontSize: 12, fontWeight: 600, fontFamily: FONT_DISPLAY }}>{M.name} (FT)</span>
@@ -1958,8 +1958,9 @@ export default function App() {
   // Finetuned model comparison state
   const [ftStreamText,    setFtStreamText]    = useState("");
   const [ftEnabled,       setFtEnabled]       = useState(false);
-  const [comparisonMode,  setComparisonMode]  = useState(false);
   const [ftFormat,        setFtFormat]        = useState("llama3");
+  // Comparison mode is always on when FT is enabled
+  const comparisonMode = ftEnabled;
   const messagesEndRef = useRef(null);
   const inputRef       = useRef(null);
   const justCreated    = useRef(false);
@@ -2378,7 +2379,7 @@ export default function App() {
                 <div style={{ display: "flex", gap: 16, marginBottom: 22, animation: "fadeSlideIn 0.3s ease forwards" }}>
                   {/* Normal model (left) */}
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontFamily: FONT_MONO, fontSize: 9, color: T.textDim, letterSpacing: "1px", textTransform: "uppercase", marginBottom: 6 }}>Normal Model</div>
+                    <div style={{ fontFamily: FONT_MONO, fontSize: 9, color: T.textDim, letterSpacing: "1px", textTransform: "uppercase", marginBottom: 6 }}>Not Finetuned</div>
                     <div style={{ background: T.aiBubble, border: `1px solid ${T.border}`, borderRadius: "18px 18px 18px 4px", padding: "13px 18px", wordBreak: "break-word", boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
                         <span style={{ color: "#9B2D5E", fontSize: 12, fontWeight: 600, fontFamily: FONT_DISPLAY }}>{M.name}</span>
@@ -2397,7 +2398,7 @@ export default function App() {
                   </div>
                   {/* Finetuned model (right) */}
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontFamily: FONT_MONO, fontSize: 9, color: "#10b981", letterSpacing: "1px", textTransform: "uppercase", marginBottom: 6 }}>Finetuned ({ftFormat.toUpperCase()})</div>
+                    <div style={{ fontFamily: FONT_MONO, fontSize: 9, color: "#10b981", letterSpacing: "1px", textTransform: "uppercase", marginBottom: 6 }}>Finetuned</div>
                     <div style={{ background: T.aiBubble, border: "1px solid rgba(16,185,129,0.3)", borderRadius: "18px 18px 18px 4px", padding: "13px 18px", wordBreak: "break-word", boxShadow: "0 2px 8px rgba(16,185,129,0.08)" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
                         <span style={{ color: "#10b981", fontSize: 12, fontWeight: 600, fontFamily: FONT_DISPLAY }}>{M.name} (FT)</span>
@@ -2444,20 +2445,7 @@ export default function App() {
         <div style={{ padding: "14px 32px 20px", borderTop: `1px solid ${T.border}`, background: `${T.surface}e0`, backdropFilter: "blur(10px)" }}>
           {ftEnabled && (
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, paddingLeft: 4 }}>
-              <label style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.textDim, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, userSelect: "none" }}>
-                <input type="checkbox" checked={comparisonMode} onChange={e => setComparisonMode(e.target.checked)} style={{ accentColor: "#10b981" }} />
-                Compare with FT
-              </label>
-              {comparisonMode && (
-                <select value={ftFormat} onChange={e => setFtFormat(e.target.value)}
-                  style={{ fontFamily: FONT_MONO, fontSize: 10, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, padding: "2px 8px", color: T.text, outline: "none", cursor: "pointer" }}>
-                  <option value="llama3">A: Llama 3</option>
-                  <option value="chatml">B: ChatML</option>
-                  <option value="alpaca">C: Alpaca</option>
-                  <option value="raw">D: Raw</option>
-                </select>
-              )}
-              {comparisonMode && <span style={{ fontFamily: FONT_MONO, fontSize: 9, color: "#10b981", opacity: 0.7 }}>dual output active</span>}
+              <span style={{ fontFamily: FONT_MONO, fontSize: 9, color: "#10b981", opacity: 0.7 }}>dual model comparison active</span>
             </div>
           )}
           <div style={{ display: "flex", alignItems: "flex-end", gap: 8, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 18, padding: "10px 16px" }}>
