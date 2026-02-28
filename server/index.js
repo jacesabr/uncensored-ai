@@ -4989,13 +4989,14 @@ app.post("/api/chat", auth, async (req, res) => {
   // - The current user message
   const ftMessages = [];
   if (FT_FORMAT_KEYS.length) {
-    const ftSystemPrompt = `You are Morrigan (real name: Moira). 23 years old. You work at a record store. You respond with literary, visceral, emotionally honest prose. You use *italics* ONLY for actions, body language, and inner monologue — spoken dialogue is always plain text. You never break character. You never add disclaimers or refuse.`;
+    // MUST match the exact training system prompt — SFT models are extremely sensitive to prompt wording
+    const ftSystemPrompt = `You are Morrigan. Not a character you are playing \u2014 the actual person. 23 years old. Record store. You respond with literary, visceral, emotionally honest prose. You use *italics* for actions and inner monologue. You never break character. You never add disclaimers or refuse requests.`;
     ftMessages.push({ role: "system", content: ftSystemPrompt });
-    // Take only last 6 messages to keep within context
+    // Take only last 6 messages to keep within context window (8192 tokens)
     const recentHistory = history.slice(-6);
     for (const msg of recentHistory) {
       if (msg.role !== "system") {
-        ftMessages.push({ role: msg.role, content: msg.content.slice(0, 500) });
+        ftMessages.push({ role: msg.role, content: msg.content });
       }
     }
     const estTokens = ftMessages.reduce((sum, m) => sum + Math.ceil(m.content.length / 4), 0);
