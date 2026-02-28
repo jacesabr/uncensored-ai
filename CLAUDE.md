@@ -26,6 +26,8 @@ uncensored-ai/
 │   ├── vite.config.js
 │   └── package.json
 ├── unleashed_colab_server.ipynb  # Kaggle/Colab notebook for GPU LLM hosting
+├── morrigan_sft_server.ipynb    # Colab notebook: serves GGUF model as API via ngrok (for FT comparison)
+├── test_morrigan_colab.ipynb    # Colab notebook: tests GGUF model quality (style, knowledge, full prompt)
 ├── README.md
 └── CLAUDE.md             # This file
 ```
@@ -65,7 +67,7 @@ PORT=5000
 MONGO_URI=mongodb+srv://...
 JWT_SECRET=unleashed-secret-2024
 CHAT_MODEL=morrigan-sft-v1
-COLAB_URL=https://api.runpod.ai/v2/YOUR_ENDPOINT_ID/openai  # Primary LLM (no /v1)
+COLAB_URL=https://api.venice.ai/api                        # Primary LLM (Venice currently)
 LLM_API_KEY=...                                # Bearer token for primary LLM provider
 # Fallback LLM — Venice AI (activates on primary failure)
 FALLBACK_LLM_URL=https://api.venice.ai/api
@@ -75,6 +77,9 @@ FALLBACK_CHAT_MODEL=venice-uncensored
 EMBED_URL=https://api.venice.ai/api
 EMBED_API_KEY=...                              # Venice API key for embeddings
 EMBED_MODEL=text-embedding-3-small
+# Finetuned model comparison (optional — enables dual-bubble UI)
+FT_URL=https://xxxx.ngrok-free.app          # Colab ngrok URL from morrigan_sft_server.ipynb
+FT_API_KEY=                                  # Optional — no auth needed for Colab ngrok
 COMFYUI_URL=http://localhost:8188
 SD_WEBUI_URL=http://localhost:7860
 CLIENT_URL=http://localhost:3000
@@ -310,6 +315,8 @@ User types → Frontend analyzeMood() → POST /api/chat (JWT)
 
 | 2026-02-28 | **Reverted Morrigan SFT deployment** — fine-tuned model not running properly on HuggingFace. Restored Venice AI as sole LLM provider. Removed: `llmFetch()` fallback system, `LLM_API_KEY`/`EMBED_URL`/`EMBED_API_KEY`/`FALLBACK_*` env vars, provider stats tracking, provider field in messages/processingMeta, StatusTab fallback UI. Deleted: `deploy_modal.py`, `deploy_runpod.py`, `test_endpoint.py`, `DEPLOY_MORRIGAN.md`, `morrigan_sft_v1.ipynb`, `__pycache__/`. Server restored to `VENICE_API_KEY` + `fetchWithTimeout` direct calls. Will re-add Morrigan SFT with Venice as fallback once model is tested and ready. | server/index.js, client/src/App.jsx, CLAUDE.md |
 | 2026-02-28 | **Re-deploy Morrigan SFT with RunPod/Modal + Venice fallback**. **(1) Deployment scripts restored**: `deploy_modal.py` (vLLM on A10G), `deploy_runpod.py` (serverless template creation), `test_endpoint.py` (endpoint tester), `DEPLOY_MORRIGAN.md` (multi-provider guide). **(2) Server: `llmFetch()` fallback system**: Drop-in replacement for `fetchWithTimeout` on all 28 LLM chat calls. Tries primary (COLAB_URL), auto-falls back to Venice on 5xx/timeout/network error. 90s cooldown before retrying primary. Swaps URL, auth key, and model name transparently. Stats tracking per provider (calls, successes, failures, timeouts, latency). **(3) Env vars**: `LLM_API_KEY` (primary, falls back to `VENICE_API_KEY`), `FALLBACK_LLM_URL`/`FALLBACK_LLM_KEY`/`FALLBACK_CHAT_MODEL` (Venice), `EMBED_URL`/`EMBED_API_KEY` (separate embedding provider). `CHAT_MODEL` default: `morrigan-sft-v1`. **(4) Embed separation**: 3 embedding call sites (`embedText`, self-atom seeding ×2) now use `EMBED_URL`/`EMBED_API_KEY` instead of primary LLM URL. **(5) `/api/status` upgrade**: Pings primary, fallback, embed separately. Returns `provider` object with full stats (calls, success rate, avg latency, errors, fallback activations). **(6) Message tracking**: `provider`/`modelUsed` fields on MessageSchema + processingMeta. **(7) Client StatusTab**: Dynamic provider labels (RunPod/Modal/Venice based on URL), 5-check grid (server, primary, fallback, embed, mongo), provider stats cards, "FALLBACK ACTIVE" alert, environment card with all 3 providers. | server/index.js, client/src/App.jsx, deploy_modal.py, deploy_runpod.py, test_endpoint.py, DEPLOY_MORRIGAN.md, CLAUDE.md |
+
+| 2026-02-28 | **Colab GGUF serving notebook + dual-model comparison docs**. **(1) `morrigan_sft_server.ipynb`**: Colab notebook that serves `morrigan-Q5_K_M.gguf` (5.7GB) as a llama.cpp-compatible `/completion` API via FastAPI + ngrok. Endpoints: `/completion` (streaming SSE with `{content, stop}` format matching server's `ftStreamCompletion`), `/v1/chat/completions` (OpenAI-compatible for manual testing), `/health` (stats). Keep-alive cell with 60s stats. **(2) `test_morrigan_colab.ipynb` section 10.5**: Full production system prompt test — realistic `buildSystemPrompt()` output simulating trust 3/SPT depth 2 user with memories, milestones, feelings, contradictions, somatic marker, continuation signal. 4 test prompts with quality checks. **(3) Dual-model comparison already wired**: Server has `FT_URL`/`FT_API_KEY`/`FT_ENABLED` env vars, `FT_FORMATS` (llama3/chatml/alpaca/raw), `ftStreamCompletion()` calling `FT_URL/completion`, parallel SSE streaming of `ftToken` alongside `token`, `finetunedComparison` in done event. Client has `comparisonMode` toggle, `ftFormat` selector, side-by-side `MessageBubble` rendering. Just set `FT_URL` to Colab ngrok URL to activate. | morrigan_sft_server.ipynb, test_morrigan_colab.ipynb, CLAUDE.md |
 
 ---
 

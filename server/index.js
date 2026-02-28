@@ -82,9 +82,16 @@ const EMBED_URL = process.env.EMBED_URL || FALLBACK_LLM_URL;
 const EMBED_API_KEY = process.env.EMBED_API_KEY || FALLBACK_LLM_KEY;
 const EMBED_MODEL = process.env.EMBED_MODEL || "text-embedding-3-small";
 
+// ── Finetuned model comparison (llama.cpp on RunPod) ──────────────
+const FT_URL     = process.env.FT_URL || "";
+const FT_API_KEY = process.env.FT_API_KEY || "";
+const FT_ENABLED = !!FT_URL;
+
 console.log(`[LLM] Primary: ${COLAB_URL} (model: ${CHAT_MODEL})`);
 if (FALLBACK_LLM_URL) console.log(`[LLM] Fallback: ${FALLBACK_LLM_URL} (model: ${FALLBACK_CHAT_MODEL})`);
 console.log(`[LLM] Embeddings: ${EMBED_URL} (model: ${EMBED_MODEL})`);
+if (FT_ENABLED) console.log(`[FT] Finetuned endpoint: ${FT_URL}`);
+else console.log("[FT] Finetuned comparison disabled (no FT_URL)");
 
 mongoose.connect(MONGO_URI).catch(err => {
   console.error("[FATAL] MongoDB connection failed:", err.message);
@@ -161,6 +168,85 @@ function fetchWithTimeout(url, options, timeoutMs = LLM_TIMEOUT_MS) {
   const id = setTimeout(() => controller.abort(), timeoutMs);
   return fetch(url, { ...options, signal: controller.signal })
     .finally(() => clearTimeout(id));
+}
+
+// ── Finetuned model: prompt format converters ─────────────────────
+// Converts OpenAI-style messages[] to raw prompt strings for llama.cpp /completion.
+// The GGUF chat template is broken — /v1/chat/completions causes echo/regurgitation.
+// Four formats to A/B test which produces the best Morrigan responses.
+const FT_FORMATS = {
+  llama3: {
+    name: "Llama 3 Instruct",
+    convert(messages) {
+      let prompt = "";
+      for (const msg of messages) {
+        prompt += `<|start_header_id|>${msg.role}<|end_header_id|>\n\n${msg.content}<|eot_id|>`;
+      }
+      prompt += "<|start_header_id|>assistant<|end_header_id|>\n\n";
+      return prompt;
+    },
+    stop: ["<|eot_id|>", "<|end_of_text|>"],
+  },
+  chatml: {
+    name: "ChatML",
+    convert(messages) {
+      let prompt = "";
+      for (const msg of messages) {
+        prompt += `<|im_start|>${msg.role}\n${msg.content}<|im_end|>\n`;
+      }
+      prompt += "<|im_start|>assistant\n";
+      return prompt;
+    },
+    stop: ["<|im_end|>"],
+  },
+  alpaca: {
+    name: "Alpaca",
+    convert(messages) {
+      const system = messages.find(m => m.role === "system");
+      const conversation = messages.filter(m => m.role !== "system");
+      let prompt = "";
+      if (system) prompt += `### Instruction:\n${system.content}\n\n`;
+      for (const msg of conversation) {
+        if (msg.role === "user") prompt += `### Input:\n${msg.content}\n\n`;
+        else if (msg.role === "assistant") prompt += `### Response:\n${msg.content}\n\n`;
+      }
+      prompt += "### Response:\n";
+      return prompt;
+    },
+    stop: ["### Input:", "### Instruction:", "\n###"],
+  },
+  raw: {
+    name: "Raw (no template)",
+    convert(messages) {
+      let prompt = "";
+      for (const msg of messages) {
+        const label = msg.role === "system" ? "System" : msg.role === "user" ? "User" : "Assistant";
+        prompt += `${label}: ${msg.content}\n\n`;
+      }
+      prompt += "Assistant: ";
+      return prompt;
+    },
+    stop: ["\nUser:", "\nSystem:"],
+  },
+};
+
+// ── Finetuned model: streaming call via llama.cpp /completion ──────
+async function ftStreamCompletion(messages, format = "llama3") {
+  const fmt = FT_FORMATS[format] || FT_FORMATS.llama3;
+  const prompt = fmt.convert(messages);
+  const headers = { "Content-Type": "application/json" };
+  if (FT_API_KEY) headers["Authorization"] = `Bearer ${FT_API_KEY}`;
+  return fetchWithTimeout(`${FT_URL}/completion`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      prompt,
+      temperature: 0.8,
+      n_predict: 500,
+      stop: fmt.stop,
+      stream: true,
+    }),
+  }, 120_000);
 }
 
 // ── LLM fetch with automatic fallback + stats tracking ─────────────
@@ -4394,7 +4480,7 @@ app.post("/api/self-atoms/seed", auth, async (req, res) => {
 
 
 app.post("/api/chat", auth, async (req, res) => {
-  const { conversationId, message } = req.body;
+  const { conversationId, message, finetunedFormat } = req.body;
 
   // ── Input validation ──────────────────────────────────────────────
   if (!message || typeof message !== "string" || !message.trim()) {
@@ -4862,6 +4948,60 @@ app.post("/api/chat", auth, async (req, res) => {
     if (msg.role !== "system") {
       messages.push({ role: msg.role, content: msg.content });
     }
+  }
+
+  // ── Finetuned model: fire parallel stream if comparison requested ──
+  let ftFullResponse = "", ftError = null, ftStreamDone = false;
+  const ftFormat = (FT_ENABLED && finetunedFormat && FT_FORMATS[finetunedFormat]) ? finetunedFormat : null;
+
+  if (ftFormat) {
+    (async () => {
+      try {
+        const ftRes = await ftStreamCompletion(messages, ftFormat);
+        if (!ftRes.ok) {
+          const errBody = await ftRes.text().catch(() => "");
+          ftError = `FT HTTP ${ftRes.status}: ${errBody.slice(0, 200)}`;
+          if (!res.writableEnded) res.write(`data: ${JSON.stringify({ ftError })}\n\n`);
+          ftStreamDone = true;
+          return;
+        }
+        // llama.cpp /completion SSE: data: {"content":"token","stop":false}
+        ftRes.body.on("data", (chunk) => {
+          const lines = chunk.toString().split("\n").filter(Boolean);
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue;
+            try {
+              const json = JSON.parse(line.slice(6));
+              if (json.content && !res.writableEnded) {
+                ftFullResponse += json.content;
+                res.write(`data: ${JSON.stringify({ ftToken: json.content })}\n\n`);
+              }
+              if (json.stop) {
+                ftStreamDone = true;
+                if (!res.writableEnded) {
+                  res.write(`data: ${JSON.stringify({ ftDone: true, ftResponse: ftFullResponse })}\n\n`);
+                }
+              }
+            } catch {}
+          }
+        });
+        ftRes.body.on("error", (e) => {
+          ftError = e.message;
+          ftStreamDone = true;
+          if (!res.writableEnded) res.write(`data: ${JSON.stringify({ ftError: e.message })}\n\n`);
+        });
+        ftRes.body.on("end", () => {
+          if (!ftStreamDone && !res.writableEnded) {
+            ftStreamDone = true;
+            res.write(`data: ${JSON.stringify({ ftDone: true, ftResponse: ftFullResponse })}\n\n`);
+          }
+        });
+      } catch (e) {
+        ftError = e.message;
+        ftStreamDone = true;
+        if (!res.writableEnded) res.write(`data: ${JSON.stringify({ ftError: e.message })}\n\n`);
+      }
+    })();
   }
 
   try {
@@ -5469,6 +5609,12 @@ app.post("/api/chat", auth, async (req, res) => {
           },
           processingMeta: processingMetaForDone,
           provider: { name: _chatProvider, model: _chatModel, fallbackActive: _fallbackActive },
+          finetunedComparison: ftFormat ? {
+            format: ftFormat,
+            formatName: (FT_FORMATS[ftFormat] || {}).name || ftFormat,
+            response: ftFullResponse || null,
+            error: ftError || null,
+          } : undefined,
           usage: {
             used: usageForDone.count,
             limit: DAILY_MSG_LIMIT,
@@ -5476,6 +5622,13 @@ app.post("/api/chat", auth, async (req, res) => {
             resetAt: new Date(usageForDone.resetAt).toISOString(),
           },
         })}\n\n`);
+        // Wait briefly for finetuned stream to finish before closing connection
+        if (ftFormat && !ftStreamDone) {
+          const ftWaitStart = Date.now();
+          while (!ftStreamDone && Date.now() - ftWaitStart < 5000) {
+            await new Promise(r => setTimeout(r, 100));
+          }
+        }
         res.end();
         // Kick off real-time brain update AFTER the response is delivered.
         // Store the promise on the session so the NEXT /api/chat call can
@@ -6097,6 +6250,8 @@ app.get("/api/status", async (req, res) => {
     embedModel: EMBED_MODEL,
     backend: COLAB_URL,
     mongo: true,
+    ftEnabled: FT_ENABLED,
+    ftUrl: FT_URL || null,
     _diag: { chat: llm.status, embed: embed.status },
     provider: {
       primary: {

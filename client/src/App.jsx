@@ -1831,6 +1831,44 @@ function AuthScreen({ onAuth }) {
 
 function MessageBubble({ msg, onMetaClick }) {
   const isUser = msg.role === "user";
+  const hasFt = !isUser && msg.ftResponse;
+  // Side-by-side layout when finetuned comparison exists
+  if (hasFt) {
+    return (
+      <div style={{ display: "flex", gap: 16, marginBottom: 22, animation: "fadeSlideIn 0.3s ease forwards" }}>
+        {/* Normal model (left) */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontFamily: FONT_MONO, fontSize: 9, color: T.textDim, letterSpacing: "1px", textTransform: "uppercase", marginBottom: 6 }}>Normal Model</div>
+          <div style={{ background: T.aiBubble, color: T.text, border: `1px solid ${T.border}`, borderRadius: "18px 18px 18px 4px", padding: "13px 18px", wordBreak: "break-word", boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+              <span style={{ color: "#9B2D5E", fontSize: 12, fontWeight: 600, fontFamily: FONT_DISPLAY }}>{M.name}</span>
+              {msg.meta && onMetaClick && (
+                <span onClick={() => onMetaClick(msg.meta)}
+                  style={{ color: T.accent, fontSize: 10, fontFamily: FONT_MONO, cursor: "pointer", opacity: 0.5, transition: "opacity 0.2s" }}
+                  onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0.5}
+                  title="View brain state">◈ brain</span>
+              )}
+            </div>
+            <div style={{ fontSize: 14, lineHeight: 1.85, whiteSpace: "pre-wrap", fontFamily: FONT }}><FormatMessage text={msg.content} bold={true} /></div>
+          </div>
+        </div>
+        {/* Finetuned model (right) */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontFamily: FONT_MONO, fontSize: 9, color: "#10b981", letterSpacing: "1px", textTransform: "uppercase", marginBottom: 6 }}>Finetuned ({(msg.ftFormat || "?").toUpperCase()})</div>
+          <div style={{ background: T.aiBubble, color: T.text, border: "1px solid rgba(16,185,129,0.3)", borderRadius: "18px 18px 18px 4px", padding: "13px 18px", wordBreak: "break-word", boxShadow: "0 2px 8px rgba(16,185,129,0.08)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+              <span style={{ color: "#10b981", fontSize: 12, fontWeight: 600, fontFamily: FONT_DISPLAY }}>{M.name} (FT)</span>
+            </div>
+            {msg.ftError ? (
+              <div style={{ fontSize: 12, color: "#ef4444", fontFamily: FONT_MONO }}>{msg.ftError}</div>
+            ) : (
+              <div style={{ fontSize: 14, lineHeight: 1.85, whiteSpace: "pre-wrap", fontFamily: FONT }}><FormatMessage text={msg.ftResponse} bold={true} /></div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
   return (
     <div style={{ display: "flex", marginBottom: 22, alignItems: "flex-start", justifyContent: isUser ? "flex-end" : "flex-start", animation: "fadeSlideIn 0.3s ease forwards" }}>
       <div style={isUser
@@ -1917,6 +1955,11 @@ export default function App() {
   const [proactiveTyping, setProactiveTyping] = useState(false);
   const [disclosedAtoms, setDisclosedAtoms] = useState([]);
   const [phase6Summary, setPhase6Summary] = useState(null);
+  // Finetuned model comparison state
+  const [ftStreamText,    setFtStreamText]    = useState("");
+  const [ftEnabled,       setFtEnabled]       = useState(false);
+  const [comparisonMode,  setComparisonMode]  = useState(false);
+  const [ftFormat,        setFtFormat]        = useState("llama3");
   const messagesEndRef = useRef(null);
   const inputRef       = useRef(null);
   const justCreated    = useRef(false);
@@ -1938,7 +1981,7 @@ export default function App() {
 
   useEffect(() => {
     if (!authed) return;
-    const ck = () => fetch(`${API}/api/status`).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }).then(setStatus).catch(() => {});
+    const ck = () => fetch(`${API}/api/status`).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }).then(d => { setStatus(d); if (d.ftEnabled) setFtEnabled(true); }).catch(() => {});
     ck(); const iv = setInterval(ck, 30000); return () => clearInterval(iv);
   }, [authed]);
 
@@ -2107,10 +2150,12 @@ export default function App() {
       }
     }
     setMessages(p => [...p, { role: "user", content: input.trim(), timestamp: new Date() }]);
-    setInput(""); setStreaming(true); setStreamText("");
+    setInput(""); setStreaming(true); setStreamText(""); setFtStreamText("");
 
     try {
-      const res = await fetch(`${API}/api/chat`, { method: "POST", headers: hdrs(), body: JSON.stringify({ conversationId: cid, message: input.trim() }) });
+      const chatBody = { conversationId: cid, message: input.trim() };
+      if (comparisonMode && ftEnabled) chatBody.finetunedFormat = ftFormat;
+      const res = await fetch(`${API}/api/chat`, { method: "POST", headers: hdrs(), body: JSON.stringify(chatBody) });
       if (!res.ok) {
         let errMsg = `Server error (${res.status})`;
         try { const j = await res.json(); errMsg = j.error || errMsg; } catch { }
@@ -2119,7 +2164,7 @@ export default function App() {
       }
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
-      let full = "", buffer = "", doneSeen = false;
+      let full = "", ftFull = "", buffer = "", doneSeen = false;
 
       outer: while (true) {
         const { done, value } = await reader.read(); if (done) break;
@@ -2129,11 +2174,15 @@ export default function App() {
           try {
             const json = JSON.parse(line.slice(6));
             if (json.token) { full += json.token; setStreamText(full); }
+            if (json.ftToken) { ftFull += json.ftToken; setFtStreamText(ftFull); }
+            if (json.ftDone) { setFtStreamText(""); }
+            if (json.ftError) { setFtStreamText(""); ftFull = "⚠ " + json.ftError; }
             if (json.done) {
               doneSeen = true;
               const finalText = json.finalResponse || full;
               if (finalText.trim()) {
-                setMessages(p => [...p, { role: "assistant", content: finalText, timestamp: new Date(), meta: json.processingMeta || null }]);
+                const ftResp = json.finetunedComparison?.response || ftFull || null;
+                setMessages(p => [...p, { role: "assistant", content: finalText, timestamp: new Date(), meta: json.processingMeta || null, ftResponse: ftResp, ftFormat: comparisonMode ? ftFormat : null, ftError: json.finetunedComparison?.error || null }]);
                 setConversations(p => p.map(c => c.conversationId === cid ? { ...c, title: `🖤 ${finalText.substring(0, 40)}${finalText.length > 40 ? "..." : ""}`, updatedAt: new Date() } : c));
               }
               if (json.processingMeta) {
@@ -2152,7 +2201,7 @@ export default function App() {
                 }
               }
               if (json.usage) setUsage(json.usage);
-              setStreamText("");
+              setStreamText(""); setFtStreamText("");
               setStreaming(false);
               break outer; // exit immediately — prevents dots flash and stray reads
             }
@@ -2165,7 +2214,7 @@ export default function App() {
         setMessages(p => [...p, { role: "assistant", content: full, timestamp: new Date() }]);
         setStreamText("");
       }
-    } catch (err) { setMessages(p => [...p, { role: "assistant", content: `⚠ ${err.message}` }]); setStreamText(""); }
+    } catch (err) { setMessages(p => [...p, { role: "assistant", content: `⚠ ${err.message}` }]); setStreamText(""); setFtStreamText(""); }
     setStreaming(false); inputRef.current?.focus();
   };
 
@@ -2302,7 +2351,7 @@ export default function App() {
                 </div>
               )}
               {messages.map((msg, i) => <MessageBubble key={i} msg={msg} onMetaClick={setLatestMeta} />)}
-              {streaming && (
+              {streaming && !comparisonMode && (
                 <div style={{ display: "flex", marginBottom: 22, alignItems: "flex-start", animation: "fadeSlideIn 0.3s ease forwards" }}>
                   <div style={{ background: T.aiBubble, border: `1px solid ${T.border}`, borderRadius: "22px 22px 22px 4px", padding: "13px 20px", maxWidth: "75%", wordBreak: "break-word", boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: streamText ? 8 : 5 }}>
@@ -2321,6 +2370,53 @@ export default function App() {
                         ))}
                       </div>
                     )}
+                  </div>
+                </div>
+              )}
+              {/* Dual comparison streaming view */}
+              {streaming && comparisonMode && (
+                <div style={{ display: "flex", gap: 16, marginBottom: 22, animation: "fadeSlideIn 0.3s ease forwards" }}>
+                  {/* Normal model (left) */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontFamily: FONT_MONO, fontSize: 9, color: T.textDim, letterSpacing: "1px", textTransform: "uppercase", marginBottom: 6 }}>Normal Model</div>
+                    <div style={{ background: T.aiBubble, border: `1px solid ${T.border}`, borderRadius: "18px 18px 18px 4px", padding: "13px 18px", wordBreak: "break-word", boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                        <span style={{ color: "#9B2D5E", fontSize: 12, fontWeight: 600, fontFamily: FONT_DISPLAY }}>{M.name}</span>
+                      </div>
+                      {streamText ? (
+                        <div style={{ fontSize: 14, lineHeight: 1.85, whiteSpace: "pre-wrap", fontFamily: FONT }}>
+                          <FormatMessage text={streamText} bold={true} />
+                          <span style={{ color: T.accent, animation: "blink 1s infinite", marginLeft: 2 }}>▎</span>
+                        </div>
+                      ) : (
+                        <div style={{ display: "flex", gap: 5, alignItems: "center", padding: "4px 0" }}>
+                          {[0, 1, 2].map(i => <div key={i} style={{ width: 6, height: 6, borderRadius: "50%", background: T.accent, opacity: 0.6, animation: "speakBounce 1.2s ease-in-out infinite", animationDelay: `${i * 0.22}s` }} />)}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  {/* Finetuned model (right) */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontFamily: FONT_MONO, fontSize: 9, color: "#10b981", letterSpacing: "1px", textTransform: "uppercase", marginBottom: 6 }}>Finetuned ({ftFormat.toUpperCase()})</div>
+                    <div style={{ background: T.aiBubble, border: "1px solid rgba(16,185,129,0.3)", borderRadius: "18px 18px 18px 4px", padding: "13px 18px", wordBreak: "break-word", boxShadow: "0 2px 8px rgba(16,185,129,0.08)" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                        <span style={{ color: "#10b981", fontSize: 12, fontWeight: 600, fontFamily: FONT_DISPLAY }}>{M.name} (FT)</span>
+                      </div>
+                      {ftStreamText ? (
+                        ftStreamText.startsWith("⚠") ? (
+                          <div style={{ fontSize: 12, color: "#ef4444", fontFamily: FONT_MONO }}>{ftStreamText}</div>
+                        ) : (
+                          <div style={{ fontSize: 14, lineHeight: 1.85, whiteSpace: "pre-wrap", fontFamily: FONT }}>
+                            <FormatMessage text={ftStreamText} bold={true} />
+                            <span style={{ color: "#10b981", animation: "blink 1s infinite", marginLeft: 2 }}>▎</span>
+                          </div>
+                        )
+                      ) : (
+                        <div style={{ display: "flex", gap: 5, alignItems: "center", padding: "4px 0" }}>
+                          {[0, 1, 2].map(i => <div key={i} style={{ width: 6, height: 6, borderRadius: "50%", background: "#10b981", opacity: 0.6, animation: "speakBounce 1.2s ease-in-out infinite", animationDelay: `${i * 0.22}s` }} />)}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}
@@ -2346,6 +2442,24 @@ export default function App() {
 
         {/* Input */}
         <div style={{ padding: "14px 32px 20px", borderTop: `1px solid ${T.border}`, background: `${T.surface}e0`, backdropFilter: "blur(10px)" }}>
+          {ftEnabled && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, paddingLeft: 4 }}>
+              <label style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.textDim, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, userSelect: "none" }}>
+                <input type="checkbox" checked={comparisonMode} onChange={e => setComparisonMode(e.target.checked)} style={{ accentColor: "#10b981" }} />
+                Compare with FT
+              </label>
+              {comparisonMode && (
+                <select value={ftFormat} onChange={e => setFtFormat(e.target.value)}
+                  style={{ fontFamily: FONT_MONO, fontSize: 10, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 6, padding: "2px 8px", color: T.text, outline: "none", cursor: "pointer" }}>
+                  <option value="llama3">A: Llama 3</option>
+                  <option value="chatml">B: ChatML</option>
+                  <option value="alpaca">C: Alpaca</option>
+                  <option value="raw">D: Raw</option>
+                </select>
+              )}
+              {comparisonMode && <span style={{ fontFamily: FONT_MONO, fontSize: 9, color: "#10b981", opacity: 0.7 }}>dual output active</span>}
+            </div>
+          )}
           <div style={{ display: "flex", alignItems: "flex-end", gap: 8, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 18, padding: "10px 16px" }}>
             <textarea ref={inputRef}
               style={{ flex: 1, background: "transparent", border: "none", color: T.text, fontSize: 15, outline: "none", resize: "none", fontFamily: FONT, lineHeight: 1.6, maxHeight: 120 }}
