@@ -34,17 +34,35 @@ app = modal.App("morrigan-sft")
 model_cache = modal.Volume.from_name("morrigan-gguf-cache", create_if_missing=True)
 
 image = (
-    modal.Image.debian_slim(python_version="3.11")
+    modal.Image.from_registry(
+        "nvidia/cuda:12.4.0-devel-ubuntu22.04",
+        add_python="3.11",
+    )
+    .apt_install("libgomp1")
     .pip_install(
-        "llama-cpp-python",
         "huggingface_hub",
         "hf_transfer",
         "fastapi",
     )
+    # Install llama-cpp-python from pre-built CUDA 12.4 wheels
+    .pip_install(
+        "llama-cpp-python",
+        extra_index_url="https://abetlen.github.io/llama-cpp-python/whl/cu124",
+    )
+    # Copy ALL required shared libs into /lib/ so the dynamic linker always finds them
+    # (Modal's runtime overrides LD_LIBRARY_PATH and ld.so.cache, only /lib/ survives)
+    .run_commands(
+        # CUDA libs from the devel image
+        "cp -P /usr/local/cuda/lib64/libcudart.so* /lib/ 2>/dev/null; "
+        "cp -P /usr/local/cuda/lib64/libcublas.so* /lib/ 2>/dev/null; "
+        "cp -P /usr/local/cuda/lib64/libcublasLt.so* /lib/ 2>/dev/null; "
+        # OpenMP from system
+        "cp -P /usr/lib/x86_64-linux-gnu/libgomp.so* /lib/ 2>/dev/null; "
+        # Verify and register
+        "ls -la /lib/libcudart* /lib/libcublas* /lib/libgomp* && ldconfig"
+    )
     .env({
         "HF_HUB_ENABLE_HF_TRANSFER": "1",
-        # Build llama-cpp-python with CUDA support
-        "CMAKE_ARGS": "-DGGML_CUDA=on",
     })
 )
 
