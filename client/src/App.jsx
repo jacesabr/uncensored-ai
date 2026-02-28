@@ -2121,6 +2121,9 @@ export default function App() {
     justCreated.current = true;
     setMoodReflection(null); setLatestMeta(null); setMorriganPresent(false);
 
+    // Set activeConvo IMMEDIATELY so sendMessage() can use it even during arrival fetch
+    setActiveConvo(convo.conversationId);
+
     // Fetch arrival decision — Morrigan decides: speak, presence, or silence
     try {
       const arrRes = await fetch(`${API}/api/session/greeting?conversationId=${convo.conversationId}`, { headers: hdrs() });
@@ -2143,7 +2146,6 @@ export default function App() {
       setMessages([{ role: "assistant", content: CHARACTER.greeting, timestamp: new Date() }]);
     }
 
-    setActiveConvo(convo.conversationId);
     return convo.conversationId;
   };
 
