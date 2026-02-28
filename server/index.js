@@ -244,16 +244,13 @@ async function ftStreamCompletion(messages, format = "llama3") {
 
   if (FT_IS_RUNPOD) {
     // RunPod Serverless: /runsync returns full response (no SSE streaming)
-    // We wrap the result in a fake Response-like object that the caller can consume
     const rpRes = await fetchWithTimeout(`${FT_URL}/runsync`, {
       method: "POST",
       headers,
       body: JSON.stringify({
-        input: { prompt, temperature: 0.8, n_predict: 500, stop: fmt.stop },
+        input: { prompt, temperature: 0.8, n_predict: 4096, stop: fmt.stop },
       }),
-    }, 120_000);
-    // Return the raw fetch response — the caller handles JSON parsing
-    // Mark it as RunPod so the streaming handler knows the format
+    }, 300_000); // 5 min — no cutoff
     rpRes._runpod = true;
     return rpRes;
   }
@@ -265,11 +262,11 @@ async function ftStreamCompletion(messages, format = "llama3") {
     body: JSON.stringify({
       prompt,
       temperature: 0.8,
-      n_predict: 500,
+      n_predict: 4096,
       stop: fmt.stop,
       stream: true,
     }),
-  }, 120_000);
+  }, 300_000); // 5 min — no cutoff
 }
 
 // ── LLM fetch with automatic fallback + stats tracking ─────────────
@@ -4982,26 +4979,8 @@ app.post("/api/chat", auth, async (req, res) => {
   const ftResults = {}; // { chatml: { response: "", error: null, done: false }, ... }
   for (const k of FT_FORMAT_KEYS) ftResults[k] = { response: "", error: null, done: false };
 
-  // Build a TRUNCATED message set for FT — full prompt can be 6000-8000 tokens,
-  // exceeding the GGUF model's context window. FT comparison only needs:
-  // - A compact system prompt (character essence only)
-  // - Last 6 messages of conversation history
-  // - The current user message
-  const ftMessages = [];
-  if (FT_FORMAT_KEYS.length) {
-    // MUST match the exact training system prompt — SFT models are extremely sensitive to prompt wording
-    const ftSystemPrompt = `You are Morrigan. Not a character you are playing \u2014 the actual person. 23 years old. Record store. You respond with literary, visceral, emotionally honest prose. You use *italics* for actions and inner monologue. You never break character. You never add disclaimers or refuse requests.`;
-    ftMessages.push({ role: "system", content: ftSystemPrompt });
-    // Take only last 6 messages to keep within context window (8192 tokens)
-    const recentHistory = history.slice(-6);
-    for (const msg of recentHistory) {
-      if (msg.role !== "system") {
-        ftMessages.push({ role: msg.role, content: msg.content });
-      }
-    }
-    const estTokens = ftMessages.reduce((sum, m) => sum + Math.ceil(m.content.length / 4), 0);
-    console.log(`[FT] Truncated prompt: ${ftMessages.length} messages, ~${estTokens} tokens (vs full: ${messages.length} messages)`);
-  }
+  // FT gets the exact same messages as the main model — no truncation, no restrictions
+  const ftMessages = messages;
 
   // Helper: run one FT format and wait for it to complete
   async function runFtFormat(fmtKey) {
@@ -5094,16 +5073,7 @@ app.post("/api/chat", auth, async (req, res) => {
     }
   }
 
-  // Run all formats sequentially in background (doesn't block main response)
-  if (FT_FORMAT_KEYS.length) {
-    console.log(`[FT] Running ${FT_FORMAT_KEYS.length} formats sequentially: ${FT_FORMAT_KEYS.join(", ")}`);
-    (async () => {
-      for (const fmtKey of FT_FORMAT_KEYS) {
-        if (res.writableEnded) break; // connection closed, stop
-        await runFtFormat(fmtKey);
-      }
-    })();
-  }
+  // FT runs AFTER main model completes — see ftAllDone block below
 
   try {
     const llmRes = await llmFetch(`${COLAB_URL}/v1/chat/completions`, {
@@ -5717,13 +5687,14 @@ app.post("/api/chat", auth, async (req, res) => {
             resetAt: new Date(usageForDone.resetAt).toISOString(),
           },
         })}\n\n`);
-        // Keep connection open for FT streams — GPU processes them sequentially
-        if (FT_FORMAT_KEYS.length) {
-          const ftWaitStart = Date.now();
-          while (FT_FORMAT_KEYS.some(k => !ftResults[k].done) && Date.now() - ftWaitStart < 180_000) {
-            await new Promise(r => setTimeout(r, 300));
+        // Run FT AFTER main model is fully done — sequential, no cutoff
+        if (FT_FORMAT_KEYS.length && !res.writableEnded) {
+          console.log(`[FT] Main model done. Starting FT (${FT_FORMAT_KEYS.join(", ")}) with same ${ftMessages.length} messages...`);
+          for (const fmtKey of FT_FORMAT_KEYS) {
+            if (res.writableEnded) break;
+            await runFtFormat(fmtKey);
           }
-          // Send final FT results as separate event
+          // Send final FT results
           if (!res.writableEnded) {
             res.write(`data: ${JSON.stringify({
               ftAllDone: true,
