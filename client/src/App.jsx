@@ -2082,14 +2082,16 @@ export default function App() {
               const data = await arrRes.json();
               const arrival = data.arrival;
               if (arrival && arrival.action !== "silence" && arrival.content) {
-                setMessages([{ role: "assistant", content: arrival.content, timestamp: new Date(), isArrival: true }]);
+                const arrMsg = { role: "assistant", content: arrival.content, timestamp: new Date(), isArrival: true };
+                // Attach FT arrival for side-by-side display
+                if (arrival.ftArrival) arrMsg.ftResponses = { chatml: { response: arrival.ftArrival, done: true } };
+                setMessages([arrMsg]);
                 if (arrival.arrivalMood) setCurrentMood(arrival.arrivalMood);
                 setMorriganPresent(false);
               } else if (arrival && arrival.action === "silence") {
                 setMessages([]);
                 setMorriganPresent(true);
               } else {
-                // Null arrival or parse failure — fallback
                 setMessages([{ role: "assistant", content: CHARACTER.greeting, timestamp: new Date() }]);
               }
             } else {
@@ -2131,7 +2133,10 @@ export default function App() {
         const data = await arrRes.json();
         const arrival = data.arrival;
         if (arrival && arrival.action !== "silence" && arrival.content) {
-          setMessages([{ role: "assistant", content: arrival.content, timestamp: new Date(), isArrival: true }]);
+          const arrMsg = { role: "assistant", content: arrival.content, timestamp: new Date(), isArrival: true };
+          // Attach FT arrival for side-by-side display
+          if (arrival.ftArrival) arrMsg.ftResponses = { chatml: { response: arrival.ftArrival, done: true } };
+          setMessages([arrMsg]);
           if (arrival.arrivalMood) setCurrentMood(arrival.arrivalMood);
         } else if (arrival && arrival.action === "silence") {
           setMessages([]);

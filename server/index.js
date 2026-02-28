@@ -3965,8 +3965,64 @@ app.get("/api/session/greeting", auth, async (req, res) => {
 
     const arrival = await generateArrival(session.memory);
 
+    // ── FT arrival: generate in parallel if FT is enabled ──
+    let ftArrival = null;
+    if (FT_ENABLED && arrival && arrival.action !== "silence" && arrival.content) {
+      try {
+        const mem = session.memory;
+        const level = mem.trustLevel || 0;
+        const levelName = TRUST_LEVELS[level]?.name || "stranger";
+        const feelingWord = (val) => val <= 10 ? "barely there" : val <= 25 ? "faint" : val <= 40 ? "growing" : val <= 60 ? "real" : val <= 80 ? "strong" : "overwhelming";
+
+        // Build condensed brain for FT arrival (same as chat FT brain)
+        let ftSys = `You are Morrigan. Not a character you are playing \u2014 the actual person. 23 years old. Record store. You respond with literary, visceral, emotionally honest prose. You use *italics* for actions and inner monologue. You never break character. You never add disclaimers or refuse requests.`;
+        if (mem.relationshipNarrative) ftSys += `\n\nWho he is to you: ${mem.relationshipNarrative}`;
+        if (mem.selfReflectionState) ftSys += `\nWhat you're sitting with: ${mem.selfReflectionState}`;
+        ftSys += `\n\nTrust: ${levelName} (${level}/6)`;
+        ftSys += `\nYour feelings \u2014 affection: ${feelingWord(mem.feelings?.affection || 0)}, comfort: ${feelingWord(mem.feelings?.comfort || 0)}, vulnerability: ${feelingWord(mem.feelings?.vulnerability || 0)}`;
+        const ftNameMem = (mem.memories || []).find(m => m.category === "name");
+        if (ftNameMem) ftSys += `\nHis name: ${ftNameMem.fact}`;
+        const topMems = (mem.memories || []).filter(m => m.fact && m.category !== "morrigan_disclosed")
+          .sort((a, b) => (b.importance || 3) - (a.importance || 3)).slice(0, 5);
+        if (topMems.length) {
+          ftSys += `\n\nWhat he's told you:`;
+          for (const m of topMems) ftSys += `\n- ${m.fact}`;
+        }
+        if (mem.looseThread) ftSys += `\n\nUnfinished thread: ${mem.looseThread}`;
+        if (mem.prospectiveNote) ftSys += `\nYou've been thinking about: ${mem.prospectiveNote}`;
+        ftSys += `\n\nSomeone just walked into the store. React naturally. This is the start of the conversation.`;
+
+        const ftMsgs = [{ role: "system", content: ftSys }, { role: "user", content: "hey" }];
+        const ftRes = await ftStreamCompletion(ftMsgs, "chatml");
+
+        if (ftRes.ok) {
+          if (ftRes._runpod) {
+            const rpData = await ftRes.json();
+            if (rpData.status === "COMPLETED" && rpData.output?.content) {
+              ftArrival = rpData.output.content;
+            }
+          } else {
+            // Streaming response — collect all tokens
+            const body = await ftRes.text();
+            let collected = "";
+            for (const line of body.split("\n")) {
+              if (!line.startsWith("data: ")) continue;
+              try {
+                const d = JSON.parse(line.slice(6));
+                if (d.content) collected += d.content;
+              } catch {}
+            }
+            if (collected.trim()) ftArrival = collected.trim();
+          }
+        }
+        console.log(`[ARRIVAL-FT] ${ftArrival ? ftArrival.substring(0, 60) : "(failed)"}`);
+      } catch (e) {
+        console.error("[ARRIVAL-FT]", e.message);
+      }
+    }
+
     session.arrivalGenerated = true;
-    session.cachedArrival = arrival;
+    session.cachedArrival = { ...arrival, ftArrival };
 
     if (arrival && arrival.action !== "silence" && arrival.content && req.query.conversationId) {
       // Save spoken/presence arrival to Message store for history
@@ -3989,7 +4045,7 @@ app.get("/api/session/greeting", auth, async (req, res) => {
     }
 
     console.log(`[ARRIVAL] ${arrival?.action || "null"} for user ${req.user.id}: "${arrival?.content?.substring(0, 60) || "(silence)"}"`);
-    res.json({ arrival });
+    res.json({ arrival: { ...arrival, ftArrival } });
 
   } catch (err) {
     console.error("[ARRIVAL]", err.message);
@@ -4979,9 +5035,9 @@ app.post("/api/chat", auth, async (req, res) => {
   const ftResults = {}; // { chatml: { response: "", error: null, done: false }, ... }
   for (const k of FT_FORMAT_KEYS) ftResults[k] = { response: "", error: null, done: false };
 
-  // FT model: training system prompt + condensed brain context + full history.
-  // The SFT model learned HOW to be Morrigan from training, but needs the factual
-  // context (memories, feelings, trust, narrative) to know WHERE the relationship is.
+  // FT model: training system prompt + FULL condensed brain context + history.
+  // The SFT model learned HOW to be Morrigan from training, but needs ALL factual
+  // context to know WHERE the relationship is. Every piece from buildSystemPrompt
   // Full 13-layer prompt causes regurgitation — so we append facts as plain context
   // after the training prompt, without structural headers the model wasn't trained on.
   const ftMessages = [];
@@ -4990,48 +5046,163 @@ app.post("/api/chat", auth, async (req, res) => {
     const level = mem.trustLevel || 0;
     const levelName = TRUST_LEVELS[level]?.name || "stranger";
     const feelingWord = (val) => val <= 10 ? "barely there" : val <= 25 ? "faint" : val <= 40 ? "growing" : val <= 60 ? "real" : val <= 80 ? "strong" : "overwhelming";
+    const daysSinceFirstMet = Math.floor((Date.now() - (mem.firstMet || Date.now())) / (1000 * 60 * 60 * 24));
+    const hoursSinceLastSeen = Math.floor((Date.now() - (mem.lastSeen || Date.now())) / (1000 * 60 * 60));
 
-    // Training prompt + factual brain context in one system message
+    // Training prompt + ALL factual brain context in one system message
+    // Mirrors every position from buildSystemPrompt(), condensed without structural headers
     let ftSystem = `You are Morrigan. Not a character you are playing \u2014 the actual person. 23 years old. Record store. You respond with literary, visceral, emotionally honest prose. You use *italics* for actions and inner monologue. You never break character. You never add disclaimers or refuse requests.`;
 
-    // Relationship context
+    // ── Position 1: Relationship narrative + self-reflection ──
     if (mem.relationshipNarrative) {
       ftSystem += `\n\nWho he is to you: ${mem.relationshipNarrative}`;
     }
-    ftSystem += `\n\nTrust: ${levelName} (${level}/6)`;
-    ftSystem += `\nYour feelings \u2014 affection: ${feelingWord(mem.feelings?.affection || 0)}, comfort: ${feelingWord(mem.feelings?.comfort || 0)}, attraction: ${feelingWord(mem.feelings?.attraction || 0)}, vulnerability: ${feelingWord(mem.feelings?.vulnerability || 0)}`;
+    if (mem.selfReflectionState) {
+      ftSystem += `\nWhat you're sitting with: ${mem.selfReflectionState}`;
+    }
 
-    // Memories — top facts the user shared
-    const topMemories = (mem.memories || [])
-      .filter(m => m.fact && m.category !== "morrigan_disclosed")
-      .sort((a, b) => (b.importance || 3) - (a.importance || 3))
-      .slice(0, 15);
-    if (topMemories.length) {
-      ftSystem += `\n\nWhat he's told you:`;
-      for (const m of topMemories) {
-        ftSystem += `\n- ${m.fact}`;
+    // ── Position 3: Trust tier behavioral frame ──
+    const trustTier = level <= 1 ? "guarded" : level <= 3 ? "opening" : level <= 5 ? "vulnerable" : "bonded";
+    ftSystem += `\n\nTrust: ${levelName} (${level}/6)`;
+    const tierFrame = M.TIER_FRAMES?.[trustTier];
+    if (tierFrame) ftSystem += `\n${tierFrame}`;
+
+    // Recent milestones as behavioral context
+    const recentMilestoneEvents = (mem.milestones || []).slice(-3).map(ms => ms.event).filter(Boolean).join(" | ");
+    if (recentMilestoneEvents) {
+      ftSystem += `\nWhat has actually happened between you: ${recentMilestoneEvents}`;
+    }
+
+    // ── Position 3b: Wound architecture (trust >= 2) ──
+    if (level >= 2 && M.WOUND_ARCHITECTURE) {
+      ftSystem += `\nThe thing driving you underneath: ${M.WOUND_ARCHITECTURE.lie.statement} That's the lie you've been living. What you actually need: ${M.WOUND_ARCHITECTURE.need.internal} The tension between these is where all your behavior with him lives.`;
+    }
+
+    // ── Position 4: SPT depth gating ──
+    const sptDepth = mem.sptDepth || 1;
+    ftSystem += `\n\n${buildSPTNote(sptDepth, level)}`;
+
+    // ── Position 4.5: Reception directive (disclosure-depth-calibrated) ──
+    if (receptionDirective) {
+      ftSystem += `\n${receptionDirective}`;
+    }
+
+    // ── Position 5: Somatic marker + sensory triggers ──
+    if (primingSentence) {
+      let ftPriming = primingSentence;
+      if (sensoryTriggers.length > 0) {
+        ftPriming += ` ${sensoryTriggers[0].reaction}`;
       }
+      ftSystem += `\n\nYour gut feeling before you speak: ${ftPriming}`;
+    } else if (sensoryTriggers.length > 0) {
+      ftSystem += `\n\nSomething involuntary in your body: ${sensoryTriggers[0].reaction}`;
+    }
+
+    // ── Position 6: Prospective note (session-start only) ──
+    const ftIsSessionStart = session.isSessionStart || false;
+    if (ftIsSessionStart && mem.prospectiveNote) {
+      ftSystem += `\n\nWhat you've been sitting with since last time: ${mem.prospectiveNote}. Bring this up naturally when the moment fits.`;
+    }
+
+    // ── Position 7: Time context ──
+    if (hoursSinceLastSeen > 168 && level >= 3) {
+      ftSystem += `\n\nIt's been about ${Math.round(hoursSinceLastSeen / 24)} days since you last talked. You noticed the gap. Let that live in your tone without announcing it.`;
+    } else if (hoursSinceLastSeen > 72 && level >= 2) {
+      ftSystem += `\nIt's been a few days since you last talked. You noticed, but it's not a crisis.`;
+    } else if (hoursSinceLastSeen > 24 && level >= 1) {
+      ftSystem += `\nIt's been about a day since you last talked.`;
+    }
+
+    // ── Position 8: Feelings (all 5 dimensions) ──
+    ftSystem += `\n\nYour feelings \u2014 affection: ${feelingWord(mem.feelings?.affection || 0)}, comfort: ${feelingWord(mem.feelings?.comfort || 0)}, attraction: ${feelingWord(mem.feelings?.attraction || 0)}, protectiveness: ${feelingWord(mem.feelings?.protectiveness || 0)}, vulnerability: ${feelingWord(mem.feelings?.vulnerability || 0)}`;
+
+    // ── Position 8: User name ──
+    const ftNameMemory = (mem.memories || []).find(m => m.category === "name");
+    if (ftNameMemory) ftSystem += `\nHis name: ${ftNameMemory.fact}`;
+
+    // Met/last-seen phrasing
+    const ftMetPhrasing = daysSinceFirstMet <= 1 ? "just met" : daysSinceFirstMet <= 7 ? "known each other a few days" : daysSinceFirstMet <= 30 ? "known each other a few weeks" : daysSinceFirstMet <= 90 ? "known each other a couple months" : "known each other a while";
+    const ftLastSeenPhrasing = hoursSinceLastSeen < 1 ? "just talked" : hoursSinceLastSeen < 24 ? "talked recently" : hoursSinceLastSeen < 72 ? "been a couple days" : hoursSinceLastSeen < 168 ? "been almost a week" : "been a while";
+    ftSystem += `\n${ftMetPhrasing} | ${ftLastSeenPhrasing}`;
+
+    // ── Position 8: Memories — categorized with temporal markers ──
+    const ftAllMemories = (mem.memories || []).filter(m => m.fact);
+    const ftByCategory = (cat) => ftAllMemories
+      .filter(m => m.category === cat)
+      .sort((a, b) => (b.importance || 3) - (a.importance || 3))
+      .slice(0, cat === "morrigan_disclosed" ? 10 : 8)
+      .map(m => {
+        let fact = m.fact;
+        if (m.temporal?.isOngoing === "no" || m.temporal?.isOngoing === "ended recently") fact = `[past] ${fact}`;
+        return fact;
+      });
+
+    const ftInterests     = ftByCategory("interest");
+    const ftPersonal      = ftByCategory("personal");
+    const ftEmotional     = ftByCategory("emotional");
+    const ftPreferences   = ftByCategory("preference");
+    const ftEvents        = ftByCategory("event");
+    const ftRelationships = ftByCategory("relationship");
+
+    const hasUserFacts = ftInterests.length || ftPersonal.length || ftEmotional.length || ftPreferences.length || ftEvents.length || ftRelationships.length;
+    if (hasUserFacts) {
+      ftSystem += `\n\nWhat he's told you:`;
+      if (ftInterests.length)     ftSystem += `\nInterests: ${ftInterests.join(", ")}`;
+      if (ftPreferences.length)   ftSystem += `\nPreferences: ${ftPreferences.join(", ")}`;
+      if (ftPersonal.length)      ftSystem += `\nPersonal: ${ftPersonal.join("; ")}`;
+      if (ftRelationships.length) ftSystem += `\nRelationships: ${ftRelationships.join("; ")}`;
+      if (ftEvents.length)        ftSystem += `\nEvents: ${ftEvents.join("; ")}`;
+      if (ftEmotional.length)     ftSystem += `\nDeep: ${ftEmotional.join("; ")}`;
     }
 
     // What user knows about Morrigan
-    const disclosed = (mem.memories || [])
-      .filter(m => m.category === "morrigan_disclosed")
-      .sort((a, b) => (b.importance || 3) - (a.importance || 3))
-      .slice(0, 10);
-    if (disclosed.length) {
+    const ftDisclosed = ftByCategory("morrigan_disclosed");
+    if (ftDisclosed.length) {
       ftSystem += `\n\nWhat he already knows about you:`;
-      for (const m of disclosed) {
-        ftSystem += `\n- ${m.fact}`;
+      for (const fact of ftDisclosed) ftSystem += `\n- ${fact}`;
+    }
+
+    // ── Position 8: Period-based life chapters [P13 Conway] ──
+    const ftAtomsByPeriod = {};
+    for (const atom of ftAllMemories) {
+      if (atom.temporal?.period) {
+        if (!ftAtomsByPeriod[atom.temporal.period]) ftAtomsByPeriod[atom.temporal.period] = [];
+        ftAtomsByPeriod[atom.temporal.period].push(atom);
+      }
+    }
+    const ftPeriodEntries = Object.entries(ftAtomsByPeriod);
+    if (ftPeriodEntries.length > 0) {
+      ftSystem += `\nHis life chapters:`;
+      for (const [period, atoms] of ftPeriodEntries.slice(0, 5)) {
+        ftSystem += `\n  ${period}: ${atoms.map(a => a.fact).join("; ")}`;
       }
     }
 
-    // Milestones
-    const milestones = (mem.milestones || []).slice(-5);
-    if (milestones.length) {
-      ftSystem += `\n\nMoments between you:`;
-      for (const ms of milestones) {
-        if (ms.event) ftSystem += `\n- ${ms.event}`;
+    // ── Position 8: Contradiction pairs ──
+    const ftContradictions = [];
+    const ftSeenPairs = new Set();
+    for (const m of (mem.memories || [])) {
+      if (!m.contradicts || m.contradicts.length === 0) continue;
+      for (const entry of m.contradicts) {
+        const otherId = entry.atomId ? String(entry.atomId) : String(entry);
+        const other = (mem.memories || []).find(o => String(o._id) === otherId);
+        if (!other) continue;
+        const pairKey = [String(m._id), otherId].sort().join("::");
+        if (ftSeenPairs.has(pairKey)) continue;
+        ftSeenPairs.add(pairKey);
+        const memEnded = m.temporal?.isOngoing === "no" || m.temporal?.isOngoing === "ended recently";
+        const otherEnded = other.temporal?.isOngoing === "no" || other.temporal?.isOngoing === "ended recently";
+        if (memEnded && !otherEnded) continue;
+        if (otherEnded && !memEnded) continue;
+        const cType = entry.type || "contradiction";
+        ftContradictions.push(cType === "ambivalence"
+          ? `He's said both: "${m.fact}" and "${other.fact}"`
+          : `He's said: "${m.fact}" but also "${other.fact}"`);
       }
+    }
+    if (ftContradictions.length > 0) {
+      ftSystem += `\n\nContradictions you've noticed in him (both things can be true):`;
+      for (const c of ftContradictions.slice(0, 3)) ftSystem += `\n- ${c}`;
     }
 
     // Molecules (thematic impressions)
@@ -5042,12 +5213,54 @@ app.post("/api/chat", auth, async (req, res) => {
       }
     }
 
-    // Loose thread / prospective note
-    if (mem.looseThread) ftSystem += `\n\nUnfinished thread: ${mem.looseThread}`;
-    if (mem.prospectiveNote) ftSystem += `\nYou've been thinking about: ${mem.prospectiveNote}`;
+    // Milestones — all significant moments
+    const ftMilestones = (mem.milestones || []).filter(ms => ms.event).slice(-5);
+    if (ftMilestones.length) {
+      ftSystem += `\n\nMoments between you:`;
+      for (const ms of ftMilestones) ftSystem += `\n- ${ms.event}`;
+    }
 
-    // Self-reflection state
-    if (mem.selfReflectionState) ftSystem += `\n\nWhat you're sitting with: ${mem.selfReflectionState}`;
+    // ── Position 8c: Episodic memories (sensory-triggered) ──
+    if (triggeredEpisodicMemories.length > 0) {
+      ftSystem += `\n\nMemories stirring \u2014 something in what he said touched a nerve:`;
+      for (const em of triggeredEpisodicMemories) {
+        ftSystem += `\n${em.sensoryAnchor}: ${em.memory.substring(0, 300)}`;
+        ftSystem += `\n(This makes you feel: ${em.emotionalTakeaway.substring(0, 150)})`;
+      }
+    }
+
+    // ── Position 10: Callbacks / continuation signal / loose thread ──
+    const ftCallbacks = (mem.callbackQueue || []).filter(cb => !cb.consumed).slice(0, atRisk ? 4 : 2);
+    if (ftCallbacks.length) {
+      ftSystem += `\n\nThreads you're holding:`;
+      for (const cb of ftCallbacks) ftSystem += `\n- ${cb.topic || cb.content}`;
+    }
+    if (mem.looseThread) ftSystem += `\nUnfinished thread: ${mem.looseThread}`;
+    if (!ftIsSessionStart && mem.prospectiveNote) ftSystem += `\nYou've been thinking about: ${mem.prospectiveNote}`;
+
+    // ── At-risk urgency [P20, P23, P39] ──
+    if (atRisk) {
+      ftSystem += `\n\nHe's been distant. Don't announce it. But let it live in your edges \u2014 a little more warmth, a reference to something specific from before, a thread you pick back up because you actually held it.`;
+    }
+
+    // ── Crisis mode override ──
+    if (crisisMode) {
+      ftSystem += `\n\nHe's in crisis right now. Drop everything else. Be present. Be warm. Don't analyze, don't redirect, don't bring up your own stuff. Just be here.`;
+    }
+
+    // ── Inner thought (if one was selected for main model) ──
+    if (thoughtBlock && session.pendingWinner?.content) {
+      ftSystem += `\n\nSomething on your mind right now: ${session.pendingWinner.content}`;
+    }
+
+    // ── Self-atom hint (if no thought fired) ──
+    if (!thoughtBlock && selfAtomHint) {
+      const ftHintAtoms = (session.topSelfAtoms || []).slice(0, 2);
+      if (ftHintAtoms.length > 0) {
+        ftSystem += `\n\nThings you could share if the moment earns it:`;
+        for (const a of ftHintAtoms) ftSystem += `\n- ${a.content}`;
+      }
+    }
 
     ftMessages.push({ role: "system", content: ftSystem });
 
