@@ -146,6 +146,19 @@ function MBar({ value, max = 100, color = MON.accent, label, sub }) {
 
 function StatusTab({ status, user, conversations, messages, liveHealth }) {
   const endpoint = API;
+  const prov = status.provider;
+  const pri = prov?.primary;
+  const fb = prov?.fallback;
+  const emb = prov?.embed;
+
+  const providerLabel = (url) => {
+    if (!url) return "Unknown";
+    if (url.includes("runpod")) return "RunPod";
+    if (url.includes("modal")) return "Modal";
+    if (url.includes("venice")) return "Venice AI";
+    return url.replace("https://", "").split("/")[0];
+  };
+
   const checks = [
     {
       key: "express", label: "Express Server",
@@ -155,18 +168,29 @@ function StatusTab({ status, user, conversations, messages, liveHealth }) {
       detail: endpoint.replace("https://", "").replace("http://", ""),
     },
     {
-      key: "ollama", label: "Chat — Venice AI",
-      live: status.ollama,
-      description: "Streaming chat completions via Venice AI. inject_system: false keeps Express in control of the full prompt.",
-      route: "POST /v1/chat/completions → Venice AI",
-      detail: status.model || "chat model",
+      key: "primary", label: `Chat — ${providerLabel(pri?.url)} (Primary)`,
+      live: pri?.live ?? status.ollama,
+      description: pri?.url?.includes("runpod")
+        ? "Fine-tuned Morrigan model on RunPod Serverless. Cold starts may take 30-60s."
+        : pri?.url?.includes("modal")
+        ? "Fine-tuned Morrigan model on Modal. Scales to zero when idle."
+        : "Primary chat completions endpoint.",
+      route: `POST /v1/chat/completions → ${providerLabel(pri?.url)}`,
+      detail: pri?.model || status.model || "—",
     },
     {
-      key: "embeddings", label: "Embeddings — Venice AI",
-      live: status.embeddings,
-      description: "Converts memory atoms to vectors for cosine similarity retrieval.",
-      route: "POST /v1/embeddings → Venice AI",
-      detail: status.embedModel || "embed model",
+      key: "fallback", label: `Fallback — ${providerLabel(fb?.url)}`,
+      live: fb?.live ?? null,
+      description: fb ? "Auto-activates when primary fails (5xx, timeout). Stays active 90s before retrying." : "No fallback configured.",
+      route: fb ? `POST /v1/chat/completions → ${providerLabel(fb?.url)}` : "—",
+      detail: fb?.model || "—",
+    },
+    {
+      key: "embeddings", label: `Embeddings — ${providerLabel(emb?.url)}`,
+      live: emb?.live ?? status.embeddings,
+      description: "Converts memory atoms to vectors. Separate from chat provider since fine-tuned model can't embed.",
+      route: `POST /v1/embeddings → ${providerLabel(emb?.url)}`,
+      detail: emb?.model || status.embedModel || "—",
     },
     {
       key: "mongo", label: "MongoDB Atlas",
@@ -176,6 +200,8 @@ function StatusTab({ status, user, conversations, messages, liveHealth }) {
       detail: "PersonalityMemory · Conversations · Messages · SelfAtoms",
     },
   ];
+
+  const fmtPct = (n, d) => d > 0 ? `${Math.round(n / d * 100)}%` : "—";
 
   return (
     <div>
@@ -193,6 +219,50 @@ function StatusTab({ status, user, conversations, messages, liveHealth }) {
           </div>
         ))}
       </div>
+
+      {/* Fallback alert */}
+      {prov?.fallbackActive && (
+        <div style={{ background: "#3a2a00", border: `1px solid #f5a62370`, borderRadius: 12, padding: "14px 18px", marginBottom: 16 }}>
+          <div style={{ fontFamily: MMONO, fontSize: 12, color: "#f5a623", fontWeight: 700, marginBottom: 4 }}>FALLBACK ACTIVE</div>
+          <div style={{ fontFamily: MSERIF, fontSize: 14, color: MON.textSoft }}>
+            Primary is down — routing to {providerLabel(fb?.url)}. Reason: {prov.lastFallbackReason || "unknown"}. Will retry primary in 90s.
+          </div>
+        </div>
+      )}
+
+      {/* Provider stats */}
+      {(pri || fb) && (
+        <>
+          <MSecHead icon="⚡" title="LLM Provider Stats (24h)" color={MON.blue} />
+          <div style={{ display: "grid", gridTemplateColumns: fb ? "1fr 1fr" : "1fr", gap: 12, marginBottom: 20 }}>
+            {pri && (
+              <MCard>
+                <MLabel>Primary — {providerLabel(pri.url)}</MLabel>
+                <MRow label="STATUS" value={pri.live ? "LIVE" : "DOWN"} valueColor={pri.live ? MON.green : MON.red} />
+                <MRow label="CALLS" value={pri.calls} valueColor={MON.accent} />
+                <MRow label="SUCCESS" value={fmtPct(pri.successes, pri.calls)} valueColor={MON.green} />
+                <MRow label="AVG LATENCY" value={pri.avgLatencyMs ? `${pri.avgLatencyMs}ms` : "—"} />
+                <MRow label="FAILURES" value={pri.failures} valueColor={pri.failures > 0 ? MON.red : MON.textDim} />
+                <MRow label="TIMEOUTS" value={pri.timeouts || 0} valueColor={pri.timeouts > 0 ? "#f5a623" : MON.textDim} />
+                {pri.lastError && <MRow label="LAST ERROR" value={pri.lastError} valueColor={MON.red} />}
+              </MCard>
+            )}
+            {fb && (
+              <MCard>
+                <MLabel>Fallback — {providerLabel(fb.url)}</MLabel>
+                <MRow label="STATUS" value={fb.live ? "LIVE" : "DOWN"} valueColor={fb.live ? MON.green : MON.red} />
+                <MRow label="CALLS" value={fb.calls} valueColor={MON.accent} />
+                <MRow label="SUCCESS" value={fmtPct(fb.successes, fb.calls)} valueColor={MON.green} />
+                <MRow label="AVG LATENCY" value={fb.avgLatencyMs ? `${fb.avgLatencyMs}ms` : "—"} />
+                <MRow label="FAILURES" value={fb.failures} valueColor={fb.failures > 0 ? MON.red : MON.textDim} />
+                {fb.lastError && <MRow label="LAST ERROR" value={fb.lastError} valueColor={MON.red} />}
+                <MRow label="ACTIVATIONS" value={prov.fallbackActivations || 0} valueColor={prov.fallbackActivations > 0 ? "#f5a623" : MON.textDim} />
+              </MCard>
+            )}
+          </div>
+        </>
+      )}
+
       <MSecHead icon="👤" title="Current Session" color={MON.accent} />
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
         <MCard><MLabel>Identity</MLabel>
@@ -208,9 +278,9 @@ function StatusTab({ status, user, conversations, messages, liveHealth }) {
         </MCard>
         <MCard><MLabel>Environment</MLabel>
           <MRow label="API BASE"    value={endpoint.replace("https://", "").replace("http://", "")} valueColor={MON.blue} />
-          <MRow label="LLM BACKEND" value="Venice AI" valueColor={MON.green} />
-          <MRow label="CHAT MODEL"  value={status.model || "—"} />
-          <MRow label="EMBED MODEL" value={status.embedModel || "—"} />
+          <MRow label="PRIMARY" value={`${providerLabel(pri?.url)} (${pri?.model || "—"})`} valueColor={pri?.live ? MON.green : MON.red} />
+          <MRow label="FALLBACK" value={fb ? `${providerLabel(fb.url)} (${fb.model})` : "none"} valueColor={fb?.live ? MON.green : MON.textDim} />
+          <MRow label="EMBED" value={`${providerLabel(emb?.url)} (${emb?.model || "—"})`} valueColor={emb?.live ? MON.green : MON.textDim} />
         </MCard>
       </div>
     </div>
