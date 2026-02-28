@@ -4977,13 +4977,16 @@ app.post("/api/chat", auth, async (req, res) => {
   const FT_FORMAT_KEYS = FT_ENABLED ? Object.keys(FT_FORMATS) : [];
   const ftResults = {}; // { chatml: { response: "", error: null, done: false }, ... }
 
+  if (FT_FORMAT_KEYS.length) console.log(`[FT] Firing ${FT_FORMAT_KEYS.length} formats: ${FT_FORMAT_KEYS.join(", ")}`);
   for (const fmtKey of FT_FORMAT_KEYS) {
     ftResults[fmtKey] = { response: "", error: null, done: false };
     (async () => {
       try {
+        console.log(`[FT:${fmtKey}] Sending to ${FT_URL}/completion...`);
         const ftRes = await ftStreamCompletion(messages, fmtKey);
         if (!ftRes.ok) {
           const errBody = await ftRes.text().catch(() => "");
+          console.error(`[FT:${fmtKey}] HTTP error: ${ftRes.status} ${errBody.slice(0, 200)}`);
           ftResults[fmtKey].error = `HTTP ${ftRes.status}: ${errBody.slice(0, 200)}`;
           ftResults[fmtKey].done = true;
           if (!res.writableEnded) res.write(`data: ${JSON.stringify({ ft: { format: fmtKey, error: ftResults[fmtKey].error } })}\n\n`);
@@ -5043,8 +5046,12 @@ app.post("/api/chat", auth, async (req, res) => {
         }
 
         // ── Direct llama.cpp /completion SSE (Modal/Colab) ──
+        console.log(`[FT:${fmtKey}] Stream connected, status ${ftRes.status}`);
+        let ftBuf = "";
         ftRes.body.on("data", (chunk) => {
-          const lines = chunk.toString().split("\n").filter(Boolean);
+          ftBuf += chunk.toString();
+          const lines = ftBuf.split("\n");
+          ftBuf = lines.pop() || ""; // keep incomplete last line in buffer
           for (const line of lines) {
             if (!line.startsWith("data: ")) continue;
             try {
@@ -5055,25 +5062,31 @@ app.post("/api/chat", auth, async (req, res) => {
               }
               if (json.stop) {
                 ftResults[fmtKey].done = true;
+                console.log(`[FT:${fmtKey}] Done, ${ftResults[fmtKey].response.length} chars`);
                 if (!res.writableEnded) {
                   res.write(`data: ${JSON.stringify({ ft: { format: fmtKey, done: true, response: ftResults[fmtKey].response } })}\n\n`);
                 }
               }
-            } catch {}
+            } catch (parseErr) {
+              console.warn(`[FT:${fmtKey}] Parse error: ${parseErr.message} — line: ${line.slice(0, 100)}`);
+            }
           }
         });
         ftRes.body.on("error", (e) => {
+          console.error(`[FT:${fmtKey}] Stream error: ${e.message}`);
           ftResults[fmtKey].error = e.message;
           ftResults[fmtKey].done = true;
           if (!res.writableEnded) res.write(`data: ${JSON.stringify({ ft: { format: fmtKey, error: e.message } })}\n\n`);
         });
         ftRes.body.on("end", () => {
+          console.log(`[FT:${fmtKey}] Stream ended, done=${ftResults[fmtKey].done}, chars=${ftResults[fmtKey].response.length}`);
           if (!ftResults[fmtKey].done && !res.writableEnded) {
             ftResults[fmtKey].done = true;
             res.write(`data: ${JSON.stringify({ ft: { format: fmtKey, done: true, response: ftResults[fmtKey].response } })}\n\n`);
           }
         });
       } catch (e) {
+        console.error(`[FT:${fmtKey}] Fetch error: ${e.message}`);
         ftResults[fmtKey].error = e.message;
         ftResults[fmtKey].done = true;
         if (!res.writableEnded) res.write(`data: ${JSON.stringify({ ft: { format: fmtKey, error: e.message } })}\n\n`);
