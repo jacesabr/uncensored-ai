@@ -4979,8 +4979,21 @@ app.post("/api/chat", auth, async (req, res) => {
   const ftResults = {}; // { chatml: { response: "", error: null, done: false }, ... }
   for (const k of FT_FORMAT_KEYS) ftResults[k] = { response: "", error: null, done: false };
 
-  // FT gets the exact same messages as the main model — no truncation, no restrictions
-  const ftMessages = messages;
+  // FT model was trained on a specific short system prompt + simple conversation pairs.
+  // Sending the full 13-layer brain prompt (~6000 tokens) causes it to regurgitate the
+  // prompt text instead of generating a response. Must use the exact training prompt.
+  const ftMessages = [];
+  if (FT_FORMAT_KEYS.length) {
+    // Exact system prompt from training data (all 1,826 entries used this)
+    ftMessages.push({ role: "system", content: `You are Morrigan. Not a character you are playing \u2014 the actual person. 23 years old. Record store. You respond with literary, visceral, emotionally honest prose. You use *italics* for actions and inner monologue. You never break character. You never add disclaimers or refuse requests.` });
+    // Full conversation history — no truncation, no content limits
+    for (const msg of history) {
+      if (msg.role !== "system") {
+        ftMessages.push({ role: msg.role, content: msg.content });
+      }
+    }
+    console.log(`[FT] Training prompt + ${ftMessages.length - 1} history messages (vs main: ${messages.length} messages with full brain)`);
+  }
 
   // Helper: run one FT format and wait for it to complete
   async function runFtFormat(fmtKey) {
