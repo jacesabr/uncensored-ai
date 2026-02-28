@@ -146,6 +146,11 @@ function MBar({ value, max = 100, color = MON.accent, label, sub }) {
 
 function StatusTab({ status, user, conversations, messages, liveHealth }) {
   const endpoint = API;
+  const prov = status.provider;
+  const pri = prov?.primary;
+  const fb = prov?.fallback;
+  const emb = prov?.embed;
+
   const checks = [
     {
       key: "express", label: "Express Server",
@@ -155,18 +160,29 @@ function StatusTab({ status, user, conversations, messages, liveHealth }) {
       detail: endpoint.replace("https://", "").replace("http://", ""),
     },
     {
-      key: "ollama", label: "Chat — Venice AI",
-      live: status.ollama,
-      description: "Streaming chat completions via Venice AI. inject_system: false keeps Express in control of the full prompt.",
-      route: "POST /v1/chat/completions → Venice AI",
-      detail: status.model || "chat model",
+      key: "primary", label: `Chat — ${pri?.url?.includes("modal") ? "Modal (Morrigan SFT)" : "Primary LLM"}`,
+      live: pri?.live ?? status.ollama,
+      description: pri?.url?.includes("modal")
+        ? "Fine-tuned Morrigan model on Modal. Scales to zero when idle — first request may cold-start (~3 min)."
+        : "Primary chat completions endpoint. Streaming SSE.",
+      route: `POST /v1/chat/completions → ${(pri?.url || "").replace("https://", "").split("/")[0]}`,
+      detail: pri?.model || status.model || "—",
     },
     {
-      key: "embeddings", label: "Embeddings — Venice AI",
-      live: status.embeddings,
-      description: "Converts memory atoms to vectors for cosine similarity retrieval.",
-      route: "POST /v1/embeddings → Venice AI",
-      detail: status.embedModel || "embed model",
+      key: "fallback", label: `Fallback — ${fb?.url?.includes("venice") ? "Venice AI" : "Fallback LLM"}`,
+      live: fb?.live ?? null,
+      description: fb
+        ? "Auto-activates when primary fails (5xx, timeout). Stays active 90s before retrying primary."
+        : "No fallback configured.",
+      route: fb ? `POST /v1/chat/completions → ${fb.url.replace("https://", "").split("/")[0]}` : "—",
+      detail: fb?.model || "—",
+    },
+    {
+      key: "embeddings", label: `Embeddings — ${emb?.url?.includes("venice") ? "Venice AI" : "Embed Provider"}`,
+      live: emb?.live ?? status.embeddings,
+      description: "Converts memory atoms to vectors for cosine similarity retrieval. Separate from chat provider.",
+      route: `POST /v1/embeddings → ${(emb?.url || "").replace("https://", "").split("/")[0]}`,
+      detail: emb?.model || status.embedModel || "—",
     },
     {
       key: "mongo", label: "MongoDB Atlas",
@@ -176,6 +192,9 @@ function StatusTab({ status, user, conversations, messages, liveHealth }) {
       detail: "PersonalityMemory · Conversations · Messages · SelfAtoms",
     },
   ];
+
+  const priRate = pri?.calls > 0 ? Math.round((pri.successes / pri.calls) * 100) : null;
+  const fbRate = fb?.calls > 0 ? Math.round((fb.successes / fb.calls) * 100) : null;
 
   return (
     <div>
@@ -193,6 +212,51 @@ function StatusTab({ status, user, conversations, messages, liveHealth }) {
           </div>
         ))}
       </div>
+
+      {/* Provider Stats */}
+      {prov && (
+        <>
+          <MSecHead icon="⚡" title="LLM Provider Health" color={prov.fallbackActive ? MON.amber : MON.green} />
+          {prov.fallbackActive && (
+            <MCard accent={MON.amber}>
+              <div style={{ fontFamily: MMONO, fontSize: 12, fontWeight: 700, color: MON.amber, marginBottom: 6 }}>FALLBACK ACTIVE</div>
+              <div style={{ fontFamily: MSERIF, fontSize: 14, color: MON.textSoft }}>
+                Primary is down — using {fb?.model || "fallback"}. Reason: {prov.lastFallbackReason || "unknown"}.
+                {prov.lastFallbackAt && <span style={{ fontFamily: MMONO, fontSize: 11, color: MON.textDim, marginLeft: 8 }}>since {new Date(prov.lastFallbackAt).toLocaleTimeString()}</span>}
+              </div>
+            </MCard>
+          )}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <MCard accent={pri?.live ? MON.green : MON.red}>
+              <MLabel color={pri?.live ? MON.green : MON.red}>Primary — {pri?.model}</MLabel>
+              <MRow label="STATUS" value={pri?.live ? "ONLINE" : `DOWN (${pri?.status})`} valueColor={pri?.live ? MON.green : MON.red} />
+              <MRow label="CALLS TODAY" value={pri?.calls ?? 0} />
+              <MRow label="SUCCESS RATE" value={priRate !== null ? `${priRate}%` : "—"} valueColor={priRate >= 95 ? MON.green : priRate >= 80 ? MON.amber : MON.red} />
+              <MRow label="AVG LATENCY" value={pri?.avgLatencyMs ? `${pri.avgLatencyMs}ms` : "—"} />
+              <MRow label="FAILURES" value={pri?.failures ?? 0} valueColor={pri?.failures > 0 ? MON.red : MON.textDim} />
+              <MRow label="TIMEOUTS" value={pri?.timeouts ?? 0} valueColor={pri?.timeouts > 0 ? MON.amber : MON.textDim} />
+              {pri?.lastError && <MRow label="LAST ERROR" value={`${pri.lastError} ${pri.lastErrorAt ? "at " + new Date(pri.lastErrorAt).toLocaleTimeString() : ""}`} valueColor={MON.red} />}
+            </MCard>
+            <MCard accent={fb?.live ? MON.green : fb ? MON.red : MON.border}>
+              <MLabel color={fb ? (fb.live ? MON.green : MON.red) : MON.textDim}>Fallback — {fb?.model || "none"}</MLabel>
+              {fb ? (<>
+                <MRow label="STATUS" value={fb.live ? "ONLINE" : `DOWN (${fb.status})`} valueColor={fb.live ? MON.green : MON.red} />
+                <MRow label="CALLS TODAY" value={fb.calls ?? 0} />
+                <MRow label="SUCCESS RATE" value={fbRate !== null ? `${fbRate}%` : "—"} valueColor={fbRate >= 95 ? MON.green : fbRate >= 80 ? MON.amber : MON.red} />
+                <MRow label="AVG LATENCY" value={fb.avgLatencyMs ? `${fb.avgLatencyMs}ms` : "—"} />
+                <MRow label="ACTIVATIONS" value={prov.fallbackActivations ?? 0} valueColor={prov.fallbackActivations > 0 ? MON.amber : MON.textDim} />
+                {fb.lastError && <MRow label="LAST ERROR" value={`${fb.lastError} ${fb.lastErrorAt ? "at " + new Date(fb.lastErrorAt).toLocaleTimeString() : ""}`} valueColor={MON.red} />}
+              </>) : (
+                <div style={{ fontFamily: MSERIF, fontSize: 14, color: MON.textDim, fontStyle: "italic" }}>No fallback configured</div>
+              )}
+            </MCard>
+          </div>
+          <div style={{ fontFamily: MMONO, fontSize: 10, color: MON.textDim, marginTop: 8 }}>
+            Stats since {prov.statsWindowStart ? new Date(prov.statsWindowStart).toLocaleString() : "server start"} — resets daily
+          </div>
+        </>
+      )}
+
       <MSecHead icon="👤" title="Current Session" color={MON.accent} />
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
         <MCard><MLabel>Identity</MLabel>
@@ -208,7 +272,7 @@ function StatusTab({ status, user, conversations, messages, liveHealth }) {
         </MCard>
         <MCard><MLabel>Environment</MLabel>
           <MRow label="API BASE"    value={endpoint.replace("https://", "").replace("http://", "")} valueColor={MON.blue} />
-          <MRow label="LLM BACKEND" value="Venice AI" valueColor={MON.green} />
+          <MRow label="PRIMARY"     value={prov?.fallbackActive ? "FALLBACK" : "MODAL"} valueColor={prov?.fallbackActive ? MON.amber : MON.green} />
           <MRow label="CHAT MODEL"  value={status.model || "—"} />
           <MRow label="EMBED MODEL" value={status.embedModel || "—"} />
         </MCard>
