@@ -5806,6 +5806,7 @@ app.get("/api/usage", (req, res) => {
 // MONITOR AUTH — password-gated, 2 attempts per IP
 // ═══════════════════════════════════════════════════════════════════
 const MONITOR_PASSWORD = "100233260";
+const MONITOR_TOKEN_SECRET = JWT_SECRET + "-monitor";
 const _monitorAttempts = new Map(); // ip -> { count, lockedAt }
 
 app.post("/api/monitor/auth", (req, res) => {
@@ -5819,7 +5820,8 @@ app.post("/api/monitor/auth", (req, res) => {
   const { password } = req.body;
   if (password === MONITOR_PASSWORD) {
     _monitorAttempts.delete(ip);
-    return res.json({ ok: true });
+    const monitorToken = jwt.sign({ monitor: true }, MONITOR_TOKEN_SECRET, { expiresIn: "4h" });
+    return res.json({ ok: true, monitorToken });
   }
 
   entry.count += 1;
@@ -5829,6 +5831,105 @@ app.post("/api/monitor/auth", (req, res) => {
     return res.status(403).json({ error: "Access locked. Too many failed attempts." });
   }
   return res.status(401).json({ error: `Incorrect password. ${remaining} attempt remaining.` });
+});
+
+// ── Admin auth middleware ─────────────────────────────────────────
+const adminAuth = (req, res, next) => {
+  const token = req.headers["x-monitor-token"];
+  if (!token) return res.status(401).json({ error: "Monitor token required" });
+  try {
+    const decoded = jwt.verify(token, MONITOR_TOKEN_SECRET);
+    if (!decoded.monitor) return res.status(403).json({ error: "Invalid monitor token" });
+    next();
+  } catch {
+    return res.status(401).json({ error: "Monitor token expired or invalid" });
+  }
+};
+
+// ── Admin endpoints ───────────────────────────────────────────────
+app.get("/api/admin/users", adminAuth, async (req, res) => {
+  try {
+    const users = await User.find({}).lean();
+    const userIds = users.map(u => u._id);
+
+    const memories = await PersonalityMemory.find(
+      { userId: { $in: userIds } },
+      "userId trustLevel trustPoints totalMessages totalConversations firstMet lastSeen feelings sptDepth"
+    ).lean();
+    const memMap = new Map(memories.map(m => [m.userId.toString(), m]));
+
+    const convoCounts = await Conversation.aggregate([
+      { $match: { userId: { $in: userIds } } },
+      { $group: { _id: "$userId", count: { $sum: 1 } } },
+    ]);
+    const convoMap = new Map(convoCounts.map(c => [c._id.toString(), c.count]));
+
+    const healths = await RelationshipHealth.find(
+      { userId: { $in: userIds } }, "userId atRisk cpsTrajectory"
+    ).lean();
+    const healthMap = new Map(healths.map(h => [h.userId.toString(), h]));
+
+    const result = users.map(u => {
+      const uid = u._id.toString();
+      const pm = memMap.get(uid);
+      const rh = healthMap.get(uid);
+      return {
+        id: uid, phraseHash: u.phraseHash.slice(0, 8) + "…", createdAt: u.createdAt,
+        trustLevel: pm?.trustLevel ?? 0, trustPoints: pm?.trustPoints ?? 0,
+        totalMessages: pm?.totalMessages ?? 0,
+        totalConversations: convoMap.get(uid) ?? pm?.totalConversations ?? 0,
+        firstMet: pm?.firstMet ?? u.createdAt, lastSeen: pm?.lastSeen ?? null,
+        sptDepth: pm?.sptDepth ?? 1, feelings: pm?.feelings ?? {},
+        atRisk: rh?.atRisk ?? false, cpsTrajectory: rh?.cpsTrajectory ?? null,
+        isOnline: sessionCache.has(uid),
+      };
+    });
+    result.sort((a, b) => new Date(b.lastSeen || 0) - new Date(a.lastSeen || 0));
+    res.json({ users: result, totalUsers: result.length });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get("/api/admin/users/:id/conversations", adminAuth, async (req, res) => {
+  try {
+    const userId = req.params.id;
+    const conversations = await Conversation.find({ userId }).sort({ updatedAt: -1 }).lean();
+    const convoIds = conversations.map(c => c.conversationId);
+    const msgCounts = await Message.aggregate([
+      { $match: { conversationId: { $in: convoIds } } },
+      { $group: {
+        _id: "$conversationId", count: { $sum: 1 }, lastMsg: { $max: "$timestamp" },
+        userMsgs: { $sum: { $cond: [{ $eq: ["$role", "user"] }, 1, 0] } },
+        aiMsgs: { $sum: { $cond: [{ $eq: ["$role", "assistant"] }, 1, 0] } },
+      }},
+    ]);
+    const countMap = new Map(msgCounts.map(m => [m._id, m]));
+    const result = conversations.map(c => ({
+      conversationId: c.conversationId, title: c.title,
+      createdAt: c.createdAt, updatedAt: c.updatedAt,
+      messageCount: countMap.get(c.conversationId)?.count ?? 0,
+      userMessages: countMap.get(c.conversationId)?.userMsgs ?? 0,
+      aiMessages: countMap.get(c.conversationId)?.aiMsgs ?? 0,
+      lastMessage: countMap.get(c.conversationId)?.lastMsg ?? c.updatedAt,
+    }));
+    res.json({ userId, conversations: result });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get("/api/admin/users/:id/messages", adminAuth, async (req, res) => {
+  try {
+    const userId = req.params.id;
+    const { conversationId, limit: limitStr, offset: offsetStr } = req.query;
+    let convoFilter = { userId };
+    if (conversationId) convoFilter.conversationId = conversationId;
+    const convos = await Conversation.find(convoFilter, "conversationId").lean();
+    const convoIds = convos.map(c => c.conversationId);
+    const limit = Math.min(parseInt(limitStr) || 200, 500);
+    const offset = parseInt(offsetStr) || 0;
+    const messages = await Message.find({ conversationId: { $in: convoIds } })
+      .sort({ timestamp: -1 }).skip(offset).limit(limit).lean();
+    const total = await Message.countDocuments({ conversationId: { $in: convoIds } });
+    res.json({ userId, conversationId: conversationId || null, messages: messages.reverse(), total, limit, offset });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ═══════════════════════════════════════════════════════════════════

@@ -83,6 +83,7 @@ const MONITOR_TABS = [
   { id: "session", label: "Session",      icon: "◈" },
   { id: "phase5",  label: "Intelligence", icon: "∞" },
   { id: "phase6",  label: "Health",       icon: "♡" },
+  { id: "admin",   label: "Admin",        icon: "⊞" },
 ];
 
 function MLabel({ children, color = MON.accent }) {
@@ -154,17 +155,17 @@ function StatusTab({ status, user, conversations, messages, liveHealth }) {
       detail: endpoint.replace("https://", "").replace("http://", ""),
     },
     {
-      key: "ollama", label: "Chat — OpenRouter",
+      key: "ollama", label: "Chat — Venice AI",
       live: status.ollama,
-      description: "Streaming chat completions via OpenRouter. inject_system: false keeps Express in control of the full prompt.",
-      route: "POST /v1/chat/completions → OpenRouter",
+      description: "Streaming chat completions via Venice AI. inject_system: false keeps Express in control of the full prompt.",
+      route: "POST /v1/chat/completions → Venice AI",
       detail: status.model || "chat model",
     },
     {
-      key: "embeddings", label: "Embeddings — OpenRouter",
+      key: "embeddings", label: "Embeddings — Venice AI",
       live: status.embeddings,
       description: "Converts memory atoms to vectors for cosine similarity retrieval.",
-      route: "POST /v1/embeddings → OpenRouter",
+      route: "POST /v1/embeddings → Venice AI",
       detail: status.embedModel || "embed model",
     },
     {
@@ -207,7 +208,7 @@ function StatusTab({ status, user, conversations, messages, liveHealth }) {
         </MCard>
         <MCard><MLabel>Environment</MLabel>
           <MRow label="API BASE"    value={endpoint.replace("https://", "").replace("http://", "")} valueColor={MON.blue} />
-          <MRow label="LLM BACKEND" value="OpenRouter" valueColor={MON.green} />
+          <MRow label="LLM BACKEND" value="Venice AI" valueColor={MON.green} />
           <MRow label="CHAT MODEL"  value={status.model || "—"} />
           <MRow label="EMBED MODEL" value={status.embedModel || "—"} />
         </MCard>
@@ -807,9 +808,197 @@ function Phase6Tab({ token }) {
   );
 }
 
+// ── AdminTab ─────────────────────────────────────────────────────
+
+function AdminTab({ monitorToken }) {
+  const [view, setView] = useState("users"); // users | conversations | messages
+  const [users, setUsers] = useState([]);
+  const [selectedUser, setSelectedUser] = useState(null);
+  const [convos, setConvos] = useState([]);
+  const [msgs, setMsgs] = useState([]);
+  const [selectedConvo, setSelectedConvo] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [msgOffset, setMsgOffset] = useState(0);
+  const MSG_LIMIT = 200;
+
+  const adminHdrs = () => ({ "Content-Type": "application/json", "x-monitor-token": monitorToken });
+
+  const loadUsers = async () => {
+    setLoading(true); setError(null);
+    try {
+      const r = await fetch(`${API}/api/admin/users`, { headers: adminHdrs() });
+      if (!r.ok) throw new Error((await r.json()).error || "Failed to load users");
+      setUsers(await r.json());
+    } catch (e) { setError(e.message); }
+    setLoading(false);
+  };
+
+  const loadConversations = async (user) => {
+    setSelectedUser(user); setView("conversations"); setLoading(true); setError(null);
+    try {
+      const r = await fetch(`${API}/api/admin/users/${user._id}/conversations`, { headers: adminHdrs() });
+      if (!r.ok) throw new Error((await r.json()).error || "Failed to load conversations");
+      setConvos(await r.json());
+    } catch (e) { setError(e.message); }
+    setLoading(false);
+  };
+
+  const loadMessages = async (convo, offset = 0) => {
+    setSelectedConvo(convo); setView("messages"); setMsgOffset(offset); setLoading(true); setError(null);
+    try {
+      const r = await fetch(`${API}/api/admin/users/${selectedUser._id}/messages?conversationId=${convo.conversationId}&limit=${MSG_LIMIT}&offset=${offset}`, { headers: adminHdrs() });
+      if (!r.ok) throw new Error((await r.json()).error || "Failed to load messages");
+      setMsgs(await r.json());
+    } catch (e) { setError(e.message); }
+    setLoading(false);
+  };
+
+  useEffect(() => { if (monitorToken) loadUsers(); }, [monitorToken]);
+
+  const Breadcrumb = () => (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16, fontFamily: MMONO, fontSize: 12 }}>
+      <span style={{ color: view === "users" ? MON.accent : MON.blue, cursor: "pointer", textDecoration: view !== "users" ? "underline" : "none" }}
+        onClick={() => { setView("users"); setSelectedUser(null); setSelectedConvo(null); }}>All Users</span>
+      {selectedUser && <>
+        <span style={{ color: MON.textDim }}>›</span>
+        <span style={{ color: view === "conversations" ? MON.accent : MON.blue, cursor: "pointer", textDecoration: view === "messages" ? "underline" : "none" }}
+          onClick={() => { setView("conversations"); setSelectedConvo(null); }}>{selectedUser.phraseHash?.slice(0, 12)}…</span>
+      </>}
+      {selectedConvo && <>
+        <span style={{ color: MON.textDim }}>›</span>
+        <span style={{ color: MON.accent }}>{selectedConvo.title || "Untitled"}</span>
+      </>}
+    </div>
+  );
+
+  if (!monitorToken) return <MCard><MLabel color={MON.red}>No Monitor Token</MLabel><div style={{ fontFamily: MMONO, fontSize: 12, color: MON.textDim }}>Re-authenticate to access admin features.</div></MCard>;
+
+  if (error) return <><Breadcrumb /><MCard accent={MON.red}><MLabel color={MON.red}>Error</MLabel><div style={{ fontFamily: MMONO, fontSize: 12, color: MON.text }}>{error}</div></MCard></>;
+
+  // ── User List View ──
+  if (view === "users") return (
+    <>
+      <MSecHead icon="⊞" title="All Users" />
+      {loading ? <div style={{ fontFamily: MMONO, fontSize: 12, color: MON.textDim, padding: 20 }}>Loading users…</div> : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "32px 1fr 80px 60px 60px 60px 80px 120px", gap: 8, padding: "8px 12px", borderBottom: `1px solid ${MON.border}` }}>
+            {["", "Phrase Hash", "Trust", "Msgs", "Convos", "SPT", "Status", "Last Seen"].map(h => (
+              <span key={h} style={{ fontFamily: MMONO, fontSize: 10, color: MON.textDim, fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase" }}>{h}</span>
+            ))}
+          </div>
+          {users.map(u => (
+            <div key={u._id} onClick={() => loadConversations(u)}
+              style={{ display: "grid", gridTemplateColumns: "32px 1fr 80px 60px 60px 60px 80px 120px", gap: 8, padding: "10px 12px", borderRadius: 8, cursor: "pointer", background: "transparent", transition: "background 0.15s" }}
+              onMouseEnter={e => e.currentTarget.style.background = MON.surface} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+              <span style={{ fontSize: 10, lineHeight: "20px" }}>{u.online ? "🟢" : "⚫"}</span>
+              <span style={{ fontFamily: MMONO, fontSize: 12, color: MON.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{u.phraseHash}</span>
+              <span style={{ fontFamily: MMONO, fontSize: 12, color: MON.accent, fontWeight: 600 }}>L{u.trustLevel ?? "?"}</span>
+              <span style={{ fontFamily: MMONO, fontSize: 12, color: MON.text }}>{u.messageCount ?? 0}</span>
+              <span style={{ fontFamily: MMONO, fontSize: 12, color: MON.text }}>{u.conversationCount ?? 0}</span>
+              <span style={{ fontFamily: MMONO, fontSize: 12, color: MON.text }}>D{u.sptDepth ?? 1}</span>
+              <span>{u.atRisk ? <span style={{ fontFamily: MMONO, fontSize: 10, background: "#ff4d4d20", color: "#ff4d4d", padding: "2px 8px", borderRadius: 10, fontWeight: 600 }}>AT RISK</span> : <span style={{ fontFamily: MMONO, fontSize: 10, color: MON.textDim }}>OK</span>}</span>
+              <span style={{ fontFamily: MMONO, fontSize: 11, color: MON.textDim }}>{u.lastSeen ? new Date(u.lastSeen).toLocaleDateString() : "—"}</span>
+            </div>
+          ))}
+          {users.length === 0 && <div style={{ fontFamily: MMONO, fontSize: 12, color: MON.textDim, padding: 20, textAlign: "center" }}>No users found.</div>}
+        </div>
+      )}
+    </>
+  );
+
+  // ── Conversation List View ──
+  if (view === "conversations") return (
+    <>
+      <Breadcrumb />
+      <MCard accent={MON.accent}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <MLabel>User</MLabel>
+            <MRow label="Phrase Hash" value={selectedUser.phraseHash} />
+            <MRow label="Trust Level" value={`Level ${selectedUser.trustLevel ?? "?"}`} valueColor={MON.accent} />
+            <MRow label="SPT Depth" value={`Depth ${selectedUser.sptDepth ?? 1}`} />
+            <MRow label="Messages" value={selectedUser.messageCount ?? 0} />
+          </div>
+          {selectedUser.atRisk && <span style={{ fontFamily: MMONO, fontSize: 11, background: "#ff4d4d20", color: "#ff4d4d", padding: "4px 12px", borderRadius: 10, fontWeight: 700, alignSelf: "flex-start" }}>AT RISK</span>}
+        </div>
+      </MCard>
+      <MSecHead icon="◈" title="Conversations" />
+      {loading ? <div style={{ fontFamily: MMONO, fontSize: 12, color: MON.textDim, padding: 20 }}>Loading conversations…</div> : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          {convos.map(c => (
+            <div key={c.conversationId} onClick={() => loadMessages(c)}
+              style={{ background: MON.surface, border: `1px solid ${MON.border}`, borderRadius: 10, padding: "14px 18px", cursor: "pointer", transition: "border-color 0.15s" }}
+              onMouseEnter={e => e.currentTarget.style.borderColor = MON.accent} onMouseLeave={e => e.currentTarget.style.borderColor = MON.border}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
+                <span style={{ fontFamily: MSERIF, fontSize: 14, color: MON.text, fontWeight: 600 }}>{c.title || "Untitled Conversation"}</span>
+                <span style={{ fontFamily: MMONO, fontSize: 11, color: MON.accent, fontWeight: 600 }}>{c.messageCount} msgs</span>
+              </div>
+              <div style={{ display: "flex", gap: 16 }}>
+                <span style={{ fontFamily: MMONO, fontSize: 11, color: MON.textDim }}>Created: {new Date(c.createdAt).toLocaleDateString()}</span>
+                <span style={{ fontFamily: MMONO, fontSize: 11, color: MON.textDim }}>Updated: {new Date(c.updatedAt).toLocaleDateString()}</span>
+              </div>
+            </div>
+          ))}
+          {convos.length === 0 && <div style={{ fontFamily: MMONO, fontSize: 12, color: MON.textDim, padding: 20, textAlign: "center" }}>No conversations.</div>}
+        </div>
+      )}
+    </>
+  );
+
+  // ── Message Viewer ──
+  if (view === "messages") return (
+    <>
+      <Breadcrumb />
+      <MCard accent={MON.blue}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+          <MLabel color={MON.blue}>{selectedConvo?.title || "Untitled"}</MLabel>
+          <span style={{ fontFamily: MMONO, fontSize: 11, color: MON.textDim }}>{selectedConvo?.messageCount} total messages</span>
+        </div>
+      </MCard>
+      {loading ? <div style={{ fontFamily: MMONO, fontSize: 12, color: MON.textDim, padding: 20 }}>Loading messages…</div> : (
+        <>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {msgs.map((m, i) => {
+              const isUser = m.role === "user";
+              const isSystem = m.role === "system";
+              return (
+                <div key={m._id || i} style={{ background: MON.surface, border: `1px solid ${MON.border}`, borderLeft: `3px solid ${isUser ? "#a855f7" : isSystem ? MON.textDim + "40" : MON.accent}`, borderRadius: 8, padding: "10px 16px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontFamily: MMONO, fontSize: 11, color: isUser ? "#a855f7" : isSystem ? MON.textDim : MON.accent, fontWeight: 700, textTransform: "uppercase" }}>{m.role}</span>
+                      {m.proactive && <span style={{ fontFamily: MMONO, fontSize: 9, background: MON.accent + "20", color: MON.accent, padding: "1px 6px", borderRadius: 6, fontWeight: 600 }}>PROACTIVE</span>}
+                    </div>
+                    <span style={{ fontFamily: MMONO, fontSize: 10, color: MON.textDim }}>{m.timestamp ? new Date(m.timestamp).toLocaleString() : ""}</span>
+                  </div>
+                  <div style={{ fontFamily: MSERIF, fontSize: 13, color: isSystem ? MON.textDim : MON.text, lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{m.content}</div>
+                </div>
+              );
+            })}
+            {msgs.length === 0 && <div style={{ fontFamily: MMONO, fontSize: 12, color: MON.textDim, padding: 20, textAlign: "center" }}>No messages.</div>}
+          </div>
+          {/* Pagination */}
+          <div style={{ display: "flex", justifyContent: "center", gap: 12, marginTop: 20 }}>
+            {msgOffset > 0 && (
+              <button onClick={() => loadMessages(selectedConvo, msgOffset - MSG_LIMIT)}
+                style={{ background: MON.accentSoft, border: `1px solid ${MON.accent}40`, borderRadius: 8, padding: "7px 18px", color: MON.accent, fontFamily: MMONO, fontSize: 12, cursor: "pointer" }}>← Newer</button>
+            )}
+            {msgs.length === MSG_LIMIT && (
+              <button onClick={() => loadMessages(selectedConvo, msgOffset + MSG_LIMIT)}
+                style={{ background: MON.accentSoft, border: `1px solid ${MON.accent}40`, borderRadius: 8, padding: "7px 18px", color: MON.accent, fontFamily: MMONO, fontSize: 12, cursor: "pointer" }}>Older →</button>
+            )}
+          </div>
+        </>
+      )}
+    </>
+  );
+
+  return null;
+}
+
 // ── ExplainPanel ──────────────────────────────────────────────────
 
-function ExplainPanel({ onClose, token, user, conversations, messages, status }) {
+function ExplainPanel({ onClose, token, user, conversations, messages, status, monitorToken }) {
   const [activeTab,       setActiveTab]       = useState("status");
   const [livePersonality, setLivePersonality] = useState(null);
   const [liveHealth,      setLiveHealth]      = useState(null);
@@ -872,6 +1061,7 @@ function ExplainPanel({ onClose, token, user, conversations, messages, status })
           {activeTab === "session" && <SessionTab messages={messages} livePersonality={livePersonality} />}
           {activeTab === "phase5"  && <Phase5Tab  token={token} />}
           {activeTab === "phase6"  && <Phase6Tab  token={token} />}
+          {activeTab === "admin"   && <AdminTab   monitorToken={monitorToken} />}
         </div>
       </div>
       <style>{`button:focus{outline:none}::-webkit-scrollbar{width:18px}::-webkit-scrollbar-track{background:${MON.bg};border-radius:9px}::-webkit-scrollbar-thumb{background:${MON.accent}70;border-radius:9px;border:3px solid transparent;background-clip:padding-box;min-height:60px}::-webkit-scrollbar-thumb:hover{background:${MON.accent}aa;border:3px solid transparent;background-clip:padding-box}`}</style>
@@ -1647,6 +1837,7 @@ export default function App() {
   const [currentMood,   setCurrentMood]   = useState("neutral");
   const [showExplain,   setShowExplain]   = useState(false);
   const [monitorUnlocked, setMonitorUnlocked] = useState(false);
+  const [monitorToken, setMonitorToken] = useState(null);
   const [monitorPrompt, setMonitorPrompt] = useState(false);
   const [monitorInput, setMonitorInput] = useState("");
   const [monitorError, setMonitorError] = useState("");
@@ -1929,7 +2120,7 @@ export default function App() {
       <ParticlesBg />
 
       {showExplain && (
-        <ExplainPanel onClose={() => setShowExplain(false)} token={token()} user={user} conversations={conversations} messages={messages} status={status} />
+        <ExplainPanel onClose={() => setShowExplain(false)} token={token()} user={user} conversations={conversations} messages={messages} status={status} monitorToken={monitorToken} />
       )}
 
       {monitorPrompt && (
@@ -1958,6 +2149,7 @@ export default function App() {
                         const data = await r.json();
                         if (r.ok) {
                           setMonitorUnlocked(true);
+                          setMonitorToken(data.monitorToken || null);
                           setMonitorPrompt(false);
                           setMonitorError("");
                           setShowExplain(true);
