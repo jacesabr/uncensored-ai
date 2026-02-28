@@ -1958,7 +1958,7 @@ export default function App() {
   // Finetuned model comparison state
   const [ftStreamText,    setFtStreamText]    = useState("");
   const [ftEnabled,       setFtEnabled]       = useState(false);
-  const [ftFormat,        setFtFormat]        = useState("llama3");
+  const [ftFormat,        setFtFormat]        = useState("chatml");
   // Comparison mode is always on when FT is enabled
   const comparisonMode = ftEnabled;
   const messagesEndRef = useRef(null);
@@ -2446,6 +2446,13 @@ export default function App() {
           {ftEnabled && (
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, paddingLeft: 4 }}>
               <span style={{ fontFamily: FONT_MONO, fontSize: 9, color: "#10b981", opacity: 0.7 }}>dual model comparison active</span>
+              <select value={ftFormat} onChange={e => setFtFormat(e.target.value)}
+                style={{ fontFamily: FONT_MONO, fontSize: 9, background: T.surface2, color: T.textDim, border: `1px solid ${T.border}`, borderRadius: 4, padding: "2px 4px", cursor: "pointer" }}>
+                <option value="chatml">ChatML (trained)</option>
+                <option value="llama3">Llama 3</option>
+                <option value="alpaca">Alpaca</option>
+                <option value="raw">Raw</option>
+              </select>
             </div>
           )}
           <div style={{ display: "flex", alignItems: "flex-end", gap: 8, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 18, padding: "10px 16px" }}>

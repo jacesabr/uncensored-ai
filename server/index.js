@@ -174,7 +174,8 @@ function fetchWithTimeout(url, options, timeoutMs = LLM_TIMEOUT_MS) {
 // ── Finetuned model: prompt format converters ─────────────────────
 // Converts OpenAI-style messages[] to raw prompt strings for llama.cpp /completion.
 // The GGUF chat template is broken — /v1/chat/completions causes echo/regurgitation.
-// Four formats to A/B test which produces the best Morrigan responses.
+// Model was trained with ChatML (via Unsloth get_chat_template("chatml")).
+// ChatML is the correct default — other formats available for A/B comparison.
 const FT_FORMATS = {
   llama3: {
     name: "Llama 3 Instruct",
@@ -236,7 +237,7 @@ const FT_FORMATS = {
 //   - Direct (Modal/Colab): POST FT_URL/completion with SSE streaming
 //   - RunPod Serverless: POST FT_URL/runsync with polling (returns full response)
 async function ftStreamCompletion(messages, format = "llama3") {
-  const fmt = FT_FORMATS[format] || FT_FORMATS.llama3;
+  const fmt = FT_FORMATS[format] || FT_FORMATS.chatml;
   const prompt = fmt.convert(messages);
   const headers = { "Content-Type": "application/json" };
   if (FT_API_KEY) headers["Authorization"] = `Bearer ${FT_API_KEY}`;
