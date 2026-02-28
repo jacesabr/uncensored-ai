@@ -5686,13 +5686,6 @@ app.post("/api/chat", auth, async (req, res) => {
           },
           processingMeta: processingMetaForDone,
           provider: { name: _chatProvider, model: _chatModel, fallbackActive: _fallbackActive },
-          finetunedComparison: FT_FORMAT_KEYS.length ? Object.fromEntries(
-            FT_FORMAT_KEYS.map(k => [k, {
-              formatName: FT_FORMATS[k].name,
-              response: ftResults[k].response || null,
-              error: ftResults[k].error || null,
-            }])
-          ) : undefined,
           usage: {
             used: usageForDone.count,
             limit: DAILY_MSG_LIMIT,
@@ -5700,11 +5693,24 @@ app.post("/api/chat", auth, async (req, res) => {
             resetAt: new Date(usageForDone.resetAt).toISOString(),
           },
         })}\n\n`);
-        // Wait briefly for finetuned streams to finish before closing connection
+        // Keep connection open for FT streams — GPU processes them sequentially
         if (FT_FORMAT_KEYS.length) {
           const ftWaitStart = Date.now();
-          while (FT_FORMAT_KEYS.some(k => !ftResults[k].done) && Date.now() - ftWaitStart < 10000) {
-            await new Promise(r => setTimeout(r, 200));
+          while (FT_FORMAT_KEYS.some(k => !ftResults[k].done) && Date.now() - ftWaitStart < 180_000) {
+            await new Promise(r => setTimeout(r, 300));
+          }
+          // Send final FT results as separate event
+          if (!res.writableEnded) {
+            res.write(`data: ${JSON.stringify({
+              ftAllDone: true,
+              finetunedComparison: Object.fromEntries(
+                FT_FORMAT_KEYS.map(k => [k, {
+                  formatName: FT_FORMATS[k].name,
+                  response: ftResults[k].response || null,
+                  error: ftResults[k].error || null,
+                }])
+              ),
+            })}\n\n`);
           }
         }
         res.end();
