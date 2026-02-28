@@ -1,287 +1,176 @@
 """
-RunPod Deployment Script for JaceSabr/morrigan-sft-v1
-=====================================================
-Run this from VS Code terminal:
-    pip install runpod requests
-    python deploy_runpod.py
+RunPod Serverless Deployment for Morrigan SFT v1 (GGUF)
+========================================================
 
-You need a RunPod API key:
-    1. Go to https://www.runpod.io/console/user/settings
-    2. Click "API Keys" → Create key
-    3. Paste it below or set RUNPOD_API_KEY env variable
+Two deployment options:
+
+OPTION A — Serverless (recommended, pay-per-use):
+  1. Build Docker image:
+       docker build -f Dockerfile.runpod -t YOUR_DOCKERHUB/morrigan-sft .
+       docker push YOUR_DOCKERHUB/morrigan-sft
+  2. Create endpoint:
+       python deploy_runpod.py
+  3. Set in server .env:
+       FT_URL=https://api.runpod.ai/v2/YOUR_ENDPOINT_ID
+       FT_API_KEY=rpa_YOUR_KEY
+
+OPTION B — GPU Pod (always-on, simpler):
+  1. Create T4 pod at runpod.io
+  2. SSH in and run:
+       pip install llama-cpp-python huggingface_hub fastapi uvicorn
+       python -c "from huggingface_hub import hf_hub_download; hf_hub_download('JaceSabr/morrigan-sft-v1', 'morrigan-Q5_K_M.gguf', local_dir='/model')"
+       Copy the FastAPI server code from morrigan_sft_server.ipynb cell 5
+       uvicorn app:app --host 0.0.0.0 --port 8080
+  3. Set FT_URL to pod's public URL
 """
 
 import os
 import time
-import requests
 import json
 
-# ============================================================
-# CONFIGURATION - Edit these
-# ============================================================
-RUNPOD_API_KEY = os.environ.get("RUNPOD_API_KEY", "YOUR_API_KEY_HERE")  # <-- paste your key
-MODEL_NAME = "JaceSabr/morrigan-sft-v1"
-ENDPOINT_NAME = "morrigan-sft-v1"
-GPU_IDS = "NVIDIA A40"  # Options: "NVIDIA A40", "NVIDIA L4", "NVIDIA RTX A6000"
+try:
+    import requests
+except ImportError:
+    print("pip install requests")
+    exit(1)
 
-# ============================================================
-# DO NOT EDIT BELOW THIS LINE
-# ============================================================
-
+RUNPOD_API_KEY = os.environ.get("RUNPOD_API_KEY", "")
 RUNPOD_API_URL = "https://api.runpod.io/graphql"
-HEADERS = {"Content-Type": "application/json", "api_key": RUNPOD_API_KEY}
+DOCKER_IMAGE = os.environ.get("DOCKER_IMAGE", "YOUR_DOCKERHUB/morrigan-sft:latest")
 
 
-def graphql_request(query, variables=None):
-    """Make a GraphQL request to RunPod API."""
+def graphql(query, variables=None):
     payload = {"query": query}
     if variables:
         payload["variables"] = variables
-    resp = requests.post(RUNPOD_API_URL, headers=HEADERS, json=payload)
+    resp = requests.post(
+        f"{RUNPOD_API_URL}?api_key={RUNPOD_API_KEY}",
+        headers={"Content-Type": "application/json"},
+        json=payload,
+    )
     resp.raise_for_status()
     data = resp.json()
     if "errors" in data:
-        print(f"❌ API Error: {json.dumps(data['errors'], indent=2)}")
+        print(f"API Error: {json.dumps(data['errors'], indent=2)}")
         return None
     return data.get("data")
 
 
-def create_serverless_endpoint():
-    """Create a vLLM serverless endpoint."""
-    print(f"🚀 Creating serverless endpoint: {ENDPOINT_NAME}")
-    print(f"   Model: {MODEL_NAME}")
-    print(f"   GPU: {GPU_IDS}")
-    print()
-
-    # Create a serverless template first
-    template_query = """
-    mutation CreateTemplate($input: CreateEndpointTemplateInput!) {
-        saveTemplate(input: $input) {
-            id
-            name
+def create_template():
+    """Create a serverless template for the GGUF Docker image."""
+    data = graphql("""
+        mutation {
+            saveTemplate(input: {
+                name: "morrigan-sft-gguf"
+                imageName: "%s"
+                dockerArgs: ""
+                containerDiskInGb: 20
+                volumeInGb: 0
+                env: []
+            }) { id name }
         }
-    }
-    """
-    template_vars = {
-        "input": {
-            "name": f"{ENDPOINT_NAME}-template",
-            "imageName": "runpod/worker-v1-vllm:stable-cuda12.1.0",
-            "dockerArgs": "",
-            "containerDiskInGb": 20,
-            "volumeInGb": 50,
-            "env": [
-                {"key": "MODEL_NAME", "value": MODEL_NAME},
-                {"key": "MAX_MODEL_LEN", "value": "4096"},
-                {"key": "DTYPE", "value": "bfloat16"},
-                {"key": "GPU_MEMORY_UTILIZATION", "value": "0.90"},
-                {"key": "DISABLE_LOG_STATS", "value": "true"},
-            ],
-        }
-    }
-
-    template_data = graphql_request(template_query, template_vars)
-    if not template_data:
-        print("❌ Failed to create template. Trying alternative approach...")
-        return create_pod_instead()
-
-    template_id = template_data["saveTemplate"]["id"]
-    print(f"✅ Template created: {template_id}")
-
-    # Create the endpoint
-    endpoint_query = """
-    mutation CreateEndpoint($input: CreateEndpointInput!) {
-        saveEndpoint(input: $input) {
-            id
-            name
-            templateId
-        }
-    }
-    """
-    endpoint_vars = {
-        "input": {
-            "name": ENDPOINT_NAME,
-            "templateId": template_id,
-            "gpuIds": GPU_IDS,
-            "workersMin": 0,
-            "workersMax": 1,
-            "idleTimeout": 5,
-            "scalerType": "QUEUE_DELAY",
-            "scalerValue": 1,
-        }
-    }
-
-    endpoint_data = graphql_request(endpoint_query, endpoint_vars)
-    if not endpoint_data:
-        print("❌ Failed to create endpoint")
-        return None
-
-    endpoint_id = endpoint_data["saveEndpoint"]["id"]
-    print(f"✅ Endpoint created: {endpoint_id}")
-    print(f"   URL: https://api.runpod.ai/v2/{endpoint_id}")
-    return endpoint_id
-
-
-def create_pod_instead():
-    """Fallback: create a GPU pod with vLLM."""
-    print("\n🔄 Creating a GPU Pod instead (simpler, more reliable)...")
-
-    query = """
-    mutation CreatePod($input: PodFindAndDeployOnDemandInput!) {
-        podFindAndDeployOnDemand(input: $input) {
-            id
-            name
-            desiredStatus
-            imageName
-            machineId
-        }
-    }
-    """
-    variables = {
-        "input": {
-            "name": ENDPOINT_NAME,
-            "imageName": "runpod/pytorch:2.1.0-py3.10-cuda11.8.0-devel-ubuntu22.04",
-            "gpuTypeId": GPU_IDS,
-            "gpuCount": 1,
-            "volumeInGb": 50,
-            "containerDiskInGb": 20,
-            "minVcpuCount": 4,
-            "minMemoryInGb": 24,
-            "ports": "8000/http",
-            "dockerArgs": "",
-            "env": [
-                {"key": "MODEL_NAME", "value": MODEL_NAME},
-            ],
-            "startJupyter": False,
-            "startSsh": True,
-        }
-    }
-
-    data = graphql_request(query, variables)
+    """ % DOCKER_IMAGE)
     if not data:
-        print("❌ Failed to create pod")
         return None
+    tid = data["saveTemplate"]["id"]
+    print(f"Template created: {tid}")
+    return tid
 
-    pod = data["podFindAndDeployOnDemand"]
-    print(f"✅ Pod created: {pod['id']}")
-    print(f"   Name: {pod['name']}")
-    print(f"\n📋 Next steps:")
-    print(f"   1. Go to https://www.runpod.io/console/pods")
-    print(f"   2. SSH into the pod")
-    print(f"   3. Run these commands:")
-    print(f"      pip install vllm")
-    print(f"      python -m vllm.entrypoints.openai.api_server \\")
-    print(f"          --model {MODEL_NAME} \\")
-    print(f"          --dtype bfloat16 \\")
-    print(f"          --host 0.0.0.0 \\")
-    print(f"          --port 8000")
-    return pod["id"]
+
+def create_endpoint(template_id):
+    """Create a serverless endpoint from the template."""
+    data = graphql("""
+        mutation {
+            saveEndpoint(input: {
+                name: "morrigan-sft"
+                templateId: "%s"
+                gpuIds: "NVIDIA T4"
+                workersMin: 0
+                workersMax: 1
+                idleTimeout: 5
+                scalerType: "QUEUE_DELAY"
+                scalerValue: 1
+            }) { id name }
+        }
+    """ % template_id)
+    if not data:
+        return None
+    eid = data["saveEndpoint"]["id"]
+    print(f"Endpoint created: {eid}")
+    print(f"URL: https://api.runpod.ai/v2/{eid}")
+    return eid
 
 
 def test_endpoint(endpoint_id):
-    """Test the serverless endpoint."""
-    print(f"\n🧪 Testing endpoint {endpoint_id}...")
-    print("   (First request may take a few minutes as the worker spins up)\n")
+    """Send a test job to the endpoint."""
+    print(f"\nTesting endpoint {endpoint_id} (may take 1-2 min on cold start)...")
 
-    url = f"https://api.runpod.ai/v2/{endpoint_id}/runsync"
-    headers = {
-        "Authorization": f"Bearer {RUNPOD_API_KEY}",
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "input": {
-            "messages": [
-                {"role": "user", "content": "Hello! Who are you?"}
-            ],
-            "max_tokens": 200,
-            "temperature": 0.7,
-        }
-    }
+    prompt = (
+        "<|start_header_id|>system<|end_header_id|>\n\n"
+        "You are Morrigan. 23. Record store. Literary, visceral prose. *Italics* for actions.<|eot_id|>"
+        "<|start_header_id|>user<|end_header_id|>\n\n"
+        "Hey, what are you listening to?<|eot_id|>"
+        "<|start_header_id|>assistant<|end_header_id|>\n\n"
+    )
 
-    try:
-        print("   Sending request...")
-        resp = requests.post(url, headers=headers, json=payload, timeout=300)
-        resp.raise_for_status()
-        result = resp.json()
+    resp = requests.post(
+        f"https://api.runpod.ai/v2/{endpoint_id}/run",
+        headers={"Authorization": f"Bearer {RUNPOD_API_KEY}", "Content-Type": "application/json"},
+        json={"input": {"prompt": prompt, "temperature": 0.8, "n_predict": 200, "stop": ["<|eot_id|>"]}},
+    )
+    job = resp.json()
+    job_id = job.get("id")
+    if not job_id:
+        print(f"Failed: {job}")
+        return
 
-        if result.get("status") == "COMPLETED":
-            print(f"✅ Success! Response:")
-            print(f"   {json.dumps(result.get('output', {}), indent=2)}")
-        elif result.get("status") == "IN_QUEUE":
-            job_id = result.get("id")
-            print(f"   Job queued: {job_id}")
-            print(f"   Worker is spinning up. Polling for result...")
-            poll_result(endpoint_id, job_id)
-        else:
-            print(f"   Status: {result.get('status')}")
-            print(f"   Full response: {json.dumps(result, indent=2)}")
-    except requests.exceptions.Timeout:
-        print("   ⏱️ Request timed out (worker may still be starting)")
-        print(f"   Try again in a few minutes")
-    except Exception as e:
-        print(f"   ❌ Error: {e}")
-
-
-def poll_result(endpoint_id, job_id, max_attempts=60):
-    """Poll for async job result."""
-    url = f"https://api.runpod.ai/v2/{endpoint_id}/status/{job_id}"
-    headers = {"Authorization": f"Bearer {RUNPOD_API_KEY}"}
-
-    for i in range(max_attempts):
+    for i in range(60):
         time.sleep(5)
-        resp = requests.get(url, headers=headers)
-        result = resp.json()
+        r = requests.get(
+            f"https://api.runpod.ai/v2/{endpoint_id}/status/{job_id}",
+            headers={"Authorization": f"Bearer {RUNPOD_API_KEY}"},
+        )
+        result = r.json()
         status = result.get("status")
-        print(f"   [{i+1}/{max_attempts}] Status: {status}")
-
+        print(f"  [{i*5}s] {status}")
         if status == "COMPLETED":
-            print(f"\n✅ Success! Response:")
-            print(f"   {json.dumps(result.get('output', {}), indent=2)}")
+            output = result.get("output", {})
+            print(f"\nMORRIGAN: {output.get('content', output)}")
             return
         elif status == "FAILED":
-            print(f"\n❌ Failed: {json.dumps(result, indent=2)}")
+            print(f"\nFailed: {result}")
             return
 
-    print("   ⏱️ Timed out waiting for response")
+    print("Timed out")
 
 
 def main():
-    if RUNPOD_API_KEY == "YOUR_API_KEY_HERE":
-        print("=" * 60)
-        print("❌ Please set your RunPod API key first!")
-        print()
-        print("Option 1: Edit this file and replace YOUR_API_KEY_HERE")
-        print("Option 2: Set environment variable:")
-        print("   Windows:  set RUNPOD_API_KEY=your_key_here")
-        print("   Mac/Linux: export RUNPOD_API_KEY=your_key_here")
-        print()
-        print("Get your key at: https://www.runpod.io/console/user/settings")
-        print("=" * 60)
+    if not RUNPOD_API_KEY:
+        print("Set RUNPOD_API_KEY env var first")
+        print("  export RUNPOD_API_KEY=rpa_YOUR_KEY")
         return
 
-    print("=" * 60)
-    print("  RunPod Deployment: JaceSabr/morrigan-sft-v1")
-    print("=" * 60)
-    print()
+    if DOCKER_IMAGE.startswith("YOUR_"):
+        print("Set DOCKER_IMAGE env var to your Docker Hub image")
+        print("  export DOCKER_IMAGE=yourdockerhub/morrigan-sft:latest")
+        print("\nOr build it first:")
+        print("  docker build -f Dockerfile.runpod -t yourdockerhub/morrigan-sft .")
+        print("  docker push yourdockerhub/morrigan-sft")
+        return
 
-    endpoint_id = create_serverless_endpoint()
+    tid = create_template()
+    if not tid:
+        return
+    eid = create_endpoint(tid)
+    if not eid:
+        return
 
-    if endpoint_id:
-        print("\n" + "=" * 60)
-        print("  DEPLOYMENT COMPLETE")
-        print("=" * 60)
-        print(f"\n📌 Your endpoint ID: {endpoint_id}")
-        print(f"📌 API URL: https://api.runpod.ai/v2/{endpoint_id}")
-        print()
+    print(f"\nSet in server .env:")
+    print(f"  FT_URL=https://api.runpod.ai/v2/{eid}")
+    print(f"  FT_API_KEY={RUNPOD_API_KEY}")
 
-        test_now = input("Test the endpoint now? (y/n): ").strip().lower()
-        if test_now == "y":
-            test_endpoint(endpoint_id)
-
-        print(f"\n📖 To use in your app:")
-        print(f'   curl -X POST https://api.runpod.ai/v2/{endpoint_id}/runsync \\')
-        print(f'     -H "Authorization: Bearer {RUNPOD_API_KEY[:8]}..." \\')
-        print(f'     -H "Content-Type: application/json" \\')
-        print(f'     -d \'{{"input": {{"messages": [{{"role": "user", "content": "Hello"}}], "max_tokens": 200}}}}\'')
+    if input("\nTest now? (y/n): ").strip().lower() == "y":
+        test_endpoint(eid)
 
 
 if __name__ == "__main__":

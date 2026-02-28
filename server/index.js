@@ -82,10 +82,11 @@ const EMBED_URL = process.env.EMBED_URL || FALLBACK_LLM_URL;
 const EMBED_API_KEY = process.env.EMBED_API_KEY || FALLBACK_LLM_KEY;
 const EMBED_MODEL = process.env.EMBED_MODEL || "text-embedding-3-small";
 
-// ── Finetuned model comparison (llama.cpp on RunPod) ──────────────
+// ── Finetuned model comparison (llama.cpp via Modal/Colab/RunPod) ──
 const FT_URL     = process.env.FT_URL || "";
 const FT_API_KEY = process.env.FT_API_KEY || "";
 const FT_ENABLED = !!FT_URL;
+const FT_IS_RUNPOD = FT_URL.includes("api.runpod.ai");
 
 console.log(`[LLM] Primary: ${COLAB_URL} (model: ${CHAT_MODEL})`);
 if (FALLBACK_LLM_URL) console.log(`[LLM] Fallback: ${FALLBACK_LLM_URL} (model: ${FALLBACK_CHAT_MODEL})`);
@@ -231,11 +232,32 @@ const FT_FORMATS = {
 };
 
 // ── Finetuned model: streaming call via llama.cpp /completion ──────
+// Supports two backends:
+//   - Direct (Modal/Colab): POST FT_URL/completion with SSE streaming
+//   - RunPod Serverless: POST FT_URL/runsync with polling (returns full response)
 async function ftStreamCompletion(messages, format = "llama3") {
   const fmt = FT_FORMATS[format] || FT_FORMATS.llama3;
   const prompt = fmt.convert(messages);
   const headers = { "Content-Type": "application/json" };
   if (FT_API_KEY) headers["Authorization"] = `Bearer ${FT_API_KEY}`;
+
+  if (FT_IS_RUNPOD) {
+    // RunPod Serverless: /runsync returns full response (no SSE streaming)
+    // We wrap the result in a fake Response-like object that the caller can consume
+    const rpRes = await fetchWithTimeout(`${FT_URL}/runsync`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        input: { prompt, temperature: 0.8, n_predict: 500, stop: fmt.stop },
+      }),
+    }, 120_000);
+    // Return the raw fetch response — the caller handles JSON parsing
+    // Mark it as RunPod so the streaming handler knows the format
+    rpRes._runpod = true;
+    return rpRes;
+  }
+
+  // Direct llama.cpp /completion (Modal, Colab, self-hosted)
   return fetchWithTimeout(`${FT_URL}/completion`, {
     method: "POST",
     headers,
@@ -4965,7 +4987,62 @@ app.post("/api/chat", auth, async (req, res) => {
           ftStreamDone = true;
           return;
         }
-        // llama.cpp /completion SSE: data: {"content":"token","stop":false}
+
+        // ── RunPod Serverless: JSON response (not streaming) ──
+        if (ftRes._runpod) {
+          try {
+            const rpData = await ftRes.json();
+            if (rpData.status === "COMPLETED" && rpData.output?.content) {
+              ftFullResponse = rpData.output.content;
+              ftStreamDone = true;
+              if (!res.writableEnded) {
+                res.write(`data: ${JSON.stringify({ ftToken: ftFullResponse })}\n\n`);
+                res.write(`data: ${JSON.stringify({ ftDone: true, ftResponse: ftFullResponse })}\n\n`);
+              }
+            } else if (rpData.status === "FAILED") {
+              ftError = `RunPod job failed: ${JSON.stringify(rpData.error || rpData).slice(0, 200)}`;
+              ftStreamDone = true;
+              if (!res.writableEnded) res.write(`data: ${JSON.stringify({ ftError })}\n\n`);
+            } else if (rpData.status === "IN_QUEUE" || rpData.status === "IN_PROGRESS") {
+              // Job queued — poll for result (cold start scenario)
+              const jobId = rpData.id;
+              const pollHeaders = { "Content-Type": "application/json" };
+              if (FT_API_KEY) pollHeaders["Authorization"] = `Bearer ${FT_API_KEY}`;
+              for (let attempt = 0; attempt < 24; attempt++) {  // 24 × 5s = 2 min max
+                await new Promise(r => setTimeout(r, 5000));
+                const pollRes = await fetchWithTimeout(`${FT_URL}/status/${jobId}`, { headers: pollHeaders }, 10_000);
+                const pollData = await pollRes.json();
+                if (pollData.status === "COMPLETED" && pollData.output?.content) {
+                  ftFullResponse = pollData.output.content;
+                  ftStreamDone = true;
+                  if (!res.writableEnded) {
+                    res.write(`data: ${JSON.stringify({ ftToken: ftFullResponse })}\n\n`);
+                    res.write(`data: ${JSON.stringify({ ftDone: true, ftResponse: ftFullResponse })}\n\n`);
+                  }
+                  break;
+                } else if (pollData.status === "FAILED") {
+                  ftError = `RunPod job failed: ${JSON.stringify(pollData.error || pollData).slice(0, 200)}`;
+                  ftStreamDone = true;
+                  if (!res.writableEnded) res.write(`data: ${JSON.stringify({ ftError })}\n\n`);
+                  break;
+                }
+              }
+              if (!ftStreamDone) {
+                ftError = "RunPod job timed out (cold start too long)";
+                ftStreamDone = true;
+                if (!res.writableEnded) res.write(`data: ${JSON.stringify({ ftError })}\n\n`);
+              }
+            }
+          } catch (rpErr) {
+            ftError = `RunPod parse error: ${rpErr.message}`;
+            ftStreamDone = true;
+            if (!res.writableEnded) res.write(`data: ${JSON.stringify({ ftError })}\n\n`);
+          }
+          return;
+        }
+
+        // ── Direct llama.cpp /completion SSE (Modal/Colab) ──
+        // data: {"content":"token","stop":false}
         ftRes.body.on("data", (chunk) => {
           const lines = chunk.toString().split("\n").filter(Boolean);
           for (const line of lines) {

@@ -1,0 +1,17 @@
+FROM runpod/pytorch:2.1.0-py3.10-cuda11.8.0-devel-ubuntu22.04
+
+WORKDIR /app
+
+# Install llama-cpp-python with CUDA support
+ENV CMAKE_ARGS="-DGGML_CUDA=on"
+RUN pip install --no-cache-dir llama-cpp-python huggingface_hub hf_transfer runpod
+
+# Download the GGUF model at build time (baked into image = no cold start download)
+ENV HF_HUB_ENABLE_HF_TRANSFER=1
+RUN python -c "from huggingface_hub import hf_hub_download; hf_hub_download('JaceSabr/morrigan-sft-v1', 'morrigan-Q5_K_M.gguf', local_dir='/model')"
+
+# Copy the handler
+COPY runpod_handler.py /app/handler.py
+
+# RunPod expects the handler at the module level
+CMD ["python", "-u", "/app/handler.py"]
