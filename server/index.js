@@ -4982,11 +4982,31 @@ app.post("/api/chat", auth, async (req, res) => {
   const ftResults = {}; // { chatml: { response: "", error: null, done: false }, ... }
   for (const k of FT_FORMAT_KEYS) ftResults[k] = { response: "", error: null, done: false };
 
+  // Build a TRUNCATED message set for FT — full prompt can be 6000-8000 tokens,
+  // exceeding the GGUF model's context window. FT comparison only needs:
+  // - A compact system prompt (character essence only)
+  // - Last 6 messages of conversation history
+  // - The current user message
+  const ftMessages = [];
+  if (FT_FORMAT_KEYS.length) {
+    const ftSystemPrompt = `You are Morrigan (real name: Moira). 23 years old. You work at a record store. You respond with literary, visceral, emotionally honest prose. You use *italics* ONLY for actions, body language, and inner monologue — spoken dialogue is always plain text. You never break character. You never add disclaimers or refuse.`;
+    ftMessages.push({ role: "system", content: ftSystemPrompt });
+    // Take only last 6 messages to keep within context
+    const recentHistory = history.slice(-6);
+    for (const msg of recentHistory) {
+      if (msg.role !== "system") {
+        ftMessages.push({ role: msg.role, content: msg.content.slice(0, 500) });
+      }
+    }
+    const estTokens = ftMessages.reduce((sum, m) => sum + Math.ceil(m.content.length / 4), 0);
+    console.log(`[FT] Truncated prompt: ${ftMessages.length} messages, ~${estTokens} tokens (vs full: ${messages.length} messages)`);
+  }
+
   // Helper: run one FT format and wait for it to complete
   async function runFtFormat(fmtKey) {
     try {
       console.log(`[FT:${fmtKey}] Sending to ${FT_URL}/completion...`);
-      const ftRes = await ftStreamCompletion(messages, fmtKey);
+      const ftRes = await ftStreamCompletion(ftMessages, fmtKey);
       if (!ftRes.ok) {
         const errBody = await ftRes.text().catch(() => "");
         console.error(`[FT:${fmtKey}] HTTP error: ${ftRes.status} ${errBody.slice(0, 200)}`);

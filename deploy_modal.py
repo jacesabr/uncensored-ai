@@ -19,7 +19,7 @@ Also serves:
   GET  /health                (status + stats)
 
 Scales to zero when idle. Cold start ~30-60s (GGUF is small).
-Cost: ~$0.58/hr per active A10G GPU, first $30/month free.
+Cost: ~$0.59/hr per T4 GPU, first $30/month free.
 """
 
 import modal
@@ -74,7 +74,7 @@ image = (
     timeout=600,
     scaledown_window=300,  # 5 min idle -> scale to zero
 )
-@modal.concurrent(max_inputs=4)
+@modal.concurrent(max_inputs=1)  # llama.cpp blocks event loop — 1 at a time
 class Inference:
     @modal.enter()
     def load_model(self):
@@ -97,11 +97,11 @@ class Inference:
         print(f"Loading {GGUF_FILE}...")
         self.llm = Llama(
             model_path=model_path,
-            n_ctx=4096,
+            n_ctx=8192,  # full system prompt can be 6000-8000 tokens
             n_gpu_layers=-1,  # offload everything to GPU
             verbose=False,
         )
-        self._stats = {"requests": 0, "tokens": 0}
+        self._stats = {"requests": 0, "tokens": 0, "errors": 0}
         print(f"Model loaded: {GGUF_FILE} ({self.llm.n_ctx()} ctx)")
 
     @modal.asgi_app()
@@ -123,6 +123,7 @@ class Inference:
                 "context": self.llm.n_ctx(),
                 "requests": self._stats["requests"],
                 "tokens": self._stats["tokens"],
+                "errors": self._stats["errors"],
             }
 
         @web_app.post("/completion")
@@ -145,22 +146,34 @@ class Inference:
 
             self._stats["requests"] += 1
 
+            # Estimate token count (~4 chars/token) and warn if near limit
+            est_tokens = len(prompt) // 4
+            ctx = self.llm.n_ctx()
+            print(f"[completion] prompt ~{est_tokens} tokens, n_predict={n_predict}, ctx={ctx}, stream={stream}")
+            if est_tokens + n_predict > ctx:
+                print(f"[completion] WARNING: prompt ({est_tokens}) + n_predict ({n_predict}) may exceed ctx ({ctx})")
+
             if stream:
                 def generate():
-                    for output in self.llm(
-                        prompt,
-                        max_tokens=n_predict,
-                        temperature=temperature,
-                        top_p=top_p,
-                        stop=stop,
-                        stream=True,
-                        echo=False,
-                    ):
-                        text = output["choices"][0]["text"]
-                        if text:
-                            self._stats["tokens"] += 1
-                            yield f"data: {json.dumps({'content': text, 'stop': False})}\n\n"
-                    yield f"data: {json.dumps({'content': '', 'stop': True})}\n\n"
+                    try:
+                        for output in self.llm(
+                            prompt,
+                            max_tokens=n_predict,
+                            temperature=temperature,
+                            top_p=top_p,
+                            stop=stop,
+                            stream=True,
+                            echo=False,
+                        ):
+                            text = output["choices"][0]["text"]
+                            if text:
+                                self._stats["tokens"] += 1
+                                yield f"data: {json.dumps({'content': text, 'stop': False})}\n\n"
+                        yield f"data: {json.dumps({'content': '', 'stop': True})}\n\n"
+                    except Exception as e:
+                        self._stats["errors"] += 1
+                        print(f"[completion] Streaming error: {e}")
+                        yield f"data: {json.dumps({'content': '', 'stop': True, 'error': str(e)})}\n\n"
 
                 return StreamingResponse(
                     generate(),
@@ -168,17 +181,25 @@ class Inference:
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
                 )
             else:
-                output = self.llm(
-                    prompt,
-                    max_tokens=n_predict,
-                    temperature=temperature,
-                    top_p=top_p,
-                    stop=stop,
-                    echo=False,
-                )
-                text = output["choices"][0]["text"]
-                self._stats["tokens"] += len(text.split())
-                return {"content": text, "stop": True}
+                try:
+                    output = self.llm(
+                        prompt,
+                        max_tokens=n_predict,
+                        temperature=temperature,
+                        top_p=top_p,
+                        stop=stop,
+                        echo=False,
+                    )
+                    text = output["choices"][0]["text"]
+                    self._stats["tokens"] += len(text.split())
+                    return {"content": text, "stop": True}
+                except Exception as e:
+                    self._stats["errors"] += 1
+                    print(f"[completion] Error: {e}")
+                    return JSONResponse(
+                        status_code=500,
+                        content={"error": str(e), "prompt_est_tokens": est_tokens},
+                    )
 
         @web_app.post("/v1/chat/completions")
         async def chat_completions(request: Request):
@@ -196,23 +217,33 @@ class Inference:
             prompt += "<|start_header_id|>assistant<|end_header_id|>\n\n"
 
             self._stats["requests"] += 1
+            est_tokens = len(prompt) // 4
+            print(f"[chat] prompt ~{est_tokens} tokens, max_tokens={max_tokens}")
 
-            output = self.llm(
-                prompt,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                stop=stop,
-                echo=False,
-            )
-            text = output["choices"][0]["text"].strip()
-            self._stats["tokens"] += len(text.split())
+            try:
+                output = self.llm(
+                    prompt,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    stop=stop,
+                    echo=False,
+                )
+                text = output["choices"][0]["text"].strip()
+                self._stats["tokens"] += len(text.split())
 
-            return {
-                "id": f"chatcmpl-morrigan-{int(time.time())}",
-                "object": "chat.completion",
-                "model": "morrigan-sft-v1",
-                "choices": [{"index": 0, "message": {"role": "assistant", "content": text}, "finish_reason": "stop"}],
-            }
+                return {
+                    "id": f"chatcmpl-morrigan-{int(time.time())}",
+                    "object": "chat.completion",
+                    "model": "morrigan-sft-v1",
+                    "choices": [{"index": 0, "message": {"role": "assistant", "content": text}, "finish_reason": "stop"}],
+                }
+            except Exception as e:
+                self._stats["errors"] += 1
+                print(f"[chat] Error: {e}")
+                return JSONResponse(
+                    status_code=500,
+                    content={"error": str(e), "prompt_est_tokens": est_tokens},
+                )
 
         return web_app
 
