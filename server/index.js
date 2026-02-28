@@ -205,6 +205,8 @@ async function llmFetch(url, options, timeoutMs = LLM_TIMEOUT_MS) {
     _llmStats.primary.totalLatencyMs += Date.now() - t0;
     if (res.ok || res.status < 500) {
       if (res.ok) _llmStats.primary.successes++;
+      res._provider = "primary";
+      res._model = CHAT_MODEL;
       return res;
     }
     // 5xx = server error, try fallback
@@ -258,6 +260,8 @@ async function _doFallbackFetch(url, options, timeoutMs) {
     _llmStats.fallback.totalLatencyMs += Date.now() - t0;
     if (res.ok) _llmStats.fallback.successes++;
     else { _llmStats.fallback.failures++; _llmStats.fallback.lastError = `HTTP ${res.status}`; _llmStats.fallback.lastErrorAt = Date.now(); }
+    res._provider = "fallback";
+    res._model = FALLBACK_CHAT_MODEL;
     return res;
   } catch (e) {
     _llmStats.fallback.totalLatencyMs += Date.now() - t0;
@@ -3025,6 +3029,8 @@ const MessageSchema = new mongoose.Schema({
   role: { type: String, enum: ["user", "assistant", "system"], required: true },
   content: { type: String, required: true },
   proactive: { type: Boolean, default: false },
+  provider: { type: String, default: null },    // "primary" | "fallback"
+  modelUsed: { type: String, default: null },   // actual model name used
   timestamp: { type: Date, default: Date.now },
 });
 
@@ -4879,6 +4885,9 @@ app.post("/api/chat", auth, async (req, res) => {
       return res.end();
     }
 
+    const _chatProvider = llmRes._provider || "primary";
+    const _chatModel = llmRes._model || CHAT_MODEL;
+
     let fullResponse = "";
     const reader = llmRes.body;
 
@@ -4921,7 +4930,7 @@ app.post("/api/chat", auth, async (req, res) => {
           console.log(`[COMPOSE] Skipped — trust ${composeTrustLevel} too low for composition`);
         }
 
-        await Message.create({ conversationId, role: "assistant", content: composedResponse });
+        await Message.create({ conversationId, role: "assistant", content: composedResponse, provider: _chatProvider, modelUsed: _chatModel });
         Conversation.updateOne({ conversationId }, {
           updatedAt: new Date(),
           title: composedResponse.replace(/<[^>]*>/g, "").substring(0, 50) + (composedResponse.length > 50 ? "..." : ""),
@@ -5158,6 +5167,7 @@ app.post("/api/chat", auth, async (req, res) => {
             isPast: m.temporal?.isOngoing === "no" || m.temporal?.isOngoing === "ended recently",
           }));
           processingMetaForDone = {
+            provider: { name: _chatProvider, model: _chatModel, fallbackActive: _fallbackActive },
             moodReflection,
             triggerFired,
             goalState,
@@ -5420,6 +5430,7 @@ app.post("/api/chat", auth, async (req, res) => {
       if (!processingMetaForDone) {
         const mem = session.memory || {};
         processingMetaForDone = {
+          provider: { name: _chatProvider, model: _chatModel, fallbackActive: _fallbackActive },
           moodReflection: null,
           triggerFired: false,
           goalState: goalState || "neutral",
@@ -5462,6 +5473,7 @@ app.post("/api/chat", auth, async (req, res) => {
             sptDepth: session.memory.sptDepth || 1,
           },
           processingMeta: processingMetaForDone,
+          provider: { name: _chatProvider, model: _chatModel, fallbackActive: _fallbackActive },
           usage: {
             used: usageForDone.count,
             limit: DAILY_MSG_LIMIT,

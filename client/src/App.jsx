@@ -160,10 +160,12 @@ function StatusTab({ status, user, conversations, messages, liveHealth }) {
       detail: endpoint.replace("https://", "").replace("http://", ""),
     },
     {
-      key: "primary", label: `Chat — ${pri?.url?.includes("modal") ? "Modal (Morrigan SFT)" : "Primary LLM"}`,
+      key: "primary", label: `Chat — ${pri?.url?.includes("modal") ? "Modal (Morrigan SFT)" : pri?.url?.includes("runpod") ? "RunPod (Morrigan SFT)" : pri?.model?.includes("morrigan") ? "Morrigan SFT" : "Primary LLM"}`,
       live: pri?.live ?? status.ollama,
       description: pri?.url?.includes("modal")
         ? "Fine-tuned Morrigan model on Modal. Scales to zero when idle — first request may cold-start (~3 min)."
+        : pri?.url?.includes("runpod")
+        ? "Fine-tuned Morrigan model on RunPod. Scales to zero when idle — cold start downloads 21.8GB model."
         : "Primary chat completions endpoint. Streaming SSE.",
       route: `POST /v1/chat/completions → ${(pri?.url || "").replace("https://", "").split("/")[0]}`,
       detail: pri?.model || status.model || "—",
@@ -1032,6 +1034,8 @@ function AdminTab({ monitorToken }) {
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <span style={{ fontFamily: MMONO, fontSize: 11, color: isUser ? "#a855f7" : isSystem ? MON.textDim : MON.accent, fontWeight: 700, textTransform: "uppercase" }}>{m.role}</span>
                       {m.proactive && <span style={{ fontFamily: MMONO, fontSize: 9, background: MON.accent + "20", color: MON.accent, padding: "1px 6px", borderRadius: 6, fontWeight: 600 }}>PROACTIVE</span>}
+                      {m.provider && <span style={{ fontFamily: MMONO, fontSize: 9, padding: "1px 6px", borderRadius: 6, fontWeight: 600, background: m.provider === "primary" ? "rgba(34,197,94,0.15)" : "rgba(245,158,11,0.2)", color: m.provider === "primary" ? "#22c55e" : "#f59e0b" }}>{m.provider === "primary" ? "FINETUNED" : "FALLBACK"}</span>}
+                      {m.modelUsed && <span style={{ fontFamily: MMONO, fontSize: 9, color: MON.textDim }}>{m.modelUsed}</span>}
                     </div>
                     <span style={{ fontFamily: MMONO, fontSize: 10, color: MON.textDim }}>{m.timestamp ? new Date(m.timestamp).toLocaleString() : ""}</span>
                   </div>
@@ -1346,6 +1350,7 @@ function BrainPanel({ mood, speaking, latestMeta, moodReflection, disclosedAtoms
             <D />
             <SL>Processing — msg #{meta.msgCount}</SL>
             <div style={{ display: "flex", flexWrap: "wrap", marginBottom: 8 }}>
+              {meta.provider && <Pill label="model" value={meta.provider.name === "primary" ? "FINETUNED" : "FALLBACK"} on={meta.provider.name === "fallback"} />}
               <Pill label="spt depth" value={`${meta.sptDepth} / 4`} />
               <Pill label="msg" value={`#${meta.msgCount}`} />
               {m.totalMessages > 0 && <Pill label="total msgs" value={m.totalMessages} />}
@@ -1842,6 +1847,16 @@ function MessageBubble({ msg, onMetaClick }) {
                 ◈ brain
               </span>
             )}
+            {msg.provider && (
+              <span style={{
+                fontSize: 9, fontFamily: FONT_MONO, fontWeight: 600, letterSpacing: 0.5,
+                padding: "1px 6px", borderRadius: 4,
+                background: msg.provider.name === "primary" ? "rgba(34,197,94,0.15)" : "rgba(245,158,11,0.2)",
+                color: msg.provider.name === "primary" ? "#22c55e" : "#f59e0b",
+              }} title={msg.provider.model || ""}>
+                {msg.provider.name === "primary" ? "FINETUNED" : "FALLBACK"}
+              </span>
+            )}
           </div>
         )}
         <div style={{ fontSize: 15, lineHeight: 1.85, whiteSpace: "pre-wrap", fontFamily: FONT }}><FormatMessage text={msg.content} bold={!isUser} /></div>
@@ -2127,7 +2142,7 @@ export default function App() {
               doneSeen = true;
               const finalText = json.finalResponse || full;
               if (finalText.trim()) {
-                setMessages(p => [...p, { role: "assistant", content: finalText, timestamp: new Date(), meta: json.processingMeta || null }]);
+                setMessages(p => [...p, { role: "assistant", content: finalText, timestamp: new Date(), meta: json.processingMeta || null, provider: json.provider || null }]);
                 setConversations(p => p.map(c => c.conversationId === cid ? { ...c, title: `🖤 ${finalText.substring(0, 40)}${finalText.length > 40 ? "..." : ""}`, updatedAt: new Date() } : c));
               }
               if (json.processingMeta) {
