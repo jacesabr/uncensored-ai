@@ -40,7 +40,7 @@ process.on("uncaughtException", (err) => {
 const _missingVars = [];
 if (!process.env.MONGO_URI)          _missingVars.push("MONGO_URI");
 if (!process.env.JWT_SECRET)         _missingVars.push("JWT_SECRET");
-// LLM_API_KEY not required — Modal needs no auth, Venice key goes in FALLBACK_LLM_KEY
+if (!process.env.VENICE_API_KEY)     _missingVars.push("VENICE_API_KEY");
 if (_missingVars.length) {
   console.error(`[FATAL] Missing required environment variables: ${_missingVars.join(", ")}`);
   console.error("[FATAL] Create a .env file with these variables before starting the server.");
@@ -69,22 +69,11 @@ app.use((req, res, next) => {
 });
 app.use(express.json({ limit: "1mb" }));
 
-const CHAT_MODEL = process.env.CHAT_MODEL || "morrigan-sft-v1";
+const CHAT_MODEL = process.env.CHAT_MODEL || "venice-uncensored";
 // All fetch calls append /v1/... — so this base must NOT include /v1
-const COLAB_URL = process.env.COLAB_URL || "https://mygreatescapee--morrigan-api-inference-serve.modal.run";
-const LLM_API_KEY = process.env.LLM_API_KEY || process.env.VENICE_API_KEY || "";
-// Fallback LLM — used when primary is down (cold start, error, timeout)
-const FALLBACK_LLM_URL = process.env.FALLBACK_LLM_URL || "https://api.venice.ai/api";
-const FALLBACK_LLM_KEY = process.env.FALLBACK_LLM_KEY || process.env.VENICE_API_KEY || "";
-const FALLBACK_CHAT_MODEL = process.env.FALLBACK_CHAT_MODEL || "venice-uncensored";
-// Embeddings can use a separate provider (fine-tuned model doesn't serve embeddings)
-const EMBED_URL = process.env.EMBED_URL || FALLBACK_LLM_URL;
-const EMBED_API_KEY = process.env.EMBED_API_KEY || FALLBACK_LLM_KEY;
+const COLAB_URL = process.env.COLAB_URL || "https://api.venice.ai/api";
+const VENICE_API_KEY = process.env.VENICE_API_KEY || "";
 const EMBED_MODEL = process.env.EMBED_MODEL || "text-embedding-3-small";
-
-console.log(`[LLM] Primary: ${COLAB_URL} (model: ${CHAT_MODEL})`);
-if (FALLBACK_LLM_URL) console.log(`[LLM] Fallback: ${FALLBACK_LLM_URL} (model: ${FALLBACK_CHAT_MODEL})`);
-console.log(`[LLM] Embeddings: ${EMBED_URL} (model: ${EMBED_MODEL})`);
 
 mongoose.connect(MONGO_URI).catch(err => {
   console.error("[FATAL] MongoDB connection failed:", err.message);
@@ -163,124 +152,15 @@ function fetchWithTimeout(url, options, timeoutMs = LLM_TIMEOUT_MS) {
     .finally(() => clearTimeout(id));
 }
 
-// ── LLM fetch with automatic fallback + stats tracking ─────────────
-// Tries primary (Modal/COLAB_URL), falls back to Venice on failure.
-// Swaps URL, auth key, and model name transparently.
-let _fallbackActive = false;
-let _fallbackUntil = 0;
-const FALLBACK_COOLDOWN_MS = 90_000; // stay on fallback 90s before retrying primary
-
-// Stats tracking — reset every 24h
-const _llmStats = {
-  startedAt: Date.now(),
-  primary: { calls: 0, successes: 0, failures: 0, timeouts: 0, totalLatencyMs: 0, lastCallAt: null, lastError: null, lastErrorAt: null },
-  fallback: { calls: 0, successes: 0, failures: 0, totalLatencyMs: 0, lastCallAt: null, lastError: null, lastErrorAt: null },
-  fallbackActivations: 0,
-  lastFallbackReason: null,
-  lastFallbackAt: null,
-};
-// Auto-reset stats daily
-setInterval(() => {
-  Object.assign(_llmStats.primary, { calls: 0, successes: 0, failures: 0, timeouts: 0, totalLatencyMs: 0 });
-  Object.assign(_llmStats.fallback, { calls: 0, successes: 0, failures: 0, totalLatencyMs: 0 });
-  _llmStats.fallbackActivations = 0;
-  _llmStats.startedAt = Date.now();
-}, 24 * 60 * 60_000);
-
-async function llmFetch(url, options, timeoutMs = LLM_TIMEOUT_MS) {
-  // If fallback is active and not expired, go straight to fallback
-  if (_fallbackActive && Date.now() < _fallbackUntil) {
-    return _doFallbackFetch(url, options, timeoutMs);
-  }
-  // Reset fallback if cooldown expired
-  if (_fallbackActive && Date.now() >= _fallbackUntil) {
-    _fallbackActive = false;
-    console.log("[LLM] Retrying primary endpoint...");
-  }
-  const t0 = Date.now();
-  _llmStats.primary.calls++;
-  _llmStats.primary.lastCallAt = t0;
-  try {
-    const res = await fetchWithTimeout(url, options, timeoutMs);
-    _llmStats.primary.totalLatencyMs += Date.now() - t0;
-    if (res.ok || res.status < 500) {
-      if (res.ok) _llmStats.primary.successes++;
-      res._provider = "primary";
-      res._model = CHAT_MODEL;
-      return res;
-    }
-    // 5xx = server error, try fallback
-    _llmStats.primary.failures++;
-    _llmStats.primary.lastError = `HTTP ${res.status}`;
-    _llmStats.primary.lastErrorAt = Date.now();
-    if (FALLBACK_LLM_URL) {
-      console.warn(`[LLM] Primary returned ${res.status}, switching to fallback`);
-      _fallbackActive = true;
-      _fallbackUntil = Date.now() + FALLBACK_COOLDOWN_MS;
-      _llmStats.fallbackActivations++;
-      _llmStats.lastFallbackReason = `HTTP ${res.status}`;
-      _llmStats.lastFallbackAt = Date.now();
-      return _doFallbackFetch(url, options, timeoutMs);
-    }
-    return res;
-  } catch (e) {
-    _llmStats.primary.totalLatencyMs += Date.now() - t0;
-    _llmStats.primary.failures++;
-    if (e.name === "AbortError") _llmStats.primary.timeouts++;
-    _llmStats.primary.lastError = e.name === "AbortError" ? "timeout" : e.message;
-    _llmStats.primary.lastErrorAt = Date.now();
-    // Timeout or network error — try fallback
-    if (FALLBACK_LLM_URL) {
-      console.warn(`[LLM] Primary failed (${e.message}), switching to fallback`);
-      _fallbackActive = true;
-      _fallbackUntil = Date.now() + FALLBACK_COOLDOWN_MS;
-      _llmStats.fallbackActivations++;
-      _llmStats.lastFallbackReason = e.name === "AbortError" ? "timeout" : e.message;
-      _llmStats.lastFallbackAt = Date.now();
-      return _doFallbackFetch(url, options, timeoutMs);
-    }
-    throw e;
-  }
-}
-
-async function _doFallbackFetch(url, options, timeoutMs) {
-  const fallbackUrl = url.replace(COLAB_URL, FALLBACK_LLM_URL);
-  let body = options.body ? JSON.parse(options.body) : {};
-  if (body.model === CHAT_MODEL) body.model = FALLBACK_CHAT_MODEL;
-  const fallbackOpts = {
-    ...options,
-    body: JSON.stringify(body),
-    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${FALLBACK_LLM_KEY}` },
-  };
-  const t0 = Date.now();
-  _llmStats.fallback.calls++;
-  _llmStats.fallback.lastCallAt = t0;
-  try {
-    const res = await fetchWithTimeout(fallbackUrl, fallbackOpts, timeoutMs);
-    _llmStats.fallback.totalLatencyMs += Date.now() - t0;
-    if (res.ok) _llmStats.fallback.successes++;
-    else { _llmStats.fallback.failures++; _llmStats.fallback.lastError = `HTTP ${res.status}`; _llmStats.fallback.lastErrorAt = Date.now(); }
-    res._provider = "fallback";
-    res._model = FALLBACK_CHAT_MODEL;
-    return res;
-  } catch (e) {
-    _llmStats.fallback.totalLatencyMs += Date.now() - t0;
-    _llmStats.fallback.failures++;
-    _llmStats.fallback.lastError = e.message;
-    _llmStats.fallback.lastErrorAt = Date.now();
-    throw e;
-  }
-}
-
 // ═══════════════════════════════════════════════════════════════════
 // EMBEDDING + SIMILARITY UTILITIES
 // ═══════════════════════════════════════════════════════════════════
 
 async function embedText(text, _retries = 1) {
   try {
-    const res = await fetchWithTimeout(`${EMBED_URL}/v1/embeddings`, {
+    const res = await fetchWithTimeout(`${COLAB_URL}/v1/embeddings`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${EMBED_API_KEY}` },
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
       body: JSON.stringify({ model: EMBED_MODEL, input: text }),
     });
     if (!res.ok) throw new Error(`Embed HTTP ${res.status}`);
@@ -500,9 +380,9 @@ Reply with ONLY a JSON array of scores in the same order, e.g. [8, 3, 6, 1, 9]. 
 
 async function reRankWithLLM(query, candidates, timeoutMs = 5000) {
   try {
-    const res = await llmFetch(`${COLAB_URL}/v1/chat/completions`, {
+    const res = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${LLM_API_KEY}` },
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
       body: JSON.stringify({
         model: CHAT_MODEL, temperature: 0.0, max_tokens: 80,
         messages: [{ role: "user", content: RERANK_PROMPT(query, candidates) }],
@@ -595,9 +475,9 @@ function inferGoalStateRegex(message) {
 
 async function inferGoalStateLLM(message) {
   try {
-    const res = await llmFetch(`${COLAB_URL}/v1/chat/completions`, {
+    const res = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${LLM_API_KEY}` },
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
       body: JSON.stringify({
         model: CHAT_MODEL, temperature: 0.0, max_tokens: 15,
         messages: [{ role: "user", content: `What emotional need does this message express? Reply with EXACTLY one word: comfort, venting, connection, distraction, validation, or neutral.\n\nMessage: "${message.substring(0, 300)}"` }],
@@ -1148,12 +1028,12 @@ If nothing worth storing, return []. Return ONLY the JSON array.`;
       messages: [{ role: "user", content: extractionPrompt }],
       temperature: 0.1, max_tokens: 900,
     };
-    const extractHeaders = { "Content-Type": "application/json", "Authorization": `Bearer ${LLM_API_KEY}` };
+    const extractHeaders = { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` };
 
     // Try extraction with one retry on failure
     for (let attempt = 0; attempt < 2 && newAtoms.length === 0; attempt++) {
       try {
-        const extractRes = await llmFetch(`${COLAB_URL}/v1/chat/completions`, {
+        const extractRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
           method: "POST", headers: extractHeaders, body: JSON.stringify(extractBody),
         });
         if (!extractRes.ok) {
@@ -1249,9 +1129,9 @@ Categories:
 
 Answer with ONLY the category name.`;
 
-            const cRes = await llmFetch(`${COLAB_URL}/v1/chat/completions`, {
+            const cRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
               method: "POST",
-              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${LLM_API_KEY}` },
+              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
               body: JSON.stringify({
                 model: CHAT_MODEL,
                 messages: [{ role: "user", content: classifyPrompt }],
@@ -1310,9 +1190,9 @@ Answer with ONLY the category name.`;
 
     try {
       const clusterFacts = clusterAtoms.map(a => a.fact).join("\n- ");
-      const synthRes = await llmFetch(`${COLAB_URL}/v1/chat/completions`, {
+      const synthRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${LLM_API_KEY}` },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
         body: JSON.stringify({
           model: CHAT_MODEL,
           messages: [{
@@ -1357,9 +1237,9 @@ Answer with ONLY the category name.`;
 
   // ── Step 4: SPT Depth ─────────────────────────────────────────────
   try {
-    const sptRes = await llmFetch(`${COLAB_URL}/v1/chat/completions`, {
+    const sptRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${LLM_API_KEY}` },
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
       body: JSON.stringify({
         model: CHAT_MODEL,
         messages: [{ role: "user", content: SPT_DEPTH_ASSESSMENT_PROMPT(singleExchange, memory.sptDepth || 1) }],
@@ -1382,9 +1262,9 @@ Answer with ONLY the category name.`;
 
   // ── Step 5: SPT breadth per topic ────────────────────────────────
   try {
-    const topicRes = await llmFetch(`${COLAB_URL}/v1/chat/completions`, {
+    const topicRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${LLM_API_KEY}` },
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
       body: JSON.stringify({
         model: CHAT_MODEL,
         messages: [{ role: "user", content: SPT_BREADTH_EXTRACTION_PROMPT(singleExchange) }],
@@ -1407,9 +1287,9 @@ Answer with ONLY the category name.`;
   try {
     const topAtoms = retrieveTopK(memory.memories, null, 8).map(a => a.fact).join("; ");
     const topMols  = (memory.molecules || []).slice(-3).map(m => m.summary).join("\n");
-    const narrativeRes = await llmFetch(`${COLAB_URL}/v1/chat/completions`, {
+    const narrativeRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${LLM_API_KEY}` },
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
       body: JSON.stringify({
         model: CHAT_MODEL,
         messages: [{ role: "user", content: `Write a brief note (2-3 sentences) about this person from ${M.name}'s perspective. Ground it in what THEY'VE actually said and done — not what you imagine they might feel, and not what ${M.name} said in her responses. First person. Honest and specific, but do not embellish or add dramatic interpretation beyond what the facts support. No bullet points.
@@ -1432,9 +1312,9 @@ ${singleExchange.slice(-600)}` }],
 
   // ── Step 7: Self-reflection ───────────────────────────────────────
   try {
-    const reflectionRes = await llmFetch(`${COLAB_URL}/v1/chat/completions`, {
+    const reflectionRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${LLM_API_KEY}` },
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
       body: JSON.stringify({
         model: CHAT_MODEL,
         messages: [{ role: "user", content: SELF_REFLECTION_PROMPT({
@@ -1477,9 +1357,9 @@ ${singleExchange.slice(-600)}` }],
         .map(ms => ms.event)
         .join("; ") || "none yet";
 
-      const gateRes = await llmFetch(`${COLAB_URL}/v1/chat/completions`, {
+      const gateRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${LLM_API_KEY}` },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
         body: JSON.stringify({
           model: CHAT_MODEL,
           messages: [{ role: "user", content: `You are reviewing a single exchange in a relationship. Does this exchange contain a genuine milestone moment — a first, a shift, a turning point, a rupture, a repair, a deepening, or a revelation that would be remembered as significant?
@@ -1545,9 +1425,9 @@ Return ONLY a JSON object:
 
 If on reflection this is not actually milestone-worthy, return {"skip": true}.`;
 
-      const milestoneRes = await llmFetch(`${COLAB_URL}/v1/chat/completions`, {
+      const milestoneRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${LLM_API_KEY}` },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
         body: JSON.stringify({
           model: CHAT_MODEL,
           messages: [{ role: "user", content: milestonePrompt }],
@@ -1608,9 +1488,9 @@ If on reflection this is not actually milestone-worthy, return {"skip": true}.`;
       .map(c => c.content)
       .join("\n");
 
-    const callbackRes = await llmFetch(`${COLAB_URL}/v1/chat/completions`, {
+    const callbackRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${LLM_API_KEY}` },
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
       body: JSON.stringify({
         model: CHAT_MODEL,
         messages: [{ role: "user", content: `You are reviewing one exchange from a conversation ${M.name} just had. Identify things that were actually left unfinished — topics the USER started but didn't complete, or questions that went unanswered.
@@ -1796,9 +1676,9 @@ Write it in first person. One sentence. Specific to what the USER actually said.
 Transcript: ${transcript.slice(-3000)}
 Return: a single string, or null.`;
 
-    const res = await llmFetch(`${COLAB_URL}/v1/chat/completions`, {
+    const res = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${LLM_API_KEY}` },
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
       body: JSON.stringify({
         model: CHAT_MODEL,
         messages: [{ role: "user", content: prompt }],
@@ -1950,9 +1830,9 @@ Return ONLY JSON. No preamble.
   "arrivalMood": "1-3 word mood label (null if silence)"
 }`;
 
-    const res = await llmFetch(`${COLAB_URL}/v1/chat/completions`, {
+    const res = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${LLM_API_KEY}` },
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
       body: JSON.stringify({
         model: CHAT_MODEL,
         messages: [{ role: "user", content: prompt }],
@@ -2267,9 +2147,9 @@ async function updateFunctionalToM(userId, tomSnapshot, emotionalState, disclosu
           `[${s.sessionDate?.toISOString()?.split("T")[0] || "?"}] mood:${s.emotionalState || "?"} depth:${s.disclosureDepth || "?"} goal:${s.goalState || "?"} — ${s.snapshot || ""}`
         ).join("\n");
 
-        const trajRes = await llmFetch(`${COLAB_URL}/v1/chat/completions`, {
+        const trajRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
           method: "POST",
-          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${LLM_API_KEY}` },
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
           body: JSON.stringify({
             model: CHAT_MODEL, temperature: 0.3, max_tokens: 150,
             messages: [{ role: "user", content: `Analyze this user's trajectory across sessions. Return JSON ONLY:\n{"trajectory": "1-2 sentence narrative of how they've changed", "phase": "testing|approaching|retreating|deepening|stable", "preferredStyle": "direct|gentle|playful|intellectual|null"}\n\nSnapshots:\n${recentSnaps}` }],
@@ -3029,8 +2909,6 @@ const MessageSchema = new mongoose.Schema({
   role: { type: String, enum: ["user", "assistant", "system"], required: true },
   content: { type: String, required: true },
   proactive: { type: Boolean, default: false },
-  provider: { type: String, default: null },    // "primary" | "fallback"
-  modelUsed: { type: String, default: null },   // actual model name used
   timestamp: { type: Date, default: Date.now },
 });
 
@@ -3715,12 +3593,12 @@ Return ONLY JSON:
     messages: [{ role: "user", content: prompt }],
     temperature: 0.1, max_tokens: 200,
   });
-  const headers = { "Content-Type": "application/json", "Authorization": `Bearer ${LLM_API_KEY}` };
+  const headers = { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` };
 
   // Retry once on failure — this determines trust/feelings progression
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const res = await llmFetch(`${COLAB_URL}/v1/chat/completions`, {
+      const res = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
         method: "POST", headers, body,
       });
 
@@ -4068,9 +3946,9 @@ Return ONLY JSON. No preamble.
 Or if it would be forced: {"skip": true}`;
 
   try {
-    const res = await llmFetch(`${COLAB_URL}/v1/chat/completions`, {
+    const res = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${LLM_API_KEY}` },
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
       body: JSON.stringify({
         model: CHAT_MODEL,
         messages: [{ role: "user", content: prompt }],
@@ -4272,9 +4150,9 @@ Do NOT add any commentary, notes, explanations, or analysis about what you chang
 Do NOT describe your editing process. Just output her words.
 ${COMPOSITION_CONSTRAINTS}`;
 
-    const res = await llmFetch(`${COLAB_URL}/v1/chat/completions`, {
+    const res = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${LLM_API_KEY}` },
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
       body: JSON.stringify({
         model: CHAT_MODEL,
         messages: [{ role: "user", content: prompt }],
@@ -4332,9 +4210,9 @@ app.post("/api/self-atoms/seed", auth, async (req, res) => {
     for (const atom of rawAtoms) {
       try {
         // Step A: Self-criticism pass
-        const critiqueRes = await llmFetch(`${COLAB_URL}/v1/chat/completions`, {
+        const critiqueRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
           method: "POST",
-          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${LLM_API_KEY}` },
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
           body: JSON.stringify({
             model: CHAT_MODEL,
             temperature: 0.2,
@@ -4360,9 +4238,9 @@ app.post("/api/self-atoms/seed", auth, async (req, res) => {
         if (parsed.action === "rewrite") results.rewritten++;
 
         // Step B: Embed the (possibly revised) content
-        const embedRes = await fetchWithTimeout(`${EMBED_URL}/v1/embeddings`, {
+        const embedRes = await fetchWithTimeout(`${COLAB_URL}/v1/embeddings`, {
           method: "POST",
-          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${EMBED_API_KEY}` },
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
           body: JSON.stringify({ input: finalContent, model: EMBED_MODEL }),
         });
         const embedData = await embedRes.json();
@@ -4658,9 +4536,9 @@ app.post("/api/chat", auth, async (req, res) => {
   if (!crisisMode) { // Skip during crisis — safe haven directive is sufficient
     try {
       const topMemsForSomatic = retrieveTopK(session.memory.memories || [], msgEmbedding, 5, goalState);
-      const somaticRes = await llmFetch(`${COLAB_URL}/v1/chat/completions`, {
+      const somaticRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${LLM_API_KEY}` },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
         body: JSON.stringify({
           model: CHAT_MODEL,
           temperature: 0.1,
@@ -4753,9 +4631,9 @@ app.post("/api/chat", auth, async (req, res) => {
     // ── Stage 3: Thought Formation (1 LLM call) ──────────────────
     // Temperature 0.68: creative but disciplined.
     try {
-      const thoughtRes = await llmFetch(`${COLAB_URL}/v1/chat/completions`, {
+      const thoughtRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${LLM_API_KEY}` },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
         body: JSON.stringify({
           model: CHAT_MODEL,
           temperature: 0.68,
@@ -4870,9 +4748,9 @@ app.post("/api/chat", auth, async (req, res) => {
   }
 
   try {
-    const llmRes = await llmFetch(`${COLAB_URL}/v1/chat/completions`, {
+    const llmRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${LLM_API_KEY}` },
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
       body: JSON.stringify({ model: CHAT_MODEL, messages, stream: true, temperature: 0.7, max_tokens: 4096 }),
     }, 120_000); // 120s for streaming — allows longer responses
 
@@ -4884,9 +4762,6 @@ app.post("/api/chat", auth, async (req, res) => {
       res.write(`data: ${JSON.stringify({ error: clientMsg })}\n\n`);
       return res.end();
     }
-
-    const _chatProvider = llmRes._provider || "primary";
-    const _chatModel = llmRes._model || CHAT_MODEL;
 
     let fullResponse = "";
     const reader = llmRes.body;
@@ -4930,7 +4805,7 @@ app.post("/api/chat", auth, async (req, res) => {
           console.log(`[COMPOSE] Skipped — trust ${composeTrustLevel} too low for composition`);
         }
 
-        await Message.create({ conversationId, role: "assistant", content: composedResponse, provider: _chatProvider, modelUsed: _chatModel });
+        await Message.create({ conversationId, role: "assistant", content: composedResponse });
         Conversation.updateOne({ conversationId }, {
           updatedAt: new Date(),
           title: composedResponse.replace(/<[^>]*>/g, "").substring(0, 50) + (composedResponse.length > 50 ? "..." : ""),
@@ -5083,9 +4958,9 @@ app.post("/api/chat", auth, async (req, res) => {
             ? reservoir.reduce((a, b) => (b.currentScore || 0) > (a.currentScore || 0) ? b : a, reservoir[0])
             : null;
 
-          const moodRes = await llmFetch(`${COLAB_URL}/v1/chat/completions`, {
+          const moodRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
             method: "POST",
-            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${LLM_API_KEY}` },
+            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
             body: JSON.stringify({
               model: CHAT_MODEL,
               temperature: 0.6,
@@ -5167,7 +5042,6 @@ app.post("/api/chat", auth, async (req, res) => {
             isPast: m.temporal?.isOngoing === "no" || m.temporal?.isOngoing === "ended recently",
           }));
           processingMetaForDone = {
-            provider: { name: _chatProvider, model: _chatModel, fallbackActive: _fallbackActive },
             moodReflection,
             triggerFired,
             goalState,
@@ -5290,9 +5164,9 @@ app.post("/api/chat", auth, async (req, res) => {
         // max 200 tokens. Zero user-facing latency impact.
         setImmediate(async () => {
           try {
-            const imRes = await llmFetch(`${COLAB_URL}/v1/chat/completions`, {
+            const imRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
               method: "POST",
-              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${LLM_API_KEY}` },
+              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
               body: JSON.stringify({
                 model: CHAT_MODEL,
                 temperature: 0.65,
@@ -5430,7 +5304,6 @@ app.post("/api/chat", auth, async (req, res) => {
       if (!processingMetaForDone) {
         const mem = session.memory || {};
         processingMetaForDone = {
-          provider: { name: _chatProvider, model: _chatModel, fallbackActive: _fallbackActive },
           moodReflection: null,
           triggerFired: false,
           goalState: goalState || "neutral",
@@ -5473,7 +5346,6 @@ app.post("/api/chat", auth, async (req, res) => {
             sptDepth: session.memory.sptDepth || 1,
           },
           processingMeta: processingMetaForDone,
-          provider: { name: _chatProvider, model: _chatModel, fallbackActive: _fallbackActive },
           usage: {
             used: usageForDone.count,
             limit: DAILY_MSG_LIMIT,
@@ -5503,9 +5375,9 @@ app.post("/api/chat", auth, async (req, res) => {
               let total = 0, count = 0;
               for (const msg of sample) {
                 try {
-                  const r = await llmFetch(`${COLAB_URL}/v1/chat/completions`, {
+                  const r = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
                     method: "POST",
-                    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${LLM_API_KEY}` },
+                    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
                     body: JSON.stringify({ model: CHAT_MODEL, temperature: 0.1, max_tokens: 10, messages: [{ role: "user", content: VOICE_AUDIT_PROMPT(msg.content) }] }),
                   });
                   if (r.ok) { const d = await r.json(); const s = parseFloat(d.choices?.[0]?.message?.content?.trim()); if (!isNaN(s)) { total += s; count++; } }
@@ -5781,9 +5653,9 @@ Return only valid JSON: { "score": N, "evidence": "one sentence" }`;
 
     async function scoreVoice(evalEntry) {
       try {
-        const r = await llmFetch(`${COLAB_URL}/v1/chat/completions`, {
+        const r = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
           method: "POST",
-          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${LLM_API_KEY}` },
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
           body: JSON.stringify({
             model: CHAT_MODEL,
             messages: [{ role: "user", content: VOICE_AUDIT_PROMPT(evalEntry.morriganResponse) }],
@@ -6063,12 +5935,12 @@ app.get("/api/admin/users/:id/messages", adminAuth, async (req, res) => {
 // ═══════════════════════════════════════════════════════════════════
 
 app.get("/api/status", async (req, res) => {
-  const ping = async (url, body, apiKey = LLM_API_KEY) => {
+  const ping = async (url, body) => {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 8000);
     try {
       const r = await fetch(url, {
-        method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+        method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
         body: JSON.stringify(body), signal: ctrl.signal,
       });
       return { ok: r.ok, status: r.status };
@@ -6079,21 +5951,8 @@ app.get("/api/status", async (req, res) => {
 
   const [llm, embed] = await Promise.all([
     ping(`${COLAB_URL}/v1/chat/completions`, { model: CHAT_MODEL, messages: [{ role: "user", content: "ping" }], max_tokens: 1 }),
-    ping(`${EMBED_URL}/v1/embeddings`,        { model: EMBED_MODEL, input: "test" }, EMBED_API_KEY),
+    ping(`${COLAB_URL}/v1/embeddings`,        { model: EMBED_MODEL, input: "test" }),
   ]);
-
-  // Also ping fallback if configured
-  let fallbackPing = null;
-  if (FALLBACK_LLM_URL) {
-    fallbackPing = await ping(
-      `${FALLBACK_LLM_URL}/v1/chat/completions`,
-      { model: FALLBACK_CHAT_MODEL, messages: [{ role: "user", content: "ping" }], max_tokens: 1 },
-      FALLBACK_LLM_KEY
-    );
-  }
-
-  const pAvg = _llmStats.primary.calls > 0 ? Math.round(_llmStats.primary.totalLatencyMs / _llmStats.primary.calls) : null;
-  const fAvg = _llmStats.fallback.calls > 0 ? Math.round(_llmStats.fallback.totalLatencyMs / _llmStats.fallback.calls) : null;
 
   res.json({
     ollama: llm.ok,
@@ -6102,30 +5961,8 @@ app.get("/api/status", async (req, res) => {
     embedModel: EMBED_MODEL,
     backend: COLAB_URL,
     mongo: true,
+    // diagnostic: exact HTTP status codes so you can see WHY they're failing
     _diag: { chat: llm.status, embed: embed.status },
-    // Provider info for admin panel
-    provider: {
-      primary: {
-        url: COLAB_URL, model: CHAT_MODEL, live: llm.ok, status: llm.status,
-        calls: _llmStats.primary.calls, successes: _llmStats.primary.successes,
-        failures: _llmStats.primary.failures, timeouts: _llmStats.primary.timeouts,
-        avgLatencyMs: pAvg, lastError: _llmStats.primary.lastError,
-        lastErrorAt: _llmStats.primary.lastErrorAt ? new Date(_llmStats.primary.lastErrorAt).toISOString() : null,
-      },
-      fallback: FALLBACK_LLM_URL ? {
-        url: FALLBACK_LLM_URL, model: FALLBACK_CHAT_MODEL, live: fallbackPing?.ok ?? null, status: fallbackPing?.status ?? null,
-        calls: _llmStats.fallback.calls, successes: _llmStats.fallback.successes,
-        failures: _llmStats.fallback.failures, avgLatencyMs: fAvg,
-        lastError: _llmStats.fallback.lastError,
-        lastErrorAt: _llmStats.fallback.lastErrorAt ? new Date(_llmStats.fallback.lastErrorAt).toISOString() : null,
-      } : null,
-      embed: { url: EMBED_URL, model: EMBED_MODEL, live: embed.ok },
-      fallbackActive: _fallbackActive,
-      fallbackActivations: _llmStats.fallbackActivations,
-      lastFallbackReason: _llmStats.lastFallbackReason,
-      lastFallbackAt: _llmStats.lastFallbackAt ? new Date(_llmStats.lastFallbackAt).toISOString() : null,
-      statsWindowStart: new Date(_llmStats.startedAt).toISOString(),
-    },
   });
 });
 
@@ -6158,9 +5995,9 @@ async function seedSelfAtomsIfEmpty() {
 
         // Try self-criticism pass — non-fatal if Kaggle is offline
         try {
-          const critiqueRes = await llmFetch(`${COLAB_URL}/v1/chat/completions`, {
+          const critiqueRes = await fetchWithTimeout(`${COLAB_URL}/v1/chat/completions`, {
             method: "POST",
-            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${LLM_API_KEY}` },
+            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
             body: JSON.stringify({
               model: CHAT_MODEL,
               temperature: 0.2,
@@ -6192,9 +6029,9 @@ async function seedSelfAtomsIfEmpty() {
         let embedding = [];
         if (!isDeprecated) {
           try {
-            const embedRes = await fetchWithTimeout(`${EMBED_URL}/v1/embeddings`, {
+            const embedRes = await fetchWithTimeout(`${COLAB_URL}/v1/embeddings`, {
               method: "POST",
-              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${EMBED_API_KEY}` },
+              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${VENICE_API_KEY}` },
               body: JSON.stringify({ input: finalContent, model: EMBED_MODEL }),
             });
             if (embedRes.ok) {
