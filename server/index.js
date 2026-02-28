@@ -4976,85 +4976,59 @@ app.post("/api/chat", auth, async (req, res) => {
     }
   }
 
-  // ── Finetuned model: fire ALL formats in parallel ──
+  // ── Finetuned model: fire all formats SEQUENTIALLY ──
+  // Single GPU can only process one request at a time. Parallel requests cause "Premature close".
   const FT_FORMAT_KEYS = FT_ENABLED ? Object.keys(FT_FORMATS) : [];
   const ftResults = {}; // { chatml: { response: "", error: null, done: false }, ... }
+  for (const k of FT_FORMAT_KEYS) ftResults[k] = { response: "", error: null, done: false };
 
-  if (FT_FORMAT_KEYS.length) console.log(`[FT] Firing ${FT_FORMAT_KEYS.length} formats: ${FT_FORMAT_KEYS.join(", ")}`);
-  for (const fmtKey of FT_FORMAT_KEYS) {
-    ftResults[fmtKey] = { response: "", error: null, done: false };
-    (async () => {
-      try {
-        console.log(`[FT:${fmtKey}] Sending to ${FT_URL}/completion...`);
-        const ftRes = await ftStreamCompletion(messages, fmtKey);
-        if (!ftRes.ok) {
-          const errBody = await ftRes.text().catch(() => "");
-          console.error(`[FT:${fmtKey}] HTTP error: ${ftRes.status} ${errBody.slice(0, 200)}`);
-          ftResults[fmtKey].error = `HTTP ${ftRes.status}: ${errBody.slice(0, 200)}`;
-          ftResults[fmtKey].done = true;
-          if (!res.writableEnded) res.write(`data: ${JSON.stringify({ ft: { format: fmtKey, error: ftResults[fmtKey].error } })}\n\n`);
-          return;
-        }
+  // Helper: run one FT format and wait for it to complete
+  async function runFtFormat(fmtKey) {
+    try {
+      console.log(`[FT:${fmtKey}] Sending to ${FT_URL}/completion...`);
+      const ftRes = await ftStreamCompletion(messages, fmtKey);
+      if (!ftRes.ok) {
+        const errBody = await ftRes.text().catch(() => "");
+        console.error(`[FT:${fmtKey}] HTTP error: ${ftRes.status} ${errBody.slice(0, 200)}`);
+        ftResults[fmtKey].error = `HTTP ${ftRes.status}: ${errBody.slice(0, 200)}`;
+        ftResults[fmtKey].done = true;
+        if (!res.writableEnded) res.write(`data: ${JSON.stringify({ ft: { format: fmtKey, error: ftResults[fmtKey].error } })}\n\n`);
+        return;
+      }
 
-        // ── RunPod Serverless: JSON response (not streaming) ──
-        if (ftRes._runpod) {
-          try {
-            const rpData = await ftRes.json();
-            if (rpData.status === "COMPLETED" && rpData.output?.content) {
-              ftResults[fmtKey].response = rpData.output.content;
-              ftResults[fmtKey].done = true;
-              if (!res.writableEnded) {
-                res.write(`data: ${JSON.stringify({ ft: { format: fmtKey, token: ftResults[fmtKey].response } })}\n\n`);
-                res.write(`data: ${JSON.stringify({ ft: { format: fmtKey, done: true, response: ftResults[fmtKey].response } })}\n\n`);
-              }
-            } else if (rpData.status === "FAILED") {
-              ftResults[fmtKey].error = `RunPod failed: ${JSON.stringify(rpData.error || rpData).slice(0, 200)}`;
-              ftResults[fmtKey].done = true;
-              if (!res.writableEnded) res.write(`data: ${JSON.stringify({ ft: { format: fmtKey, error: ftResults[fmtKey].error } })}\n\n`);
-            } else if (rpData.status === "IN_QUEUE" || rpData.status === "IN_PROGRESS") {
-              const jobId = rpData.id;
-              const pollHeaders = { "Content-Type": "application/json" };
-              if (FT_API_KEY) pollHeaders["Authorization"] = `Bearer ${FT_API_KEY}`;
-              for (let attempt = 0; attempt < 24; attempt++) {
-                await new Promise(r => setTimeout(r, 5000));
-                const pollRes = await fetchWithTimeout(`${FT_URL}/status/${jobId}`, { headers: pollHeaders }, 10_000);
-                const pollData = await pollRes.json();
-                if (pollData.status === "COMPLETED" && pollData.output?.content) {
-                  ftResults[fmtKey].response = pollData.output.content;
-                  ftResults[fmtKey].done = true;
-                  if (!res.writableEnded) {
-                    res.write(`data: ${JSON.stringify({ ft: { format: fmtKey, token: ftResults[fmtKey].response } })}\n\n`);
-                    res.write(`data: ${JSON.stringify({ ft: { format: fmtKey, done: true, response: ftResults[fmtKey].response } })}\n\n`);
-                  }
-                  break;
-                } else if (pollData.status === "FAILED") {
-                  ftResults[fmtKey].error = `RunPod failed: ${JSON.stringify(pollData.error || pollData).slice(0, 200)}`;
-                  ftResults[fmtKey].done = true;
-                  if (!res.writableEnded) res.write(`data: ${JSON.stringify({ ft: { format: fmtKey, error: ftResults[fmtKey].error } })}\n\n`);
-                  break;
-                }
-              }
-              if (!ftResults[fmtKey].done) {
-                ftResults[fmtKey].error = "RunPod timed out (cold start)";
-                ftResults[fmtKey].done = true;
-                if (!res.writableEnded) res.write(`data: ${JSON.stringify({ ft: { format: fmtKey, error: ftResults[fmtKey].error } })}\n\n`);
-              }
+      // ── RunPod Serverless: JSON response (not streaming) ──
+      if (ftRes._runpod) {
+        try {
+          const rpData = await ftRes.json();
+          if (rpData.status === "COMPLETED" && rpData.output?.content) {
+            ftResults[fmtKey].response = rpData.output.content;
+            ftResults[fmtKey].done = true;
+            if (!res.writableEnded) {
+              res.write(`data: ${JSON.stringify({ ft: { format: fmtKey, token: ftResults[fmtKey].response } })}\n\n`);
+              res.write(`data: ${JSON.stringify({ ft: { format: fmtKey, done: true, response: ftResults[fmtKey].response } })}\n\n`);
             }
-          } catch (rpErr) {
-            ftResults[fmtKey].error = `RunPod parse: ${rpErr.message}`;
+          } else if (rpData.status === "FAILED") {
+            ftResults[fmtKey].error = `RunPod failed: ${JSON.stringify(rpData.error || rpData).slice(0, 200)}`;
             ftResults[fmtKey].done = true;
             if (!res.writableEnded) res.write(`data: ${JSON.stringify({ ft: { format: fmtKey, error: ftResults[fmtKey].error } })}\n\n`);
           }
-          return;
+        } catch (rpErr) {
+          ftResults[fmtKey].error = `RunPod parse: ${rpErr.message}`;
+          ftResults[fmtKey].done = true;
+          if (!res.writableEnded) res.write(`data: ${JSON.stringify({ ft: { format: fmtKey, error: ftResults[fmtKey].error } })}\n\n`);
         }
+        return;
+      }
 
-        // ── Direct llama.cpp /completion SSE (Modal/Colab) ──
-        console.log(`[FT:${fmtKey}] Stream connected, status ${ftRes.status}`);
+      // ── Direct llama.cpp /completion SSE (Modal/Colab) ──
+      // Promisify the stream so we can await completion before starting next format
+      console.log(`[FT:${fmtKey}] Stream connected, status ${ftRes.status}`);
+      await new Promise((resolve) => {
         let ftBuf = "";
         ftRes.body.on("data", (chunk) => {
           ftBuf += chunk.toString();
           const lines = ftBuf.split("\n");
-          ftBuf = lines.pop() || ""; // keep incomplete last line in buffer
+          ftBuf = lines.pop() || "";
           for (const line of lines) {
             if (!line.startsWith("data: ")) continue;
             try {
@@ -5071,7 +5045,7 @@ app.post("/api/chat", auth, async (req, res) => {
                 }
               }
             } catch (parseErr) {
-              console.warn(`[FT:${fmtKey}] Parse error: ${parseErr.message} — line: ${line.slice(0, 100)}`);
+              console.warn(`[FT:${fmtKey}] Parse error: ${parseErr.message}`);
             }
           }
         });
@@ -5080,19 +5054,32 @@ app.post("/api/chat", auth, async (req, res) => {
           ftResults[fmtKey].error = e.message;
           ftResults[fmtKey].done = true;
           if (!res.writableEnded) res.write(`data: ${JSON.stringify({ ft: { format: fmtKey, error: e.message } })}\n\n`);
+          resolve();
         });
         ftRes.body.on("end", () => {
-          console.log(`[FT:${fmtKey}] Stream ended, done=${ftResults[fmtKey].done}, chars=${ftResults[fmtKey].response.length}`);
+          console.log(`[FT:${fmtKey}] Stream ended, chars=${ftResults[fmtKey].response.length}`);
           if (!ftResults[fmtKey].done && !res.writableEnded) {
             ftResults[fmtKey].done = true;
             res.write(`data: ${JSON.stringify({ ft: { format: fmtKey, done: true, response: ftResults[fmtKey].response } })}\n\n`);
           }
+          resolve();
         });
-      } catch (e) {
-        console.error(`[FT:${fmtKey}] Fetch error: ${e.message}`);
-        ftResults[fmtKey].error = e.message;
-        ftResults[fmtKey].done = true;
-        if (!res.writableEnded) res.write(`data: ${JSON.stringify({ ft: { format: fmtKey, error: e.message } })}\n\n`);
+      });
+    } catch (e) {
+      console.error(`[FT:${fmtKey}] Fetch error: ${e.message}`);
+      ftResults[fmtKey].error = e.message;
+      ftResults[fmtKey].done = true;
+      if (!res.writableEnded) res.write(`data: ${JSON.stringify({ ft: { format: fmtKey, error: e.message } })}\n\n`);
+    }
+  }
+
+  // Run all formats sequentially in background (doesn't block main response)
+  if (FT_FORMAT_KEYS.length) {
+    console.log(`[FT] Running ${FT_FORMAT_KEYS.length} formats sequentially: ${FT_FORMAT_KEYS.join(", ")}`);
+    (async () => {
+      for (const fmtKey of FT_FORMAT_KEYS) {
+        if (res.writableEnded) break; // connection closed, stop
+        await runFtFormat(fmtKey);
       }
     })();
   }
