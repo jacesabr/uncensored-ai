@@ -4978,7 +4978,7 @@ app.post("/api/chat", auth, async (req, res) => {
 
   // ── Finetuned model: fire all formats SEQUENTIALLY ──
   // Single GPU can only process one request at a time. Parallel requests cause "Premature close".
-  const FT_FORMAT_KEYS = FT_ENABLED ? Object.keys(FT_FORMATS) : [];
+  const FT_FORMAT_KEYS = FT_ENABLED ? ["chatml"] : []; // only ChatML matches training format
   const ftResults = {}; // { chatml: { response: "", error: null, done: false }, ... }
   for (const k of FT_FORMAT_KEYS) ftResults[k] = { response: "", error: null, done: false };
 

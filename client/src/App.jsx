@@ -1829,52 +1829,50 @@ function AuthScreen({ onAuth }) {
   );
 }
 
-const FT_COLORS = { chatml: "#10b981", llama3: "#3b82f6", alpaca: "#f59e0b", raw: "#a855f7" };
-const FT_LABELS = { chatml: "ChatML (trained)", llama3: "Llama 3", alpaca: "Alpaca", raw: "Raw" };
+const FT_COLORS = { chatml: "#10b981" };
+const FT_LABELS = { chatml: "Finetuned (SFT)" };
 
 function MessageBubble({ msg, onMetaClick }) {
   const isUser = msg.role === "user";
   const hasFt = !isUser && msg.ftResponses && Object.keys(msg.ftResponses).length > 0;
   if (hasFt) {
-    const ftKeys = Object.keys(msg.ftResponses);
+    const ftData = msg.ftResponses.chatml || Object.values(msg.ftResponses)[0] || {};
     return (
       <div style={{ marginBottom: 22, animation: "fadeSlideIn 0.3s ease forwards" }}>
-        {/* Not Finetuned — full width */}
-        <div style={{ marginBottom: 12 }}>
-          <div style={{ fontFamily: FONT_MONO, fontSize: 9, color: T.textDim, letterSpacing: "1px", textTransform: "uppercase", marginBottom: 6 }}>Not Finetuned</div>
-          <div style={{ background: T.aiBubble, color: T.text, border: `1px solid ${T.border}`, borderRadius: "18px 18px 18px 4px", padding: "13px 18px", wordBreak: "break-word", boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
-              <span style={{ color: "#9B2D5E", fontSize: 12, fontWeight: 600, fontFamily: FONT_DISPLAY }}>{M.name}</span>
-              {msg.meta && onMetaClick && (
-                <span onClick={() => onMetaClick(msg.meta)}
-                  style={{ color: T.accent, fontSize: 10, fontFamily: FONT_MONO, cursor: "pointer", opacity: 0.5, transition: "opacity 0.2s" }}
-                  onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0.5}
-                  title="View brain state">{"\u25c8"} brain</span>
+        {/* Side-by-side: Not Finetuned | Finetuned */}
+        <div style={{ display: "flex", gap: 12 }}>
+          {/* Not Finetuned */}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontFamily: FONT_MONO, fontSize: 9, color: T.textDim, letterSpacing: "1px", textTransform: "uppercase", marginBottom: 6 }}>Not Finetuned</div>
+            <div style={{ background: T.aiBubble, color: T.text, border: `1px solid ${T.border}`, borderRadius: "18px 18px 18px 4px", padding: "13px 18px", wordBreak: "break-word", boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                <span style={{ color: "#9B2D5E", fontSize: 12, fontWeight: 600, fontFamily: FONT_DISPLAY }}>{M.name}</span>
+                {msg.meta && onMetaClick && (
+                  <span onClick={() => onMetaClick(msg.meta)}
+                    style={{ color: T.accent, fontSize: 10, fontFamily: FONT_MONO, cursor: "pointer", opacity: 0.5, transition: "opacity 0.2s" }}
+                    onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0.5}
+                    title="View brain state">{"\u25c8"} brain</span>
+                )}
+              </div>
+              <div style={{ fontSize: 14, lineHeight: 1.85, whiteSpace: "pre-wrap", fontFamily: FONT }}><FormatMessage text={msg.content} bold={true} /></div>
+            </div>
+          </div>
+          {/* Finetuned */}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontFamily: FONT_MONO, fontSize: 9, color: "#10b981", letterSpacing: "1px", textTransform: "uppercase", marginBottom: 6 }}>Finetuned (SFT)</div>
+            <div style={{ background: T.aiBubble, color: T.text, border: `1px solid #10b98133`, borderRadius: "18px 18px 18px 4px", padding: "13px 18px", wordBreak: "break-word", boxShadow: "0 2px 8px #10b98114" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                <span style={{ color: "#10b981", fontSize: 12, fontWeight: 600, fontFamily: FONT_DISPLAY }}>{M.name}</span>
+              </div>
+              {ftData.error ? (
+                <div style={{ fontSize: 11, color: "#ef4444", fontFamily: FONT_MONO }}>{ftData.error}</div>
+              ) : ftData.response ? (
+                <div style={{ fontSize: 14, lineHeight: 1.85, whiteSpace: "pre-wrap", fontFamily: FONT }}><FormatMessage text={ftData.response} bold={true} /></div>
+              ) : (
+                <div style={{ fontSize: 11, color: T.textDim, fontFamily: FONT_MONO }}>no response</div>
               )}
             </div>
-            <div style={{ fontSize: 14, lineHeight: 1.85, whiteSpace: "pre-wrap", fontFamily: FONT }}><FormatMessage text={msg.content} bold={true} /></div>
           </div>
-        </div>
-        {/* All FT formats in a row */}
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          {ftKeys.map(fmt => {
-            const data = msg.ftResponses[fmt];
-            const color = FT_COLORS[fmt] || "#10b981";
-            return (
-              <div key={fmt} style={{ flex: "1 1 0", minWidth: 180 }}>
-                <div style={{ fontFamily: FONT_MONO, fontSize: 9, color, letterSpacing: "1px", textTransform: "uppercase", marginBottom: 6 }}>{FT_LABELS[fmt] || fmt}</div>
-                <div style={{ background: T.aiBubble, color: T.text, border: `1px solid ${color}33`, borderRadius: "14px 14px 14px 4px", padding: "11px 14px", wordBreak: "break-word", boxShadow: `0 2px 8px ${color}14` }}>
-                  {data.error ? (
-                    <div style={{ fontSize: 11, color: "#ef4444", fontFamily: FONT_MONO }}>{data.error}</div>
-                  ) : data.response ? (
-                    <div style={{ fontSize: 13, lineHeight: 1.8, whiteSpace: "pre-wrap", fontFamily: FONT }}><FormatMessage text={data.response} bold={true} /></div>
-                  ) : (
-                    <div style={{ fontSize: 11, color: T.textDim, fontFamily: FONT_MONO }}>no response</div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
         </div>
       </div>
     );
@@ -2412,59 +2410,50 @@ export default function App() {
                   </div>
                 </div>
               )}
-              {/* Multi-format FT comparison streaming view */}
+              {/* Side-by-side FT comparison streaming view */}
               {streaming && comparisonMode && (
-                <div style={{ marginBottom: 22, animation: "fadeSlideIn 0.3s ease forwards" }}>
-                  {/* Not Finetuned — only show while main is still streaming (hidden once done) */}
-                  {!ftWaiting && (
-                    <div style={{ marginBottom: 12 }}>
-                      <div style={{ fontFamily: FONT_MONO, fontSize: 9, color: T.textDim, letterSpacing: "1px", textTransform: "uppercase", marginBottom: 6 }}>Not Finetuned</div>
-                      <div style={{ background: T.aiBubble, border: `1px solid ${T.border}`, borderRadius: "18px 18px 18px 4px", padding: "13px 18px", wordBreak: "break-word", boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
-                          <span style={{ color: "#9B2D5E", fontSize: 12, fontWeight: 600, fontFamily: FONT_DISPLAY }}>{M.name}</span>
-                        </div>
-                        {streamText ? (
-                          <div style={{ fontSize: 14, lineHeight: 1.85, whiteSpace: "pre-wrap", fontFamily: FONT }}>
-                            <FormatMessage text={streamText} bold={true} />
-                            <span style={{ color: T.accent, animation: "blink 1s infinite", marginLeft: 2 }}>{"\u258c"}</span>
-                          </div>
-                        ) : (
-                          <div style={{ display: "flex", gap: 5, alignItems: "center", padding: "4px 0" }}>
-                            {[0, 1, 2].map(i => <div key={i} style={{ width: 6, height: 6, borderRadius: "50%", background: T.accent, opacity: 0.6, animation: "speakBounce 1.2s ease-in-out infinite", animationDelay: `${i * 0.22}s` }} />)}
-                          </div>
-                        )}
+                <div style={{ display: "flex", gap: 12, marginBottom: 22, animation: "fadeSlideIn 0.3s ease forwards" }}>
+                  {/* Not Finetuned */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontFamily: FONT_MONO, fontSize: 9, color: T.textDim, letterSpacing: "1px", textTransform: "uppercase", marginBottom: 6 }}>Not Finetuned</div>
+                    <div style={{ background: T.aiBubble, border: `1px solid ${T.border}`, borderRadius: "18px 18px 18px 4px", padding: "13px 18px", wordBreak: "break-word", boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                        <span style={{ color: "#9B2D5E", fontSize: 12, fontWeight: 600, fontFamily: FONT_DISPLAY }}>{M.name}</span>
                       </div>
-                    </div>
-                  )}
-                  {ftWaiting && (
-                    <div style={{ fontFamily: FONT_MONO, fontSize: 9, color: "#10b981", letterSpacing: "1px", marginBottom: 8 }}>waiting for finetuned models...</div>
-                  )}
-                  {/* All FT formats in a row */}
-                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                    {Object.entries(FT_COLORS).map(([fmt, color]) => {
-                      const text = ftStreamTexts[fmt] || "";
-                      return (
-                        <div key={fmt} style={{ flex: "1 1 0", minWidth: 160 }}>
-                          <div style={{ fontFamily: FONT_MONO, fontSize: 9, color, letterSpacing: "1px", textTransform: "uppercase", marginBottom: 6 }}>{FT_LABELS[fmt] || fmt}</div>
-                          <div style={{ background: T.aiBubble, border: `1px solid ${color}33`, borderRadius: "14px 14px 14px 4px", padding: "11px 14px", wordBreak: "break-word", boxShadow: `0 2px 8px ${color}14` }}>
-                            {text ? (
-                              text.startsWith("\u26a0") ? (
-                                <div style={{ fontSize: 11, color: "#ef4444", fontFamily: FONT_MONO }}>{text}</div>
-                              ) : (
-                                <div style={{ fontSize: 13, lineHeight: 1.8, whiteSpace: "pre-wrap", fontFamily: FONT }}>
-                                  <FormatMessage text={text} bold={true} />
-                                  <span style={{ color, animation: "blink 1s infinite", marginLeft: 2 }}>{"\u258c"}</span>
-                                </div>
-                              )
-                            ) : (
-                              <div style={{ display: "flex", gap: 5, alignItems: "center", padding: "4px 0" }}>
-                                {[0, 1, 2].map(i => <div key={i} style={{ width: 6, height: 6, borderRadius: "50%", background: color, opacity: 0.6, animation: "speakBounce 1.2s ease-in-out infinite", animationDelay: `${i * 0.22}s` }} />)}
-                              </div>
-                            )}
-                          </div>
+                      {streamText ? (
+                        <div style={{ fontSize: 14, lineHeight: 1.85, whiteSpace: "pre-wrap", fontFamily: FONT }}>
+                          <FormatMessage text={streamText} bold={true} />
+                          <span style={{ color: T.accent, animation: "blink 1s infinite", marginLeft: 2 }}>{"\u258c"}</span>
                         </div>
-                      );
-                    })}
+                      ) : (
+                        <div style={{ display: "flex", gap: 5, alignItems: "center", padding: "4px 0" }}>
+                          {[0, 1, 2].map(i => <div key={i} style={{ width: 6, height: 6, borderRadius: "50%", background: T.accent, opacity: 0.6, animation: "speakBounce 1.2s ease-in-out infinite", animationDelay: `${i * 0.22}s` }} />)}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  {/* Finetuned */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontFamily: FONT_MONO, fontSize: 9, color: "#10b981", letterSpacing: "1px", textTransform: "uppercase", marginBottom: 6 }}>Finetuned (SFT)</div>
+                    <div style={{ background: T.aiBubble, border: "1px solid #10b98133", borderRadius: "18px 18px 18px 4px", padding: "13px 18px", wordBreak: "break-word", boxShadow: "0 2px 8px #10b98114" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                        <span style={{ color: "#10b981", fontSize: 12, fontWeight: 600, fontFamily: FONT_DISPLAY }}>{M.name}</span>
+                      </div>
+                      {ftStreamTexts.chatml ? (
+                        ftStreamTexts.chatml.startsWith("\u26a0") ? (
+                          <div style={{ fontSize: 11, color: "#ef4444", fontFamily: FONT_MONO }}>{ftStreamTexts.chatml}</div>
+                        ) : (
+                          <div style={{ fontSize: 14, lineHeight: 1.85, whiteSpace: "pre-wrap", fontFamily: FONT }}>
+                            <FormatMessage text={ftStreamTexts.chatml} bold={true} />
+                            <span style={{ color: "#10b981", animation: "blink 1s infinite", marginLeft: 2 }}>{"\u258c"}</span>
+                          </div>
+                        )
+                      ) : (
+                        <div style={{ display: "flex", gap: 5, alignItems: "center", padding: "4px 0" }}>
+                          {[0, 1, 2].map(i => <div key={i} style={{ width: 6, height: 6, borderRadius: "50%", background: "#10b981", opacity: 0.6, animation: "speakBounce 1.2s ease-in-out infinite", animationDelay: `${i * 0.22}s` }} />)}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}
@@ -2492,10 +2481,7 @@ export default function App() {
         <div style={{ padding: "14px 32px 20px", borderTop: `1px solid ${T.border}`, background: `${T.surface}e0`, backdropFilter: "blur(10px)" }}>
           {ftEnabled && (
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, paddingLeft: 4 }}>
-              <span style={{ fontFamily: FONT_MONO, fontSize: 9, color: "#10b981", opacity: 0.7 }}>all templates comparison active</span>
-              {Object.entries(FT_COLORS).map(([fmt, color]) => (
-                <span key={fmt} style={{ fontFamily: FONT_MONO, fontSize: 8, color, opacity: 0.6 }}>{FT_LABELS[fmt]}</span>
-              ))}
+              <span style={{ fontFamily: FONT_MONO, fontSize: 9, color: "#10b981", opacity: 0.7 }}>SFT comparison active</span>
             </div>
           )}
           <div style={{ display: "flex", alignItems: "flex-end", gap: 8, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 18, padding: "10px 16px" }}>
