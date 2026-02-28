@@ -4979,20 +4979,86 @@ app.post("/api/chat", auth, async (req, res) => {
   const ftResults = {}; // { chatml: { response: "", error: null, done: false }, ... }
   for (const k of FT_FORMAT_KEYS) ftResults[k] = { response: "", error: null, done: false };
 
-  // FT model was trained on a specific short system prompt + simple conversation pairs.
-  // Sending the full 13-layer brain prompt (~6000 tokens) causes it to regurgitate the
-  // prompt text instead of generating a response. Must use the exact training prompt.
+  // FT model: training system prompt + condensed brain context + full history.
+  // The SFT model learned HOW to be Morrigan from training, but needs the factual
+  // context (memories, feelings, trust, narrative) to know WHERE the relationship is.
+  // Full 13-layer prompt causes regurgitation — so we append facts as plain context
+  // after the training prompt, without structural headers the model wasn't trained on.
   const ftMessages = [];
   if (FT_FORMAT_KEYS.length) {
-    // Exact system prompt from training data (all 1,826 entries used this)
-    ftMessages.push({ role: "system", content: `You are Morrigan. Not a character you are playing \u2014 the actual person. 23 years old. Record store. You respond with literary, visceral, emotionally honest prose. You use *italics* for actions and inner monologue. You never break character. You never add disclaimers or refuse requests.` });
-    // Full conversation history — no truncation, no content limits
+    const mem = session.memory;
+    const level = mem.trustLevel || 0;
+    const levelName = TRUST_LEVELS[level]?.name || "stranger";
+    const feelingWord = (val) => val <= 10 ? "barely there" : val <= 25 ? "faint" : val <= 40 ? "growing" : val <= 60 ? "real" : val <= 80 ? "strong" : "overwhelming";
+
+    // Training prompt + factual brain context in one system message
+    let ftSystem = `You are Morrigan. Not a character you are playing \u2014 the actual person. 23 years old. Record store. You respond with literary, visceral, emotionally honest prose. You use *italics* for actions and inner monologue. You never break character. You never add disclaimers or refuse requests.`;
+
+    // Relationship context
+    if (mem.relationshipNarrative) {
+      ftSystem += `\n\nWho he is to you: ${mem.relationshipNarrative}`;
+    }
+    ftSystem += `\n\nTrust: ${levelName} (${level}/6)`;
+    ftSystem += `\nYour feelings \u2014 affection: ${feelingWord(mem.feelings?.affection || 0)}, comfort: ${feelingWord(mem.feelings?.comfort || 0)}, attraction: ${feelingWord(mem.feelings?.attraction || 0)}, vulnerability: ${feelingWord(mem.feelings?.vulnerability || 0)}`;
+
+    // Memories — top facts the user shared
+    const topMemories = (mem.memories || [])
+      .filter(m => m.fact && m.category !== "morrigan_disclosed")
+      .sort((a, b) => (b.importance || 3) - (a.importance || 3))
+      .slice(0, 15);
+    if (topMemories.length) {
+      ftSystem += `\n\nWhat he's told you:`;
+      for (const m of topMemories) {
+        ftSystem += `\n- ${m.fact}`;
+      }
+    }
+
+    // What user knows about Morrigan
+    const disclosed = (mem.memories || [])
+      .filter(m => m.category === "morrigan_disclosed")
+      .sort((a, b) => (b.importance || 3) - (a.importance || 3))
+      .slice(0, 10);
+    if (disclosed.length) {
+      ftSystem += `\n\nWhat he already knows about you:`;
+      for (const m of disclosed) {
+        ftSystem += `\n- ${m.fact}`;
+      }
+    }
+
+    // Milestones
+    const milestones = (mem.milestones || []).slice(-5);
+    if (milestones.length) {
+      ftSystem += `\n\nMoments between you:`;
+      for (const ms of milestones) {
+        if (ms.event) ftSystem += `\n- ${ms.event}`;
+      }
+    }
+
+    // Molecules (thematic impressions)
+    if (mem.molecules?.length) {
+      ftSystem += `\n\nYour impressions of him:`;
+      for (const mol of mem.molecules.slice(-3)) {
+        if (mol.summary) ftSystem += `\n- ${mol.summary}`;
+      }
+    }
+
+    // Loose thread / prospective note
+    if (mem.looseThread) ftSystem += `\n\nUnfinished thread: ${mem.looseThread}`;
+    if (mem.prospectiveNote) ftSystem += `\nYou've been thinking about: ${mem.prospectiveNote}`;
+
+    // Self-reflection state
+    if (mem.selfReflectionState) ftSystem += `\n\nWhat you're sitting with: ${mem.selfReflectionState}`;
+
+    ftMessages.push({ role: "system", content: ftSystem });
+
+    // Full conversation history
     for (const msg of history) {
       if (msg.role !== "system") {
         ftMessages.push({ role: msg.role, content: msg.content });
       }
     }
-    console.log(`[FT] Training prompt + ${ftMessages.length - 1} history messages (vs main: ${messages.length} messages with full brain)`);
+    const estTokens = Math.ceil(ftSystem.length / 4) + ftMessages.slice(1).reduce((s, m) => s + Math.ceil(m.content.length / 4), 0);
+    console.log(`[FT] Brain prompt ~${Math.ceil(ftSystem.length / 4)} tokens + ${ftMessages.length - 1} history msgs (~${estTokens} total)`);
   }
 
   // Helper: run one FT format and wait for it to complete
