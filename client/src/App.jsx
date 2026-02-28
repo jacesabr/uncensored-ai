@@ -886,6 +886,7 @@ function AdminTab({ monitorToken }) {
   const [selectedUser, setSelectedUser] = useState(null);
   const [convos, setConvos] = useState([]);
   const [msgs, setMsgs] = useState([]);
+  const [msgsTotal, setMsgsTotal] = useState(0);
   const [selectedConvo, setSelectedConvo] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -899,7 +900,8 @@ function AdminTab({ monitorToken }) {
     try {
       const r = await fetch(`${API}/api/admin/users`, { headers: adminHdrs() });
       if (!r.ok) throw new Error((await r.json()).error || "Failed to load users");
-      setUsers(await r.json());
+      const data = await r.json();
+      setUsers(data.users || []);
     } catch (e) { setError(e.message); }
     setLoading(false);
   };
@@ -907,9 +909,10 @@ function AdminTab({ monitorToken }) {
   const loadConversations = async (user) => {
     setSelectedUser(user); setView("conversations"); setLoading(true); setError(null);
     try {
-      const r = await fetch(`${API}/api/admin/users/${user._id}/conversations`, { headers: adminHdrs() });
+      const r = await fetch(`${API}/api/admin/users/${user.id}/conversations`, { headers: adminHdrs() });
       if (!r.ok) throw new Error((await r.json()).error || "Failed to load conversations");
-      setConvos(await r.json());
+      const data = await r.json();
+      setConvos(data.conversations || []);
     } catch (e) { setError(e.message); }
     setLoading(false);
   };
@@ -917,9 +920,11 @@ function AdminTab({ monitorToken }) {
   const loadMessages = async (convo, offset = 0) => {
     setSelectedConvo(convo); setView("messages"); setMsgOffset(offset); setLoading(true); setError(null);
     try {
-      const r = await fetch(`${API}/api/admin/users/${selectedUser._id}/messages?conversationId=${convo.conversationId}&limit=${MSG_LIMIT}&offset=${offset}`, { headers: adminHdrs() });
+      const r = await fetch(`${API}/api/admin/users/${selectedUser.id}/messages?conversationId=${convo.conversationId}&limit=${MSG_LIMIT}&offset=${offset}`, { headers: adminHdrs() });
       if (!r.ok) throw new Error((await r.json()).error || "Failed to load messages");
-      setMsgs(await r.json());
+      const data = await r.json();
+      setMsgs(data.messages || []);
+      setMsgsTotal(data.total || 0);
     } catch (e) { setError(e.message); }
     setLoading(false);
   };
@@ -933,7 +938,7 @@ function AdminTab({ monitorToken }) {
       {selectedUser && <>
         <span style={{ color: MON.textDim }}>›</span>
         <span style={{ color: view === "conversations" ? MON.accent : MON.blue, cursor: "pointer", textDecoration: view === "messages" ? "underline" : "none" }}
-          onClick={() => { setView("conversations"); setSelectedConvo(null); }}>{selectedUser.phraseHash?.slice(0, 12)}…</span>
+          onClick={() => { setView("conversations"); setSelectedConvo(null); }}>{selectedUser.phraseHash}</span>
       </>}
       {selectedConvo && <>
         <span style={{ color: MON.textDim }}>›</span>
@@ -949,7 +954,7 @@ function AdminTab({ monitorToken }) {
   // ── User List View ──
   if (view === "users") return (
     <>
-      <MSecHead icon="⊞" title="All Users" />
+      <MSecHead icon="⊞" title={`All Users (${users.length})`} />
       {loading ? <div style={{ fontFamily: MMONO, fontSize: 12, color: MON.textDim, padding: 20 }}>Loading users…</div> : (
         <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
           <div style={{ display: "grid", gridTemplateColumns: "32px 1fr 80px 60px 60px 60px 80px 120px", gap: 8, padding: "8px 12px", borderBottom: `1px solid ${MON.border}` }}>
@@ -958,14 +963,14 @@ function AdminTab({ monitorToken }) {
             ))}
           </div>
           {users.map(u => (
-            <div key={u._id} onClick={() => loadConversations(u)}
+            <div key={u.id} onClick={() => loadConversations(u)}
               style={{ display: "grid", gridTemplateColumns: "32px 1fr 80px 60px 60px 60px 80px 120px", gap: 8, padding: "10px 12px", borderRadius: 8, cursor: "pointer", background: "transparent", transition: "background 0.15s" }}
               onMouseEnter={e => e.currentTarget.style.background = MON.surface} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-              <span style={{ fontSize: 10, lineHeight: "20px" }}>{u.online ? "🟢" : "⚫"}</span>
+              <span style={{ fontSize: 10, lineHeight: "20px" }}>{u.isOnline ? "🟢" : "⚫"}</span>
               <span style={{ fontFamily: MMONO, fontSize: 12, color: MON.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{u.phraseHash}</span>
               <span style={{ fontFamily: MMONO, fontSize: 12, color: MON.accent, fontWeight: 600 }}>L{u.trustLevel ?? "?"}</span>
-              <span style={{ fontFamily: MMONO, fontSize: 12, color: MON.text }}>{u.messageCount ?? 0}</span>
-              <span style={{ fontFamily: MMONO, fontSize: 12, color: MON.text }}>{u.conversationCount ?? 0}</span>
+              <span style={{ fontFamily: MMONO, fontSize: 12, color: MON.text }}>{u.totalMessages ?? 0}</span>
+              <span style={{ fontFamily: MMONO, fontSize: 12, color: MON.text }}>{u.totalConversations ?? 0}</span>
               <span style={{ fontFamily: MMONO, fontSize: 12, color: MON.text }}>D{u.sptDepth ?? 1}</span>
               <span>{u.atRisk ? <span style={{ fontFamily: MMONO, fontSize: 10, background: "#ff4d4d20", color: "#ff4d4d", padding: "2px 8px", borderRadius: 10, fontWeight: 600 }}>AT RISK</span> : <span style={{ fontFamily: MMONO, fontSize: 10, color: MON.textDim }}>OK</span>}</span>
               <span style={{ fontFamily: MMONO, fontSize: 11, color: MON.textDim }}>{u.lastSeen ? new Date(u.lastSeen).toLocaleDateString() : "—"}</span>
@@ -986,14 +991,40 @@ function AdminTab({ monitorToken }) {
           <div>
             <MLabel>User</MLabel>
             <MRow label="Phrase Hash" value={selectedUser.phraseHash} />
-            <MRow label="Trust Level" value={`Level ${selectedUser.trustLevel ?? "?"}`} valueColor={MON.accent} />
+            <MRow label="Trust Level" value={`Level ${selectedUser.trustLevel ?? "?"} (${selectedUser.trustPoints ?? 0} pts)`} valueColor={MON.accent} />
             <MRow label="SPT Depth" value={`Depth ${selectedUser.sptDepth ?? 1}`} />
-            <MRow label="Messages" value={selectedUser.messageCount ?? 0} />
+            <MRow label="Messages" value={selectedUser.totalMessages ?? 0} />
+            <MRow label="Conversations" value={selectedUser.totalConversations ?? 0} />
+            <MRow label="First Met" value={selectedUser.firstMet ? new Date(selectedUser.firstMet).toLocaleDateString() : "—"} />
+            <MRow label="Last Seen" value={selectedUser.lastSeen ? new Date(selectedUser.lastSeen).toLocaleDateString() : "—"} />
+            {selectedUser.cpsTrajectory && <MRow label="CPS Trajectory" value={selectedUser.cpsTrajectory} valueColor={selectedUser.cpsTrajectory === "rising" ? MON.green : selectedUser.cpsTrajectory === "declining" ? MON.red : MON.textDim} />}
           </div>
-          {selectedUser.atRisk && <span style={{ fontFamily: MMONO, fontSize: 11, background: "#ff4d4d20", color: "#ff4d4d", padding: "4px 12px", borderRadius: 10, fontWeight: 700, alignSelf: "flex-start" }}>AT RISK</span>}
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+            {selectedUser.atRisk && <span style={{ fontFamily: MMONO, fontSize: 11, background: "#ff4d4d20", color: "#ff4d4d", padding: "4px 12px", borderRadius: 10, fontWeight: 700 }}>AT RISK</span>}
+            {selectedUser.isOnline && <span style={{ fontFamily: MMONO, fontSize: 11, background: MON.green + "20", color: MON.green, padding: "4px 12px", borderRadius: 10, fontWeight: 700 }}>ONLINE</span>}
+          </div>
         </div>
       </MCard>
-      <MSecHead icon="◈" title="Conversations" />
+      {selectedUser.feelings && Object.keys(selectedUser.feelings).length > 0 && (
+        <MCard>
+          <MLabel>Feelings</MLabel>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 8 }}>
+            {[
+              { key: "affection", label: "Aff", color: "#ec4899" },
+              { key: "comfort", label: "Comf", color: MON.green },
+              { key: "attraction", label: "Attr", color: MON.amber },
+              { key: "protectiveness", label: "Prot", color: MON.blue },
+              { key: "vulnerability", label: "Vuln", color: MON.purple },
+            ].map(({ key, label, color }) => (
+              <div key={key} style={{ textAlign: "center" }}>
+                <div style={{ fontFamily: MMONO, fontSize: 16, color, fontWeight: 700 }}>{selectedUser.feelings[key] ?? 0}</div>
+                <div style={{ fontFamily: MMONO, fontSize: 9, color: MON.textDim }}>{label}</div>
+              </div>
+            ))}
+          </div>
+        </MCard>
+      )}
+      <MSecHead icon="◈" title={`Conversations (${convos.length})`} />
       {loading ? <div style={{ fontFamily: MMONO, fontSize: 12, color: MON.textDim, padding: 20 }}>Loading conversations…</div> : (
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           {convos.map(c => (
@@ -1004,9 +1035,11 @@ function AdminTab({ monitorToken }) {
                 <span style={{ fontFamily: MSERIF, fontSize: 14, color: MON.text, fontWeight: 600 }}>{c.title || "Untitled Conversation"}</span>
                 <span style={{ fontFamily: MMONO, fontSize: 11, color: MON.accent, fontWeight: 600 }}>{c.messageCount} msgs</span>
               </div>
-              <div style={{ display: "flex", gap: 16 }}>
+              <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+                <span style={{ fontFamily: MMONO, fontSize: 11, color: MON.textDim }}>User: {c.userMessages ?? 0}</span>
+                <span style={{ fontFamily: MMONO, fontSize: 11, color: MON.textDim }}>AI: {c.aiMessages ?? 0}</span>
                 <span style={{ fontFamily: MMONO, fontSize: 11, color: MON.textDim }}>Created: {new Date(c.createdAt).toLocaleDateString()}</span>
-                <span style={{ fontFamily: MMONO, fontSize: 11, color: MON.textDim }}>Updated: {new Date(c.updatedAt).toLocaleDateString()}</span>
+                <span style={{ fontFamily: MMONO, fontSize: 11, color: MON.textDim }}>Last: {c.lastMessage ? new Date(c.lastMessage).toLocaleDateString() : new Date(c.updatedAt).toLocaleDateString()}</span>
               </div>
             </div>
           ))}
@@ -1023,7 +1056,7 @@ function AdminTab({ monitorToken }) {
       <MCard accent={MON.blue}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
           <MLabel color={MON.blue}>{selectedConvo?.title || "Untitled"}</MLabel>
-          <span style={{ fontFamily: MMONO, fontSize: 11, color: MON.textDim }}>{selectedConvo?.messageCount} total messages</span>
+          <span style={{ fontFamily: MMONO, fontSize: 11, color: MON.textDim }}>{msgsTotal} total · showing {msgOffset + 1}–{Math.min(msgOffset + msgs.length, msgsTotal)}</span>
         </div>
       </MCard>
       {loading ? <div style={{ fontFamily: MMONO, fontSize: 12, color: MON.textDim, padding: 20 }}>Loading messages…</div> : (
@@ -1053,7 +1086,7 @@ function AdminTab({ monitorToken }) {
               <button onClick={() => loadMessages(selectedConvo, msgOffset - MSG_LIMIT)}
                 style={{ background: MON.accentSoft, border: `1px solid ${MON.accent}40`, borderRadius: 8, padding: "7px 18px", color: MON.accent, fontFamily: MMONO, fontSize: 12, cursor: "pointer" }}>← Newer</button>
             )}
-            {msgs.length === MSG_LIMIT && (
+            {msgOffset + msgs.length < msgsTotal && (
               <button onClick={() => loadMessages(selectedConvo, msgOffset + MSG_LIMIT)}
                 style={{ background: MON.accentSoft, border: `1px solid ${MON.accent}40`, borderRadius: 8, padding: "7px 18px", color: MON.accent, fontFamily: MMONO, fontSize: 12, cursor: "pointer" }}>Older →</button>
             )}
