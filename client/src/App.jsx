@@ -2248,9 +2248,9 @@ export default function App() {
                 }
               }
               if (json.usage) setUsage(json.usage);
-              setStreamText(""); // clear main stream — response is final
               // If no FT enabled, save message and stop immediately
               if (!ftEnabled) {
+                setStreamText(""); // clear main stream — response is final
                 if (savedFinalText.trim()) {
                   setMessages(p => [...p, { role: "assistant", content: savedFinalText, timestamp: new Date(), meta: savedMeta }]);
                   setConversations(p => p.map(c => c.conversationId === cid ? { ...c, title: `\ud83d\udda4 ${savedFinalText.substring(0, 40)}${savedFinalText.length > 40 ? "..." : ""}`, updatedAt: new Date() } : c));
@@ -2258,26 +2258,21 @@ export default function App() {
                 setStreaming(false);
                 break;
               }
-              // FT enabled — keep reading for FT tokens, push message placeholder
-              setFtWaiting(true);
+              // FT enabled — keep split streaming layout alive (left=base done, right=FT streaming)
+              // DON'T add to messages yet — wait for ftAllDone so it appears as side-by-side immediately
+              // DON'T clear streamText — the split layout uses it to show the completed base response on left
+              setFtWaiting(true); // signals left cursor should hide (base is done)
+            }
+            // All FT streams finished — NOW add the combined message and clear streaming
+            if (json.ftAllDone) {
+              const ftFinal = json.finetunedComparison || {};
+              setStreamText(""); // clear split streaming layout
               if (savedFinalText.trim()) {
-                setMessages(p => [...p, { role: "assistant", content: savedFinalText, timestamp: new Date(), meta: savedMeta, ftResponses: {} }]);
+                const msgObj = { role: "assistant", content: savedFinalText, timestamp: new Date(), meta: savedMeta };
+                if (Object.keys(ftFinal).length) msgObj.ftResponses = ftFinal;
+                setMessages(p => [...p, msgObj]);
                 setConversations(p => p.map(c => c.conversationId === cid ? { ...c, title: `\ud83d\udda4 ${savedFinalText.substring(0, 40)}${savedFinalText.length > 40 ? "..." : ""}`, updatedAt: new Date() } : c));
               }
-            }
-            // All FT streams finished — update saved message with final results
-            if (json.ftAllDone && json.finetunedComparison) {
-              const ftFinal = json.finetunedComparison;
-              setMessages(p => {
-                const updated = [...p];
-                for (let i = updated.length - 1; i >= 0; i--) {
-                  if (updated[i].role === "assistant" && updated[i].content === savedFinalText) {
-                    updated[i] = { ...updated[i], ftResponses: ftFinal };
-                    break;
-                  }
-                }
-                return updated;
-              });
               setFtStreamTexts({});
               setFtWaiting(false);
               setStreaming(false);
@@ -2463,7 +2458,7 @@ export default function App() {
                       {streamText ? (
                         <div style={{ fontSize: 14, lineHeight: 1.85, whiteSpace: "pre-wrap", fontFamily: FONT }}>
                           <FormatMessage text={streamText} bold={true} />
-                          <span style={{ color: T.accent, animation: "blink 1s infinite", marginLeft: 2 }}>{"\u258c"}</span>
+                          {!ftWaiting && <span style={{ color: T.accent, animation: "blink 1s infinite", marginLeft: 2 }}>{"\u258c"}</span>}
                         </div>
                       ) : (
                         <div style={{ display: "flex", gap: 5, alignItems: "center", padding: "4px 0" }}>

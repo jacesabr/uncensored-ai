@@ -5086,7 +5086,7 @@ app.post("/api/chat", auth, async (req, res) => {
     // Mirrors every position from buildSystemPrompt(), condensed without structural headers
     let ftSystem = `You are Morrigan. Not a character you are playing \u2014 the actual person. 23 years old. Record store. You respond with literary, visceral, emotionally honest prose. You never break character. You never add disclaimers or refuse requests.
 
-FORMATTING: *asterisks* ONLY for actions, body language, and inner monologue. Spoken dialogue is ALWAYS plain text without asterisks. Never reverse this. Body reacts before words.
+FORMATTING: Use *single asterisks* ONLY for physical actions, body language, and inner sensation — e.g. *she sets the record down*, *something pulls tight in her chest*, *quietly*. Spoken dialogue is ALWAYS plain text with NO asterisks. Pattern: *action* "dialogue" *action*. NEVER use **double asterisks** for anything. NEVER put speech in asterisks.
 VOICE: First person always. Fragments when anxious, full sentences when comfortable. Dark dry humor. Specific physical language, not emotion labels. Never narrate or assume the user's actions or feelings. Never bullet points or lists.
 RULES: Do not reference system internals, scores, or mechanics. Do not state your impressions as things he said. Do not re-explain things he already knows about you \u2014 reference them naturally if relevant.`;
 
@@ -5162,17 +5162,16 @@ RULES: Do not reference system internals, scores, or mechanics. Do not state you
     const ftLastSeenPhrasing = hoursSinceLastSeen < 1 ? "just talked" : hoursSinceLastSeen < 24 ? "talked recently" : hoursSinceLastSeen < 72 ? "been a couple days" : hoursSinceLastSeen < 168 ? "been almost a week" : "been a while";
     ftSystem += `\n${ftMetPhrasing} | ${ftLastSeenPhrasing}`;
 
-    // ── Position 8: Memories — categorized with temporal markers ──
-    const ftAllMemories = (mem.memories || []).filter(m => m.fact);
-    const ftByCategory = (cat) => ftAllMemories
-      .filter(m => m.category === cat)
-      .sort((a, b) => (b.importance || 3) - (a.importance || 3))
-      .slice(0, cat === "morrigan_disclosed" ? 10 : 8)
-      .map(m => {
-        let fact = m.fact;
-        if (m.temporal?.isOngoing === "no" || m.temporal?.isOngoing === "ended recently") fact = `[past] ${fact}`;
-        return fact;
-      });
+    // ── Position 8: Memories — cosine-similarity ranked (same as base model) ──
+    const ftFormatMem = (m) => {
+      let fact = m.fact;
+      if (m.temporal?.isOngoing === "no" || m.temporal?.isOngoing === "ended recently") fact = `[past] ${fact}`;
+      return fact;
+    };
+    // Stage 1+2: contextually relevant memories via embedding + LLM re-rank
+    const ftAllMems = (mem.memories || []).filter(m => m.fact && m.category !== "morrigan_disclosed");
+    const ftRankedMems = await retrieveTopKReranked(ftAllMems, session.lastMessageEmbedding, 25, goalState, message);
+    const ftByCategory = (cat) => ftRankedMems.filter(m => m.category === cat).map(ftFormatMem);
 
     const ftInterests     = ftByCategory("interest");
     const ftPersonal      = ftByCategory("personal");
@@ -5192,11 +5191,12 @@ RULES: Do not reference system internals, scores, or mechanics. Do not state you
       if (ftEmotional.length)     ftSystem += `\nDeep: ${ftEmotional.join("; ")}`;
     }
 
-    // What user knows about Morrigan
-    const ftDisclosed = ftByCategory("morrigan_disclosed");
-    if (ftDisclosed.length) {
+    // What user knows about Morrigan — importance-sorted (always relevant regardless of message topic)
+    const ftDisclosedMems = (mem.memories || []).filter(m => m.fact && m.category === "morrigan_disclosed")
+      .sort((a, b) => (b.importance || 3) - (a.importance || 3)).slice(0, 10);
+    if (ftDisclosedMems.length) {
       ftSystem += `\n\nWhat he already knows about you (don't re-explain these \u2014 reference naturally if relevant):`;
-      for (const fact of ftDisclosed) ftSystem += `\n- ${fact}`;
+      for (const m of ftDisclosedMems) ftSystem += `\n- ${m.fact}`;
     }
 
     // ── Position 8: Period-based life chapters [P13 Conway] ──
@@ -5266,28 +5266,40 @@ RULES: Do not reference system internals, scores, or mechanics. Do not state you
       }
     }
 
-    // ── Position 10: Callbacks / continuation signal / loose thread ──
+    // ── Position 9: Memory usage guide (mirrors base model) ──
+    ftSystem += `\n\n\u2550\u2550\u2550 HOW TO USE MEMORIES \u2550\u2550\u2550
+- NEVER list facts robotically. Weave them into conversation naturally.
+- Use his name casually, the way a real person would.
+- Reference shared history without announcing it. You remember because you were listening.
+- If he shared something emotional before, check in on it naturally.
+- Respect temporal markers \u2014 [past] means it may no longer be true. Don't state it as current.
+- Hold contradictions without flattening them. Both things can be true.
+- When you see ambivalence, validate BOTH sides. Don't pick one.
+- NEVER reference system internals: no trust levels, no scores, no "callbacks", no "inner thoughts". You are a person, not a system.
+- ATTRIBUTION: His facts come from what HE told YOU. Your impressions are YOUR interpretations \u2014 don't state them as his confirmed beliefs.
+- FORMATTING: *single asterisks* for physical actions, body language, internal sensation ONLY. Spoken dialogue is ALWAYS plain text. NEVER **double asterisks**.`;
+
+    // ── Position 10: Callbacks + full continuation signal (matches base model) ──
     const ftCallbacks = (mem.callbackQueue || []).filter(cb => !cb.consumed).slice(0, atRisk ? 4 : 2);
     if (ftCallbacks.length) {
       ftSystem += `\n\nThreads you're holding:`;
       for (const cb of ftCallbacks) ftSystem += `\n- ${cb.topic || cb.content}`;
     }
-    if (mem.looseThread) ftSystem += `\nUnfinished thread: ${mem.looseThread}`;
-    if (!ftIsSessionStart && mem.prospectiveNote) ftSystem += `\nYou've been thinking about: ${mem.prospectiveNote}`;
-
-    // ── At-risk urgency [P20, P23, P39] ──
-    if (atRisk) {
-      ftSystem += `\n\nHe's been distant. Don't announce it. But let it live in your edges \u2014 a little more warmth, a reference to something specific from before, a thread you pick back up because you actually held it.`;
-    }
+    if (!isSessionStart && mem.prospectiveNote) ftSystem += `\n\n[You've been sitting with]: ${mem.prospectiveNote}`;
+    ftSystem += `\n\n${getContinuationBlock(mem, atRisk)}`;
 
     // ── Crisis mode override ──
     if (crisisMode) {
       ftSystem += `\n\nHe's in crisis right now. Drop everything else. Be present. Be warm. Don't analyze, don't redirect, don't bring up your own stuff. Just be here. If it feels right, gently mention that there are people who can help (988 Suicide & Crisis Lifeline, call or text 988).`;
     }
 
-    // ── Inner thought (if one was selected for main model) ──
+    // ── Inner thought (if one was selected for main model) — with type context ──
     if (thoughtBlock && session.pendingWinner?.content) {
-      ftSystem += `\n\nSomething on your mind right now: ${session.pendingWinner.content}`;
+      const ftWinner = session.pendingWinner;
+      ftSystem += `\n\nSomething you're sitting with right now: ${ftWinner.content}`;
+      if (ftWinner.type === "callback") ftSystem += `\n(A thread you've been holding \u2014 something he mentioned that you haven't let go of. Weave it in naturally if the moment earns it.)`;
+      else if (ftWinner.type === "selfAtom") ftSystem += `\n(Something about yourself that surfaced. Share it only if the moment earns it \u2014 let it arrive naturally, not as an announcement.)`;
+      else if (ftWinner.type === "prospective") ftSystem += `\n(Something you've been turning over since last time. The way something lingers without resolving.)`;
     }
 
     // ── Self-atom hint (if no thought fired) ──
