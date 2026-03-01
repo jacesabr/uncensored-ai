@@ -1196,7 +1196,7 @@ const DISCLOSURE_SECTIONS = M.DISCLOSURE_SECTIONS;
 const DEPTH_CLR = { 1: "#10b981", 2: "#0ea5e9", 3: "#9f67ff", 4: "#dc2626" };
 const DEPTH_LBL = { 1: "surface", 2: "exploratory", 3: "affective", 4: "core" };
 
-function BrainPanel({ mood, speaking, latestMeta, moodReflection, disclosedAtoms, proactiveTyping, morriganPresent, phase6Summary }) {
+function BrainPanel({ mood, speaking, latestMeta, moodReflection, disclosedAtoms, proactiveTyping, morriganPresent, phase6Summary, morriganThinking, typingHintClass }) {
   const meta = latestMeta;
   const m = meta?.memorySummary || {};
 
@@ -1282,11 +1282,21 @@ function BrainPanel({ mood, speaking, latestMeta, moodReflection, disclosedAtoms
                 {[0,1,2].map(i => <div key={i} style={{ width: 5, height: 5, borderRadius: "50%", background: "#9B2D5E", opacity: 0.4, animation: "speakBounce 1.2s ease-in-out infinite", animationDelay: `${i * 0.22}s` }} />)}
               </div>
             )}
-            {morriganPresent && !speaking && !proactiveTyping && (
+            {/* [P90] Phase 4 inner thought pipeline indicator */}
+            {morriganThinking && !speaking && (
+              <span style={{ fontFamily: FONT_MONO, fontSize: 11, color: "#9B2D5E", letterSpacing: "0.5px", opacity: 0.85, animation: "fadeInUp 0.3s ease" }}>considering…</span>
+            )}
+            {morriganPresent && !speaking && !proactiveTyping && !morriganThinking && (
               <div style={{ width: 6, height: 6, borderRadius: "50%", background: T.accent, opacity: 0.6, animation: "speakBounce 3s ease-in-out infinite" }} />
             )}
           </div>
-          <span style={{ fontFamily: FONT, fontSize: 13, color: T.textDim, fontStyle: "italic" }}>{M.age} · hollow vinyl</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontFamily: FONT, fontSize: 13, color: T.textDim, fontStyle: "italic" }}>{M.age} · hollow vinyl</span>
+            {/* [P74, P75] Typing class indicator — shows emotional weight of current response */}
+            {speaking && typingHintClass && typingHintClass !== "surface" && (
+              <span style={{ fontFamily: FONT_MONO, fontSize: 11, color: typingHintClass === "crisis" ? MON.red : typingHintClass === "vulnerable" ? MON.purple : MON.blue, letterSpacing: "0.5px", opacity: 0.8 }}>{typingHintClass}</span>
+            )}
+          </div>
           <div style={{ marginTop: 4 }}>
             <MoodBadge mood={mood} dynamicLabel={moodReflection?.moodLabel} />
           </div>
@@ -1407,6 +1417,8 @@ function BrainPanel({ mood, speaking, latestMeta, moodReflection, disclosedAtoms
               {meta.atRiskInterventions?.active && <Pill label="at-risk" value="interventions on" on />}
               {meta.sensoryTriggers?.length > 0 && <Pill label="sensory" value={`${meta.sensoryTriggers.length} trigger${meta.sensoryTriggers.length > 1 ? "s" : ""}`} on />}
               {meta.episodicMemories?.length > 0 && <Pill label="memories" value={`${meta.episodicMemories.length} stirring`} on />}
+              {meta.adaptiveComplexity === "simple" && <Pill label="complexity" value="simple" on={false} />}
+              {meta.responseTypePreferences && Object.keys(meta.responseTypePreferences).length > 0 && <Pill label="pref hits" value={Object.values(meta.responseTypePreferences).reduce((a,b)=>a+b,0)} on />}
             </div>
           </>
         )}
@@ -1727,7 +1739,19 @@ function BrainPanel({ mood, speaking, latestMeta, moodReflection, disclosedAtoms
                   <KV label="attachment" value={`${phase6Summary.attachment.style} (${(phase6Summary.attachment.confidence * 100).toFixed(0)}%)`} />
                 )}
                 {phase6Summary.presence && (
-                  <KV label="presence" value={`${(phase6Summary.presence.presenceScore * 100).toFixed(0)}%`} />
+                  <>
+                    <KV label="presence" value={`${(phase6Summary.presence.presenceScore * 100).toFixed(0)}%`} />
+                    {/* [P72, P73] Session intensity metrics */}
+                    {phase6Summary.presence.sessionDurationMins != null && (
+                      <KV label="session dur" value={`${Math.round(phase6Summary.presence.sessionDurationMins)}m`} />
+                    )}
+                    {phase6Summary.presence.messageVolumePerHour != null && (
+                      <KV label="msg/hr" value={phase6Summary.presence.messageVolumePerHour.toFixed(1)} accent={phase6Summary.presence.messageVolumePerHour > 30} />
+                    )}
+                    {phase6Summary.presence.timeOfDayHour != null && (
+                      <KV label="time-of-day" value={`${phase6Summary.presence.timeOfDayHour}:00`} />
+                    )}
+                  </>
                 )}
                 {phase6Summary.tom?.currentPhase && (
                   <KV label="ToM phase" value={phase6Summary.tom.currentPhase} />
@@ -1994,6 +2018,8 @@ export default function App() {
   const [moodReflection, setMoodReflection] = useState(null);
   const [morriganPresent, setMorriganPresent] = useState(false);
   const [proactiveTyping, setProactiveTyping] = useState(false);
+  const [morriganThinking, setMorriganThinking] = useState(false); // [P90] Phase 4 pipeline indicator
+  const [typingHintClass, setTypingHintClass] = useState("surface"); // [P74, P75] emotional typing class
   const [disclosedAtoms, setDisclosedAtoms] = useState([]);
   const [phase6Summary, setPhase6Summary] = useState(null);
   // Finetuned model comparison state — all formats streamed simultaneously
@@ -2229,6 +2255,12 @@ export default function App() {
       let savedMeta = null, savedFinalText = "";
       const ftAccum = {}; // { chatml: "...", llama3: "...", ... }
 
+      // [P74 Ramchurn, P75 Kim] Per-token delay based on emotional class from typingHint.
+      // surface=0ms, personal=8ms, vulnerable=18ms, crisis=25ms
+      // Higher-intensity messages feel more deliberate — Morrigan choosing words carefully.
+      const TYPING_DELAYS = { surface: 0, personal: 8, vulnerable: 18, crisis: 25 };
+      let tokenDelay = 0; // Updated when typingHint event arrives (before first token)
+
       while (true) {
         const { done, value } = await reader.read(); if (done) break;
         buffer += decoder.decode(value, { stream: true });
@@ -2236,7 +2268,19 @@ export default function App() {
         for (const line of parts.filter(l => l.startsWith("data: "))) {
           try {
             const json = JSON.parse(line.slice(6));
-            if (json.token) { full += json.token; setStreamText(full); }
+            // [P90] Phase 4 "thinking" state — show indicator during inner thought pipeline
+            if (json.thinking !== undefined) setMorriganThinking(json.thinking);
+            // [P74, P75] Typing hint — set per-token delay before first token arrives
+            if (json.typingHint) {
+              const cls = json.typingHint.emotionalClass || "surface";
+              setTypingHintClass(cls);
+              tokenDelay = TYPING_DELAYS[cls] ?? 0;
+            }
+            if (json.token) {
+              full += json.token; setStreamText(full);
+              // Variable typing speed: apply delay for emotionally intense messages
+              if (tokenDelay > 0) await new Promise(r => setTimeout(r, tokenDelay));
+            }
             // Multi-format FT streaming: { ft: { format, token?, done?, response?, error? } }
             if (json.ft) {
               const { format: fmt, token: ftTok, error: ftErr } = json.ft;
@@ -2303,7 +2347,7 @@ export default function App() {
         setStreamText("");
       }
     } catch (err) { setMessages(p => [...p, { role: "assistant", content: `\u26a0 ${err.message}` }]); setStreamText(""); setFtStreamTexts({}); setFtWaiting(false); setPendingUserMsg(null); }
-    setStreaming(false); inputRef.current?.focus();
+    setStreaming(false); setMorriganThinking(false); setTypingHintClass("surface"); inputRef.current?.focus();
   };
 
   const endSession = () => {
@@ -2553,7 +2597,7 @@ export default function App() {
         </div>
       </div>
 
-      <BrainPanel mood={currentMood} speaking={!!streamText} latestMeta={latestMeta} moodReflection={moodReflection} disclosedAtoms={disclosedAtoms} proactiveTyping={proactiveTyping} morriganPresent={morriganPresent} phase6Summary={phase6Summary} />
+      <BrainPanel mood={currentMood} speaking={!!streamText} latestMeta={latestMeta} moodReflection={moodReflection} disclosedAtoms={disclosedAtoms} proactiveTyping={proactiveTyping} morriganPresent={morriganPresent} phase6Summary={phase6Summary} morriganThinking={morriganThinking} typingHintClass={typingHintClass} />
 
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&family=Playfair+Display:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@300;400;500&display=swap');
