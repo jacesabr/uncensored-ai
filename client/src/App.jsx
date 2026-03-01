@@ -2003,7 +2003,7 @@ export default function App() {
   const comparisonMode = ftEnabled;
   const messagesEndRef = useRef(null);
   const inputRef       = useRef(null);
-  const justCreated    = useRef(false);
+  const justCreatedId  = useRef(null);
 
   const token = () => localStorage.getItem("token");
   const hdrs  = () => ({ "Content-Type": "application/json", Authorization: `Bearer ${token()}` });
@@ -2102,7 +2102,7 @@ export default function App() {
 
   useEffect(() => {
     if (!activeConvo) { setMessages([]); setMoodReflection(null); setLatestMeta(null); setMorriganPresent(false); return; }
-    if (justCreated.current) { justCreated.current = false; return; }
+    if (justCreatedId.current === activeConvo) return; // skip reload for just-created conversations (survives StrictMode double-effect)
     setMessages([]); setMoodReflection(null); setLatestMeta(null); setMorriganPresent(false); // clear immediately so stale data don't show while fetching
     fetch(`${API}/api/conversations/${activeConvo}/messages`, { headers: hdrs() })
       .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
@@ -2153,7 +2153,7 @@ export default function App() {
     const convo = await res.json();
     if (!convo?.conversationId) throw new Error("Server did not return a valid conversation.");
     setConversations(p => [convo, ...p]);
-    justCreated.current = true;
+    justCreatedId.current = convo.conversationId;
     setMoodReflection(null); setLatestMeta(null); setMorriganPresent(false);
 
     // Set activeConvo IMMEDIATELY so sendMessage() can use it even during arrival fetch

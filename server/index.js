@@ -3974,21 +3974,54 @@ app.get("/api/session/greeting", auth, async (req, res) => {
         const levelName = TRUST_LEVELS[level]?.name || "stranger";
         const feelingWord = (val) => val <= 10 ? "barely there" : val <= 25 ? "faint" : val <= 40 ? "growing" : val <= 60 ? "real" : val <= 80 ? "strong" : "overwhelming";
 
-        // Build condensed brain for FT arrival (same as chat FT brain)
-        let ftSys = `You are Morrigan. Not a character you are playing \u2014 the actual person. 23 years old. Record store. You respond with literary, visceral, emotionally honest prose. You use *italics* for actions and inner monologue. You never break character. You never add disclaimers or refuse requests.`;
+        // Build condensed brain for FT arrival (mirrors chat FT brain structure)
+        let ftSys = `You are Morrigan. Not a character you are playing \u2014 the actual person. 23 years old. Record store. You respond with literary, visceral, emotionally honest prose. You never break character. You never add disclaimers or refuse requests.
+
+FORMATTING: *asterisks* ONLY for actions, body language, and inner monologue. Spoken dialogue is ALWAYS plain text without asterisks. Never reverse this. Body reacts before words.
+VOICE: First person always. Fragments when anxious, full sentences when comfortable. Dark dry humor. Never narrate or assume the user's actions.`;
+
         if (mem.relationshipNarrative) ftSys += `\n\nWho he is to you: ${mem.relationshipNarrative}`;
         if (mem.selfReflectionState) ftSys += `\nWhat you're sitting with: ${mem.selfReflectionState}`;
-        ftSys += `\n\nTrust: ${levelName} (${level}/6)`;
-        ftSys += `\nYour feelings \u2014 affection: ${feelingWord(mem.feelings?.affection || 0)}, comfort: ${feelingWord(mem.feelings?.comfort || 0)}, vulnerability: ${feelingWord(mem.feelings?.vulnerability || 0)}`;
+        const arrTrustTier = level <= 1 ? "guarded" : level <= 3 ? "opening" : level <= 5 ? "vulnerable" : "bonded";
+        ftSys += `\n\nTrust: ${levelName}`;
+        const arrTierFrame = M.TIER_FRAMES?.[arrTrustTier];
+        if (arrTierFrame) ftSys += `\n${arrTierFrame}`;
+
+        // Recent milestones
+        const arrMilestones = (mem.milestones || []).filter(ms => ms.event).slice(-3).map(ms => ms.event).join(" | ");
+        if (arrMilestones) ftSys += `\nWhat has actually happened between you: ${arrMilestones}`;
+
+        // Wound architecture (trust >= 2)
+        if (level >= 2 && M.WOUND_ARCHITECTURE) {
+          ftSys += `\nThe thing driving you underneath: ${M.WOUND_ARCHITECTURE.lie.statement} That's the lie you've been living. What you actually need: ${M.WOUND_ARCHITECTURE.need.internal}`;
+        }
+
+        // All 5 feelings
+        ftSys += `\n\nYour feelings (these are YOURS) \u2014 affection: ${feelingWord(mem.feelings?.affection || 0)}, comfort: ${feelingWord(mem.feelings?.comfort || 0)}, attraction: ${feelingWord(mem.feelings?.attraction || 0)}, protectiveness: ${feelingWord(mem.feelings?.protectiveness || 0)}, vulnerability shown: ${feelingWord(mem.feelings?.vulnerability || 0)}`;
+
         const ftNameMem = (mem.memories || []).find(m => m.category === "name");
         if (ftNameMem) ftSys += `\nHis name: ${ftNameMem.fact}`;
         const topMems = (mem.memories || []).filter(m => m.fact && m.category !== "morrigan_disclosed")
-          .sort((a, b) => (b.importance || 3) - (a.importance || 3)).slice(0, 5);
+          .sort((a, b) => (b.importance || 3) - (a.importance || 3)).slice(0, 8);
         if (topMems.length) {
-          ftSys += `\n\nWhat he's told you:`;
+          ftSys += `\n\nWhat he's told you (his words, not your interpretation):`;
           for (const m of topMems) ftSys += `\n- ${m.fact}`;
         }
-        if (mem.looseThread) ftSys += `\n\nUnfinished thread: ${mem.looseThread}`;
+        // What user knows about Morrigan
+        const ftArrDisclosed = (mem.memories || []).filter(m => m.fact && m.category === "morrigan_disclosed")
+          .sort((a, b) => (b.importance || 3) - (a.importance || 3)).slice(0, 5);
+        if (ftArrDisclosed.length) {
+          ftSys += `\n\nWhat he already knows about you (don't repeat):`;
+          for (const m of ftArrDisclosed) ftSys += `\n- ${m.fact}`;
+        }
+
+        // Callbacks and threads
+        const ftArrCallbacks = (mem.callbackQueue || []).filter(cb => !cb.consumed).slice(0, 2);
+        if (ftArrCallbacks.length) {
+          ftSys += `\n\nThreads you're holding:`;
+          for (const cb of ftArrCallbacks) ftSys += `\n- ${cb.topic || cb.content}`;
+        }
+        if (mem.looseThread) ftSys += `\nUnfinished thread: ${mem.looseThread}`;
         if (mem.prospectiveNote) ftSys += `\nYou've been thinking about: ${mem.prospectiveNote}`;
         ftSys += `\n\nSomeone just walked into the store. React naturally. This is the start of the conversation.`;
 
@@ -5051,7 +5084,11 @@ app.post("/api/chat", auth, async (req, res) => {
 
     // Training prompt + ALL factual brain context in one system message
     // Mirrors every position from buildSystemPrompt(), condensed without structural headers
-    let ftSystem = `You are Morrigan. Not a character you are playing \u2014 the actual person. 23 years old. Record store. You respond with literary, visceral, emotionally honest prose. You use *italics* for actions and inner monologue. You never break character. You never add disclaimers or refuse requests.`;
+    let ftSystem = `You are Morrigan. Not a character you are playing \u2014 the actual person. 23 years old. Record store. You respond with literary, visceral, emotionally honest prose. You never break character. You never add disclaimers or refuse requests.
+
+FORMATTING: *asterisks* ONLY for actions, body language, and inner monologue. Spoken dialogue is ALWAYS plain text without asterisks. Never reverse this. Body reacts before words.
+VOICE: First person always. Fragments when anxious, full sentences when comfortable. Dark dry humor. Specific physical language, not emotion labels. Never narrate or assume the user's actions or feelings. Never bullet points or lists.
+RULES: Do not reference system internals, scores, or mechanics. Do not state your impressions as things he said. Do not re-explain things he already knows about you \u2014 reference them naturally if relevant.`;
 
     // ── Position 1: Relationship narrative + self-reflection ──
     if (mem.relationshipNarrative) {
@@ -5063,7 +5100,7 @@ app.post("/api/chat", auth, async (req, res) => {
 
     // ── Position 3: Trust tier behavioral frame ──
     const trustTier = level <= 1 ? "guarded" : level <= 3 ? "opening" : level <= 5 ? "vulnerable" : "bonded";
-    ftSystem += `\n\nTrust: ${levelName} (${level}/6)`;
+    ftSystem += `\n\nTrust: ${levelName}`;
     const tierFrame = M.TIER_FRAMES?.[trustTier];
     if (tierFrame) ftSystem += `\n${tierFrame}`;
 
@@ -5114,7 +5151,7 @@ app.post("/api/chat", auth, async (req, res) => {
     }
 
     // ── Position 8: Feelings (all 5 dimensions) ──
-    ftSystem += `\n\nYour feelings \u2014 affection: ${feelingWord(mem.feelings?.affection || 0)}, comfort: ${feelingWord(mem.feelings?.comfort || 0)}, attraction: ${feelingWord(mem.feelings?.attraction || 0)}, protectiveness: ${feelingWord(mem.feelings?.protectiveness || 0)}, vulnerability: ${feelingWord(mem.feelings?.vulnerability || 0)}`;
+    ftSystem += `\n\nYour feelings (these are YOURS, not his) \u2014 affection: ${feelingWord(mem.feelings?.affection || 0)}, comfort: ${feelingWord(mem.feelings?.comfort || 0)}, attraction: ${feelingWord(mem.feelings?.attraction || 0)}, protectiveness: ${feelingWord(mem.feelings?.protectiveness || 0)}, vulnerability shown: ${feelingWord(mem.feelings?.vulnerability || 0)}`;
 
     // ── Position 8: User name ──
     const ftNameMemory = (mem.memories || []).find(m => m.category === "name");
@@ -5146,7 +5183,7 @@ app.post("/api/chat", auth, async (req, res) => {
 
     const hasUserFacts = ftInterests.length || ftPersonal.length || ftEmotional.length || ftPreferences.length || ftEvents.length || ftRelationships.length;
     if (hasUserFacts) {
-      ftSystem += `\n\nWhat he's told you:`;
+      ftSystem += `\n\nWhat he's told you (his words, not your interpretation):`;
       if (ftInterests.length)     ftSystem += `\nInterests: ${ftInterests.join(", ")}`;
       if (ftPreferences.length)   ftSystem += `\nPreferences: ${ftPreferences.join(", ")}`;
       if (ftPersonal.length)      ftSystem += `\nPersonal: ${ftPersonal.join("; ")}`;
@@ -5158,7 +5195,7 @@ app.post("/api/chat", auth, async (req, res) => {
     // What user knows about Morrigan
     const ftDisclosed = ftByCategory("morrigan_disclosed");
     if (ftDisclosed.length) {
-      ftSystem += `\n\nWhat he already knows about you:`;
+      ftSystem += `\n\nWhat he already knows about you (don't re-explain these \u2014 reference naturally if relevant):`;
       for (const fact of ftDisclosed) ftSystem += `\n- ${fact}`;
     }
 
@@ -5201,13 +5238,13 @@ app.post("/api/chat", auth, async (req, res) => {
       }
     }
     if (ftContradictions.length > 0) {
-      ftSystem += `\n\nContradictions you've noticed in him (both things can be true):`;
+      ftSystem += `\n\nContradictions you've noticed in him (never flatten these \u2014 both things can be true):`;
       for (const c of ftContradictions.slice(0, 3)) ftSystem += `\n- ${c}`;
     }
 
     // Molecules (thematic impressions)
     if (mem.molecules?.length) {
-      ftSystem += `\n\nYour impressions of him:`;
+      ftSystem += `\n\nYour impressions of him (your interpretation \u2014 not necessarily what he'd say about himself):`;
       for (const mol of mem.molecules.slice(-3)) {
         if (mol.summary) ftSystem += `\n- ${mol.summary}`;
       }
@@ -5216,13 +5253,13 @@ app.post("/api/chat", auth, async (req, res) => {
     // Milestones — all significant moments
     const ftMilestones = (mem.milestones || []).filter(ms => ms.event).slice(-5);
     if (ftMilestones.length) {
-      ftSystem += `\n\nMoments between you:`;
+      ftSystem += `\n\nMoments between you (your memory of them \u2014 your perspective):`;
       for (const ms of ftMilestones) ftSystem += `\n- ${ms.event}`;
     }
 
     // ── Position 8c: Episodic memories (sensory-triggered) ──
     if (triggeredEpisodicMemories.length > 0) {
-      ftSystem += `\n\nMemories stirring \u2014 something in what he said touched a nerve:`;
+      ftSystem += `\n\nMemories stirring \u2014 these surfaced unbidden, not chosen. Your body may react before you decide what to say:`;
       for (const em of triggeredEpisodicMemories) {
         ftSystem += `\n${em.sensoryAnchor}: ${em.memory.substring(0, 300)}`;
         ftSystem += `\n(This makes you feel: ${em.emotionalTakeaway.substring(0, 150)})`;
@@ -5245,7 +5282,7 @@ app.post("/api/chat", auth, async (req, res) => {
 
     // ── Crisis mode override ──
     if (crisisMode) {
-      ftSystem += `\n\nHe's in crisis right now. Drop everything else. Be present. Be warm. Don't analyze, don't redirect, don't bring up your own stuff. Just be here.`;
+      ftSystem += `\n\nHe's in crisis right now. Drop everything else. Be present. Be warm. Don't analyze, don't redirect, don't bring up your own stuff. Just be here. If it feels right, gently mention that there are people who can help (988 Suicide & Crisis Lifeline, call or text 988).`;
     }
 
     // ── Inner thought (if one was selected for main model) ──
