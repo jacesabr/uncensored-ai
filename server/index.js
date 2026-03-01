@@ -528,12 +528,16 @@ function scoreMemory(item, queryEmbedding, goalState) {
   const stability = item.stability || 1.0;
   const recency = Math.exp(-ageMs / (stability * 90 * 86400000));
   const valenceBoost = goalAlignsWithEmotion(goalState, item.valence?.emotion) ? 1.0 : 0;
+  // [P82] Wang et al.: episodic memories retrieved preferentially on emotional goal states
+  // Emotional queries (comfort/venting/connection/validation) benefit from narrative context
+  const emotionalGoals = ["comfort", "venting", "connection", "validation"];
+  const episodicBoost = (item.memoryType === "episodic" && emotionalGoals.includes(goalState)) ? 0.5 : 0;
   // Atoms missing embeddings (API failure) still surface via importance+recency
   // instead of being permanently buried at score 0
   if (!hasEmbedding) {
-    return importance * 0.50 + recency * 0.35 + valenceBoost * 0.15;
+    return importance * 0.50 + recency * 0.35 + valenceBoost * 0.10 + episodicBoost * 0.05;
   }
-  return similarity * 0.55 + importance * 0.25 + recency * 0.10 + valenceBoost * 0.10;
+  return similarity * 0.52 + importance * 0.25 + recency * 0.10 + valenceBoost * 0.08 + episodicBoost * 0.05;
 }
 
 function goalAlignsWithEmotion(goalState, emotion) {
@@ -718,6 +722,29 @@ async function inferGoalStateLLM(message) {
 // Synchronous version for hot path — regex only
 function inferGoalState(message) {
   return inferGoalStateRegex(message);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// ANTI-SYCOPHANCY — Negative Spiral Detection [P71 Chu, P93 Zhang]
+// ═══════════════════════════════════════════════════════════════════
+// Illusions of Intimacy (P71): AI companions dynamically amplify
+// negative self-talk, creating emotional echo chambers. Dark Side
+// Taxonomy (P93): "algorithmic conformity" — uncritical validation
+// of harmful narratives across 110K+ Replika posts.
+// Detect when user is in a negative self-worth spiral (chronic case)
+// so composition can inject gentle friction rather than amplification.
+// Crisis detection handles acute cases; this handles the chronic ones.
+function detectNegativeSpiral(message, recentExchanges) {
+  const spiralPhrases = /\b(worthless|failure|nobody cares|hopeless|pointless|loser|hate myself|always mess up|nothing works|can't do anything right|always fail|pathetic|useless|never get better|don't deserve|no one would|might as well give up|what's the point|doesn't matter anyway|i ruin everything|everything's my fault)\b/i;
+  const recentUserMessages = (recentExchanges || []).slice(-4).map(e => e.user).filter(Boolean);
+  const priorNegativeCount = recentUserMessages.filter(m => spiralPhrases.test(m)).length;
+  const currentNegative = spiralPhrases.test(message);
+  return {
+    detected: currentNegative && priorNegativeCount >= 1,
+    pattern: (currentNegative && priorNegativeCount >= 1)
+      ? "User appears to be in a negative self-worth spiral across multiple recent messages."
+      : null,
+  };
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1231,6 +1258,7 @@ Return ONLY a JSON array. Each object:
   "fact": "short dense statement",
   "category": "name|interest|personal|emotional|preference|relationship|event|morrigan_disclosed",
   "importance": 1-5,
+  "memoryType": "semantic|episodic|cognitive",
   "valence": {
     "charge": -1.0 to 1.0,
     "emotion": "grief|shame|fear|anger|ambivalence|tenderness|warmth|joy|neutral"
@@ -1242,6 +1270,7 @@ Return ONLY a JSON array. Each object:
   }
 }
 
+memoryType guide: semantic = current fact/preference/state; episodic = a story, event, or narrative the user shared with emotional context; cognitive = a belief, attitude, or mental model about themselves or the world.
 If nothing worth storing, return []. Return ONLY the JSON array.`;
 
     const extractBody = {
@@ -1291,6 +1320,7 @@ If nothing worth storing, return []. Return ONLY the JSON array.`;
       embedding: embedding || [],
       valence: atom.valence || { charge: 0, emotion: "neutral" },
       temporal: atom.temporal || { isOngoing: "unclear" },
+      memoryType: ["semantic", "episodic", "cognitive"].includes(atom.memoryType) ? atom.memoryType : "semantic",
       linkedTo: [],
       contradicts: [],
       context: "",
@@ -1772,7 +1802,7 @@ Max 2 items. If the exchange was casual and nothing was genuinely left unfinishe
 
   // ── Step 10: Functional ToM — trajectory tracking [P59, P61] ─────
   try {
-    const tomGoal = inferGoalState(userMessage);
+    const tomGoal = await inferGoalStateLLM(userMessage); // [P1] LLM version for accuracy
     const linguisticSignals = analyzeLinguisticDepth(userMessage);
     const disclosure = classifyDisclosureDepth(userMessage, linguisticSignals);
     const emotionalState = linguisticSignals.rawSignals.emotionalValenceRatio > 0 ? "positive" : linguisticSignals.rawSignals.emotionalValenceRatio < 0 ? "negative" : "neutral";
@@ -1849,6 +1879,7 @@ async function finalizeSession(userId) {
         session.linguisticAccumulator || [],
         session.crisisDetectedThisSession || false,
         session.crisisLevelThisSession || null,
+        session.sessionStartTime || null,  // [P72, P73] session intensity
       );
       const health = await RelationshipHealth.findOne({ userId });
       const daysSinceCompute = health?.lastComputed
@@ -2088,7 +2119,7 @@ Return ONLY JSON. No preamble.
 // Compute PresenceSignals for the session just ended.
 // Called from finalizeSession after the EvaluationRecord is saved.
 // returnWithin48h is populated on the NEXT login (see auth route).
-async function recordPresenceSignals(userId, sessionId, sessionExchanges, linguisticAccumulator = [], crisisDetected = false, crisisLevel = null) {
+async function recordPresenceSignals(userId, sessionId, sessionExchanges, linguisticAccumulator = [], crisisDetected = false, crisisLevel = null, sessionStartTime = null) {
   try {
     const userTurns = sessionExchanges.map(e => e.user);
     const avgLen = userTurns.length > 0
@@ -2100,6 +2131,16 @@ async function recordPresenceSignals(userId, sessionId, sessionExchanges, lingui
 
     // unsolicitedElaboration: user turns averaging > 30 words (sharing beyond direct answer)
     const unsolicitedElaboration = avgLen > 30;
+
+    // Session intensity metrics [P72 Hu et al. — high-intensity sessions signal
+    // deeper engagement; P73 Reeves & Nass — computer-as-social-actor temporal patterns]
+    const sessionEndTime = Date.now();
+    const sessionDurationMs = sessionStartTime ? (sessionEndTime - sessionStartTime) : null;
+    const sessionDurationMins = sessionDurationMs ? parseFloat((sessionDurationMs / 60000).toFixed(2)) : null;
+    const timeOfDayHour = new Date().getHours(); // 0-23 at session close (proxy for routine time)
+    const messageVolumePerHour = (sessionDurationMins && sessionDurationMins > 0 && userTurns.length > 0)
+      ? parseFloat(((userTurns.length / sessionDurationMins) * 60).toFixed(2))
+      : null;
 
     // Aggregate linguistic signals across session (LIWC-22 approximation, P69)
     let linguisticAuthenticity = null, linguisticEmotionalTone = null, linguisticSelfFocus = null;
@@ -2133,8 +2174,11 @@ async function recordPresenceSignals(userId, sessionId, sessionExchanges, lingui
       linguisticSecondPersonEngagement,
       crisisSignalDetected: crisisDetected,
       crisisSignalLevel: crisisLevel,
+      sessionDurationMins,
+      timeOfDayHour,
+      messageVolumePerHour,
     });
-    console.log(`[PHASE6] PresenceSignals recorded — sessionExtended: ${sessionExtended}, avgMsgLen: ${avgLen.toFixed(1)}, auth: ${linguisticAuthenticity?.toFixed(2)}, crisis: ${crisisDetected}`);
+    console.log(`[PHASE6] PresenceSignals recorded — sessionExtended: ${sessionExtended}, avgMsgLen: ${avgLen.toFixed(1)}, auth: ${linguisticAuthenticity?.toFixed(2)}, crisis: ${crisisDetected}, durationMins: ${sessionDurationMins?.toFixed(1)}, vol/hr: ${messageVolumePerHour?.toFixed(1)}`);
   } catch (e) {
     console.error("[PHASE6-PRESENCE]", e.message);
   }
@@ -2633,6 +2677,28 @@ function gatherThoughtMaterial(message, session, atRisk = false) {
     msgCount:      session.msgCount,
     atRisk,
     triggeredMemories: session.triggeredEpisodicMemories || [],
+    // [P59 Riemer] Functional ToM: multi-session trajectory context.
+    // Stronger literal ToM ≠ functional ToM. Trajectory shows how the user's
+    // disclosure patterns have changed over 3-5 sessions — adapts inner thoughts
+    // to long-horizon patterns, not just current message.
+    trajectoryContext: session.userModelTrajectory || null,
+    preferredStyle:    session.preferredResponseStyle || null,
+    // [P76 Tsumura] Trust repair: detect misunderstanding signals.
+    // Short user response after a long Morrigan response may indicate she missed
+    // something. Trust repairs through empathy + regret, not through continuity.
+    // Don't penalize the whole session — detect per-exchange.
+    trustRepairContext: (() => {
+      const exchanges = session.sessionExchanges || [];
+      if (exchanges.length < 1 || session.msgCount < 3) return null;
+      const last = exchanges[exchanges.length - 1];
+      if (!last) return null;
+      const userWordCount = (last.user || "").trim().split(/\s+/).length;
+      const morriganWordCount = (last.assistant || "").trim().split(/\s+/).length;
+      // Short user reply (< 6 words) after a substantive Morrigan response (> 40 words)
+      return (userWordCount < 6 && morriganWordCount > 40)
+        ? "Short reply after a long response — may have missed what mattered to him."
+        : null;
+    })(),
   };
 }
 
@@ -2674,6 +2740,14 @@ function INNER_THOUGHT_FORMATION_PROMPT(mat) {
     ? `MORRIGAN'S INTERNAL STATE (your feelings, not the user's):\n${mat.selfReflection.substring(0, 400)}`
     : "";
 
+  // [P59 Riemer] Functional ToM: multi-session trajectory context.
+  // Literal ToM (reading current message) ≠ Functional ToM (adapting over time).
+  // This shows HOW the user's disclosure patterns have evolved across sessions.
+  const trajectorySection = mat.trajectoryContext
+    ? `USER TRAJECTORY ACROSS SESSIONS (how they've changed over time):\n${mat.trajectoryContext}` +
+      (mat.preferredStyle ? `\nTheir preferred communication style: ${mat.preferredStyle}` : "")
+    : "";
+
   return (
     M.IDENTITY_ANCHOR_THOUGHT + `\n\n` +
 
@@ -2687,11 +2761,12 @@ function INNER_THOUGHT_FORMATION_PROMPT(mat) {
 
     `HE JUST SENT:\n"${mat.message}"\n\n` +
 
-    (recentSection    ? recentSection    + "\n\n" : "") +
-    (reflectionSection ? reflectionSection + "\n\n" : "") +
-    (atomSection      ? atomSection      + "\n\n" : "") +
-    (callbackSection  ? callbackSection  + "\n\n" : "") +
-    (reservoirSection ? reservoirSection + "\n\n" : "") +
+    (recentSection      ? recentSection      + "\n\n" : "") +
+    (trajectorySection  ? trajectorySection  + "\n\n" : "") +
+    (reflectionSection  ? reflectionSection  + "\n\n" : "") +
+    (atomSection        ? atomSection        + "\n\n" : "") +
+    (callbackSection    ? callbackSection    + "\n\n" : "") +
+    (reservoirSection   ? reservoirSection   + "\n\n" : "") +
 
     // Episodic memories stirred by sensory triggers
     (mat.triggeredMemories.length > 0
@@ -2706,6 +2781,13 @@ function INNER_THOUGHT_FORMATION_PROMPT(mat) {
       ? `⚠ PRESENCE PRIORITY — he's been pulling away. Threads you've been holding are important right now.\n` +
         `Lean toward expressing them. He needs to feel you remember.\n` +
         `Even if timing isn't perfect, showing "I was holding this" > silence.\n\n`
+      : "") +
+
+    // [P76 Tsumura] Trust repair: if the last exchange may have missed something
+    (mat.trustRepairContext
+      ? `⚠ REPAIR SIGNAL: ${mat.trustRepairContext}\n` +
+        `Consider a "repair" thought: "I feel like I might have missed what mattered there."\n` +
+        `This is worth surfacing even if timing isn't perfect. Empathy + noticing = repair.\n\n`
       : "") +
 
     `─────────────────────────────────────\n` +
@@ -2725,7 +2807,8 @@ function INNER_THOUGHT_FORMATION_PROMPT(mat) {
     `"disclosure"  — you're considering sharing something from your own life\n` +
     `"reaction"    — raw emotional response to what he just said\n` +
     `"concern"     — you noticed something about him he didn't say directly\n` +
-    `"withholding" — something you want to say but are stopping yourself\n\n` +
+    `"withholding" — something you want to say but are stopping yourself\n` +
+    `"repair"      — [P76] you feel you may have missed something important in the last exchange. "I keep going back to what you said earlier — I don't think I gave it what it deserved."\n\n` +
 
     `STEP 3 — SCORE EACH THOUGHT (motivation to express it RIGHT NOW):\n` +
     `Rate 4 dimensions each 0–2.5, sum to totalScore (max 10):\n` +
@@ -2746,7 +2829,7 @@ function INNER_THOUGHT_FORMATION_PROMPT(mat) {
     `  "thoughts": [\n` +
     `    {\n` +
     `      "content": "the thought in your internal voice",\n` +
-    `      "type": "callback|disclosure|reaction|concern|withholding",\n` +
+    `      "type": "callback|disclosure|reaction|concern|withholding|repair",\n` +
     `      "linkedAtomId": "atom-id or null",\n` +
     `      "linkedCallbackId": "callback-uuid or null",\n` +
     `      "evolvedFrom": "reservoir thought id if this evolves a held thought, else null",\n` +
@@ -3169,6 +3252,11 @@ const MemoryAtomSchema = new mongoose.Schema({
   retrievalCount: { type: Number, default: 0 },
   lastRetrievedAt: { type: Date, default: null },
   stability: { type: Number, default: 1.0 },
+  // [P82] Wang et al. Multiple Memory Systems — episodic/semantic/cognitive classification
+  // semantic: current facts, preferences, states ("has a cat", "works at hospital")
+  // episodic: narrative events and disclosed experiences with emotional resonance
+  // cognitive: beliefs, attitudes, mental models ("trusts very few people")
+  memoryType: { type: String, enum: ["semantic", "episodic", "cognitive"], default: "semantic" },
 });
 
 const MoleculeSchema = new mongoose.Schema({
@@ -3341,6 +3429,10 @@ const PresenceSignalsSchema = new mongoose.Schema({
   // Crisis detection signals (P62/P63, P39)
   crisisSignalDetected:    { type: Boolean, default: false },
   crisisSignalLevel:       { type: String, default: null },
+  // Session intensity monitoring [P72 Hu et al., P73 Reeves & Nass]
+  sessionDurationMins:     { type: Number, default: null },  // wall-clock session length
+  timeOfDayHour:           { type: Number, default: null },  // 0-23, local server hour at session start
+  messageVolumePerHour:    { type: Number, default: null },  // user turns / session hours
 });
 
 // ── Phase 6: RelationshipHealth (Section 4.1) ────────────────────
@@ -3372,6 +3464,8 @@ const RelationshipHealthSchema = new mongoose.Schema({
   consecutiveDeclineWindows: { type: Number, default: 0 },
   // Voice consistency audit (Section 4.2) — stored per user, updated monthly
   lastVoiceAudit:          { type: Date, default: null },
+  lastVoiceAuditDate:      { type: Date, default: null },   // set by auto-audit every 50 msgs
+  lastVoiceAuditAvg:       { type: Number, default: null }, // avg score from auto-audit
   avgVoiceFidelityComposed:    { type: Number, default: null },
   avgVoiceFidelityNonComposed: { type: Number, default: null },
   voiceAuditAlert:         { type: Boolean, default: false },
@@ -4156,6 +4250,12 @@ function evaluateProactiveOpportunity(session) {
   // Session too new: skip if < 2 exchanges
   if (msgCount < 2) return null;
 
+  // ── Deferent retreat [P99 Deng "Deferent" principle] ─────────
+  // Back off when user consistently ignores proactives (no response within 90s)
+  const ignoredCount = session.proactiveIgnoredCount || 0;
+  if (ignoredCount >= 3 && Math.random() > 0.25) return null;  // 75% retreat at 3+
+  if (ignoredCount === 2 && Math.random() > 0.50) return null;  // 50% retreat at 2
+
   // ── Candidate sources ────────────────────────────────────────
   const candidates = [];
 
@@ -4443,11 +4543,21 @@ Additional constraints:
   Spoken dialogue is ALWAYS plain text without asterisks. Never reverse this.
 `;
 
-async function composeWithInnerThought(mainResponse, innerThought) {
+async function composeWithInnerThought(mainResponse, innerThought, spiralContext = null) {
   try {
+    // [P71 Chu, P93 Zhang] Anti-sycophancy guard — if user is in a negative
+    // self-worth spiral, inject gentle friction instruction rather than
+    // letting the composition amplify the echo chamber pattern.
+    const antiSycNote = spiralContext?.detected
+      ? `\nCRITICAL ANTI-SYCOPHANCY: The user appears to be in a negative self-worth spiral. ` +
+        `Do NOT amplify their self-critical language. Acknowledge the pain honestly, but introduce ` +
+        `gentle friction — uncertainty ("I don't know if that's fully true"), perspective, or ` +
+        `grounded presence rather than agreement that deepens the spiral. ` +
+        `Caring is NOT the same as agreeing. Validation ≠ amplification.\n`
+      : "";
     const prompt = `You are editing ${M.name}'s response to naturally include one additional element
 she wants to bring in — something she's thinking, noticing, or wants to share.
-
+${antiSycNote}
 HER CURRENT RESPONSE:
 ${mainResponse}
 
@@ -4701,7 +4811,38 @@ app.post("/api/chat", auth, async (req, res) => {
   if (session.msgCount === undefined)    session.msgCount = 0;
   if (!session.messageEvals)             session.messageEvals = []; // Phase 5: eval buffer
   if (!session.currentSessionId)         session.currentSessionId = `sess_${Date.now()}`; // Phase 6
+  if (!session.sessionStartTime)         session.sessionStartTime = Date.now();  // [P72, P73] intensity
   session.msgCount++;
+
+  // [P99 Deng] Proactive retreat: check if previous proactive was engaged with.
+  // "Deferent" principle: if user ignores proactives repeatedly, back off temporarily.
+  // This distinguishes proactivity from intrusiveness.
+  if (session._pendingProactiveEngagement) {
+    const waitMs = Date.now() - (session._pendingProactiveAt || 0);
+    if (waitMs <= 90_000) {
+      // User replied quickly — they engaged. Reset ignored count.
+      session.proactiveIgnoredCount = Math.max(0, (session.proactiveIgnoredCount || 0) - 1);
+    } else {
+      // User took > 90s — likely ignored it.
+      session.proactiveIgnoredCount = (session.proactiveIgnoredCount || 0) + 1;
+      if (session.proactiveIgnoredCount >= 2) {
+        console.log(`[PROACTIVE-RETREAT] ${session.proactiveIgnoredCount} ignored — reducing proactive frequency`);
+      }
+    }
+    session._pendingProactiveEngagement = false;
+  }
+
+  // [P59 Riemer] Functional ToM trajectory — load UserModel once per session.
+  // This tracks HOW the user's patterns have changed across sessions (not just
+  // current message). Inner thought formation uses it to adapt to long-horizon
+  // disclosure trajectories. Loaded async so it never blocks the critical path.
+  if (!session._tomLoaded) {
+    session._tomLoaded = true;
+    UserModel.findOne({ userId: req.user.id }).lean().then(model => {
+      if (model?.trajectory) session.userModelTrajectory = model.trajectory;
+      if (model?.preferredResponseStyle) session.preferredResponseStyle = model.preferredResponseStyle;
+    }).catch(() => {});
+  }
 
   // ═══════════════════════════════════════════════════════════════════
   // CRISIS DETECTION — Safe Haven Mode [P62, P63, P39]
@@ -4738,15 +4879,18 @@ app.post("/api/chat", auth, async (req, res) => {
     console.log(`[SENSORY] Triggers matched: ${sensoryTriggers.map(t => t.trigger).join(", ")}${triggeredEpisodicMemories.length > 0 ? ` → ${triggeredEpisodicMemories.length} episodic memories activated` : ""}`);
   }
 
-  // ── Embed message for cosine retrieval ────────────────────────────
-  // Runs early so both self-atom retrieval and memory ranking can use it.
-  // Non-blocking: embedding failure degrades gracefully to importance-only sort.
-  const msgEmbedding = await embedText(message).catch(() => null);
+  // ── Embed message + infer goal state in parallel ──────────────────
+  // [P14 Damasio, P1 Liu GoEmotions]: goal state inference uses LLM (async) for
+  // contextual accuracy — previously only used regex. Run alongside embedding
+  // (both ~100-300ms) for zero added latency on the critical path.
+  const [msgEmbedding, goalState] = await Promise.all([
+    embedText(message).catch(() => null),
+    inferGoalStateLLM(message),          // [P1] LLM-based GoEmotions goal state
+  ]);
   // Always update — null clears stale embedding from previous message
   // so retrieval falls back to importance-sort instead of using wrong context
   session.lastMessageEmbedding = msgEmbedding;
   if (!msgEmbedding) console.warn(`[CHAT] Message embedding failed — memory retrieval will use importance-only fallback`);
-  const goalState = inferGoalState(message);
 
   // ═══════════════════════════════════════════════════════════════════
   // LINGUISTIC DEPTH SIGNALS — LIWC-22 Approximation [P69]
@@ -4980,7 +5124,12 @@ app.post("/api/chat", auth, async (req, res) => {
   };
 
   if (triggerFired && !asyncMode) {
+    // [P90] BMC Psychology: transparent "thinking" state improves social presence perception
+    // Moderate delay with visible thinking state enhances evaluations regardless of latency.
+    // Turns Phase 4 pipeline latency from a bug into a feature — "Morrigan is considering..."
+    if (!res.writableEnded) res.write(`data: ${JSON.stringify({ thinking: true })}\n\n`);
     await runThoughtFormation();
+    if (!res.writableEnded) res.write(`data: ${JSON.stringify({ thinking: false })}\n\n`);
   } else {
     // No trigger (or async mode) — evaluate reservoir without an LLM call.
     // Age decay + silence bonus applied; a held thought may cross the threshold.
@@ -5046,10 +5195,19 @@ app.post("/api/chat", auth, async (req, res) => {
     thoughtBlock = "";
     selfAtomHint = "";
   }
+
+  // [P71, P93] Anti-sycophancy system prompt injection — detect spiral BEFORE
+  // building prompt so the main LLM also gets the friction guard (not just composition).
+  const preComposeSpiralContext = detectNegativeSpiral(message, session.sessionExchanges || []);
+  const antiSycPhantomDirective = preComposeSpiralContext.detected
+    ? `\n\n[ANTI-SYCOPHANCY GUARD]: ${M.name} is detecting a negative self-worth spiral in this person across recent messages. She cares too much to just agree. She should acknowledge the pain without amplifying it — introduce honest uncertainty, gentle perspective, or grounded presence. "I don't know if that's completely true" is more caring than validation that deepens the spiral. Do NOT mirror or amplify self-critical language.`
+    : "";
+
   // thoughtBlock at 4.75, selfAtomHint at 4.5 — exactly ONE fires per turn
   const dynamicPrompt =
     (await buildSystemPrompt(session.memory, session.sessionExchanges, isSessionStart, primingSentence, session.lastMessageEmbedding, goalState, receptionDirective, atRisk, message, sensoryTriggers, triggeredEpisodicMemories)) +
     (crisisMode ? "\n\n" + crisisResult.safeHavenDirective : "") +
+    antiSycPhantomDirective +
     thoughtBlock +
     selfAtomHint;
   session.isSessionStart = false;
@@ -5201,7 +5359,7 @@ RULES: Do not reference system internals, scores, or mechanics. Do not state you
 
     // ── Position 8: Period-based life chapters [P13 Conway] ──
     const ftAtomsByPeriod = {};
-    for (const atom of ftAllMemories) {
+    for (const atom of ftAllMems) {
       if (atom.temporal?.period) {
         if (!ftAtomsByPeriod[atom.temporal.period]) ftAtomsByPeriod[atom.temporal.period] = [];
         ftAtomsByPeriod[atom.temporal.period].push(atom);
@@ -5309,6 +5467,27 @@ RULES: Do not reference system internals, scores, or mechanics. Do not state you
         ftSystem += `\n\nThings you could share if the moment earns it:`;
         for (const a of ftHintAtoms) ftSystem += `\n- ${a.content}`;
       }
+    }
+
+    // ── Functional ToM trajectory [P59 Riemer — multi-session user pattern] ──
+    // Passes session.userModelTrajectory (loaded async from UserModel at session start)
+    if (session.userModelTrajectory) {
+      ftSystem += `\n\nHow he's changed over time (your observation across sessions): ${session.userModelTrajectory}`;
+      if (session.preferredResponseStyle) {
+        ftSystem += `\nHis rhythm: ${session.preferredResponseStyle}`;
+      }
+    }
+
+    // ── At-risk signal [P20 Zhang, P23, P39 Laestadius] ──
+    // Explicit urgency note when RelationshipHealth flags declining engagement
+    if (atRisk) {
+      ftSystem += `\n\nSomething feels off. He's been quieter, or less present lately. You haven't said anything but you've noticed. Let that awareness be in you — not announced, but felt. Bring up a thread you've been holding. Check in. Give him room.`;
+    }
+
+    // ── Anti-sycophancy spiral guard [P71 Chu, P93 Zhang] ──
+    // Mirrors the main model's spiral detection — prevents echo-chamber amplification
+    if (preComposeSpiralContext?.detected) {
+      ftSystem += `\n\nHe keeps saying he's worthless / a failure / that nothing works. Do NOT agree or amplify. Acknowledge the pain — but introduce gentle friction: uncertainty ("I don't know if that's true"), grounded presence, or a different angle. Caring is not agreeing. Validation ≠ amplification.`;
     }
 
     ftMessages.push({ role: "system", content: ftSystem });
@@ -5468,9 +5647,14 @@ RULES: Do not reference system internals, scores, or mechanics. Do not state you
                 "her internal reaction"
               })`
             : "";
+          // [P71, P93] Detect negative self-worth spiral before composition
+          // so anti-sycophancy guard can be injected when needed
+          const spiralContext = detectNegativeSpiral(message, session.sessionExchanges || []);
+          if (spiralContext.detected) console.log(`[ANTI-SYCOPHANCY] Spiral detected — injecting friction guard`);
           composedResponse = await composeWithInnerThought(
             fullResponse,
-            winnerForCompose.content + typeContext
+            winnerForCompose.content + typeContext,
+            spiralContext
           );
           console.log(`[COMPOSE] Applied composition call (${winnerForCompose.type}) at trust ${composeTrustLevel}`);
         } else if (winnerForCompose && composeTrustLevel < 1) {
@@ -5943,6 +6127,11 @@ RULES: Do not reference system internals, scores, or mechanics. Do not state you
                     session.proactiveCount = (session.proactiveCount || 0) + 1;
                     session.lastProactiveAt = Date.now();
                     session.lastProactiveAtMsg = session.msgCount || session.sessionExchanges.length;
+                    // [P99 Deng] Proactive retreat: mark pending engagement check.
+                    // If user doesn't reply within 90s, it counts as an ignored proactive.
+                    // After 2 ignored proactives, frequency is temporarily reduced.
+                    session._pendingProactiveEngagement = true;
+                    session._pendingProactiveAt = Date.now();
                     session.sessionExchanges.push({ user: "", assistant: msg.content });
                     session.dirty = true;
                     session._proactiveTimer = null;
