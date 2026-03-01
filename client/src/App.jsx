@@ -2116,22 +2116,24 @@ export default function App() {
               const arrival = data.arrival;
               if (arrival && arrival.action !== "silence" && arrival.content) {
                 const arrMsg = { role: "assistant", content: arrival.content, timestamp: new Date(), isArrival: true };
-                // Attach FT arrival for side-by-side display
                 if (arrival.ftArrival) arrMsg.ftResponses = { chatml: { response: arrival.ftArrival, done: true } };
-                setMessages([arrMsg]);
+                setMessages(p => { const pending = p.filter(m => m.role === "user"); return pending.length ? [arrMsg, ...pending] : [arrMsg]; });
                 if (arrival.arrivalMood) setCurrentMood(arrival.arrivalMood);
                 setMorriganPresent(false);
               } else if (arrival && arrival.action === "silence") {
-                setMessages([]);
+                setMessages(p => p.filter(m => m.role === "user"));
                 setMorriganPresent(true);
               } else {
-                setMessages([{ role: "assistant", content: CHARACTER.greeting, timestamp: new Date() }]);
+                const fallback = { role: "assistant", content: CHARACTER.greeting, timestamp: new Date() };
+                setMessages(p => { const pending = p.filter(m => m.role === "user"); return pending.length ? [fallback, ...pending] : [fallback]; });
               }
             } else {
-              setMessages([{ role: "assistant", content: CHARACTER.greeting, timestamp: new Date() }]);
+              const fallback = { role: "assistant", content: CHARACTER.greeting, timestamp: new Date() };
+              setMessages(p => { const pending = p.filter(m => m.role === "user"); return pending.length ? [fallback, ...pending] : [fallback]; });
             }
           } catch {
-            setMessages([{ role: "assistant", content: CHARACTER.greeting, timestamp: new Date() }]);
+            const fallback = { role: "assistant", content: CHARACTER.greeting, timestamp: new Date() };
+            setMessages(p => { const pending = p.filter(m => m.role === "user"); return pending.length ? [fallback, ...pending] : [fallback]; });
           }
         } else {
           setMessages(d);
@@ -2169,19 +2171,27 @@ export default function App() {
           const arrMsg = { role: "assistant", content: arrival.content, timestamp: new Date(), isArrival: true };
           // Attach FT arrival for side-by-side display
           if (arrival.ftArrival) arrMsg.ftResponses = { chatml: { response: arrival.ftArrival, done: true } };
-          setMessages([arrMsg]);
+          // Race-condition guard: user may have typed and sent during the arrival fetch.
+          // Preserve any pending user messages rather than wiping them.
+          setMessages(p => {
+            const pending = p.filter(m => m.role === "user");
+            return pending.length ? [arrMsg, ...pending] : [arrMsg];
+          });
           if (arrival.arrivalMood) setCurrentMood(arrival.arrivalMood);
         } else if (arrival && arrival.action === "silence") {
-          setMessages([]);
+          setMessages(p => p.filter(m => m.role === "user")); // keep any pending user msgs
           setMorriganPresent(true);
         } else {
-          setMessages([{ role: "assistant", content: CHARACTER.greeting, timestamp: new Date() }]);
+          const fallback = { role: "assistant", content: CHARACTER.greeting, timestamp: new Date() };
+          setMessages(p => { const pending = p.filter(m => m.role === "user"); return pending.length ? [fallback, ...pending] : [fallback]; });
         }
       } else {
-        setMessages([{ role: "assistant", content: CHARACTER.greeting, timestamp: new Date() }]);
+        const fallback = { role: "assistant", content: CHARACTER.greeting, timestamp: new Date() };
+        setMessages(p => { const pending = p.filter(m => m.role === "user"); return pending.length ? [fallback, ...pending] : [fallback]; });
       }
     } catch {
-      setMessages([{ role: "assistant", content: CHARACTER.greeting, timestamp: new Date() }]);
+      const fallback = { role: "assistant", content: CHARACTER.greeting, timestamp: new Date() };
+      setMessages(p => { const pending = p.filter(m => m.role === "user"); return pending.length ? [fallback, ...pending] : [fallback]; });
     }
 
     return convo.conversationId;
