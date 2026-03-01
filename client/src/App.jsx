@@ -2000,6 +2000,8 @@ export default function App() {
   const [ftStreamTexts,   setFtStreamTexts]   = useState({}); // { chatml: "...", llama3: "...", ... }
   const [ftEnabled,       setFtEnabled]       = useState(false);
   const [ftWaiting,       setFtWaiting]       = useState(false); // main done, FT still streaming
+  // Bulletproof user message: holds exact object ref so it renders even if messages[] gets wiped
+  const [pendingUserMsg,  setPendingUserMsg]  = useState(null);
   const comparisonMode = ftEnabled;
   const messagesEndRef = useRef(null);
   const inputRef       = useRef(null);
@@ -2136,7 +2138,7 @@ export default function App() {
             setMessages(p => { const pending = p.filter(m => m.role === "user"); return pending.length ? [fallback, ...pending] : [fallback]; });
           }
         } else {
-          setMessages(d);
+          setMessages(d); // existing conversation — load DB history
         }
       }).catch(() => {});
   }, [activeConvo]);
@@ -2207,7 +2209,9 @@ export default function App() {
         return;
       }
     }
-    setMessages(p => [...p, { role: "user", content: input.trim(), timestamp: new Date() }]);
+    const userMsgObj = { role: "user", content: input.trim(), timestamp: new Date() };
+    setPendingUserMsg(userMsgObj);               // keep independent reference — survives any setMessages wipe
+    setMessages(p => [...p, userMsgObj]);
     setInput(""); setStreaming(true); setStreamText(""); setFtStreamTexts({}); setFtWaiting(false);
 
     try {
@@ -2217,7 +2221,7 @@ export default function App() {
         let errMsg = `Server error (${res.status})`;
         try { const j = await res.json(); errMsg = j.error || errMsg; } catch { }
         setMessages(p => [...p, { role: "assistant", content: `⚠ ${errMsg}` }]);
-        setStreaming(false); inputRef.current?.focus(); return;
+        setPendingUserMsg(null); setStreaming(false); inputRef.current?.focus(); return;
       }
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -2265,6 +2269,7 @@ export default function App() {
                   setMessages(p => [...p, { role: "assistant", content: savedFinalText, timestamp: new Date(), meta: savedMeta }]);
                   setConversations(p => p.map(c => c.conversationId === cid ? { ...c, title: `\ud83d\udda4 ${savedFinalText.substring(0, 40)}${savedFinalText.length > 40 ? "..." : ""}`, updatedAt: new Date() } : c));
                 }
+                setPendingUserMsg(null);
                 setStreaming(false);
                 break;
               }
@@ -2284,6 +2289,7 @@ export default function App() {
                 setConversations(p => p.map(c => c.conversationId === cid ? { ...c, title: `\ud83d\udda4 ${savedFinalText.substring(0, 40)}${savedFinalText.length > 40 ? "..." : ""}`, updatedAt: new Date() } : c));
               }
               setFtStreamTexts({});
+              setPendingUserMsg(null);
               setFtWaiting(false);
               setStreaming(false);
               break;
@@ -2296,7 +2302,7 @@ export default function App() {
         setMessages(p => [...p, { role: "assistant", content: full, timestamp: new Date() }]);
         setStreamText("");
       }
-    } catch (err) { setMessages(p => [...p, { role: "assistant", content: `\u26a0 ${err.message}` }]); setStreamText(""); setFtStreamTexts({}); setFtWaiting(false); }
+    } catch (err) { setMessages(p => [...p, { role: "assistant", content: `\u26a0 ${err.message}` }]); setStreamText(""); setFtStreamTexts({}); setFtWaiting(false); setPendingUserMsg(null); }
     setStreaming(false); inputRef.current?.focus();
   };
 
@@ -2433,6 +2439,10 @@ export default function App() {
                 </div>
               )}
               {messages.map((msg, i) => <MessageBubble key={i} msg={msg} onMetaClick={setLatestMeta} />)}
+              {/* Backup render: show user message if it was wiped from messages[] (any race condition) */}
+              {streaming && pendingUserMsg && !messages.some(m => m === pendingUserMsg) && (
+                <MessageBubble key="pending-user" msg={pendingUserMsg} onMetaClick={setLatestMeta} />
+              )}
               {streaming && !comparisonMode && (
                 <div style={{ display: "flex", marginBottom: 22, alignItems: "flex-start", animation: "fadeSlideIn 0.3s ease forwards" }}>
                   <div style={{ background: T.aiBubble, border: `1px solid ${T.border}`, borderRadius: "22px 22px 22px 4px", padding: "13px 20px", maxWidth: "75%", wordBreak: "break-word", boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
