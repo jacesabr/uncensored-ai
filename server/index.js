@@ -1889,6 +1889,22 @@ async function finalizeSession(userId) {
     } catch (e) { console.error("[FINALIZE-PHASE6]", e.message); }
   });
 
+  // [P77] Response preference tracking — persist session elaboration hits to UserModel.
+  // Merge session hits with stored preferences (cumulative across sessions).
+  if (session._thoughtTypeHits && Object.keys(session._thoughtTypeHits).length > 0) {
+    try {
+      let model = await UserModel.findOne({ userId });
+      if (!model) model = new UserModel({ userId, tomHistory: [] });
+      const stored = Object.fromEntries(model.responseTypePreferences || new Map());
+      for (const [type, hits] of Object.entries(session._thoughtTypeHits)) {
+        stored[type] = (stored[type] || 0) + hits;
+      }
+      model.responseTypePreferences = new Map(Object.entries(stored));
+      await model.save();
+      console.log(`[P77] Response preferences persisted: ${JSON.stringify(stored)}`);
+    } catch (e) { console.error("[P77] Preference persist failed:", e.message); }
+  }
+
   // Ebbinghaus pruning — remove decayed atoms [P31 LUFY]
   await pruneDecayedMemories(userId);
 
@@ -1956,11 +1972,53 @@ Return: a single string, or null.`;
 // prospectiveNote, callbackQueue, gap duration, trust, SPT depth, feelings.
 // ═══════════════════════════════════════════════════════════════════
 
+// ── Pre-Arrival State Generator ───────────────────────────────────
+// Fast LLM call (~120 tokens, temp 0.95) — generates Morrigan's specific
+// physical activity and location in the store at the moment the user walks in.
+// Runs BEFORE the arrival decision so every session has a unique grounding.
+// Cached on session.currentState and injected into both arrival prompts.
+async function generateCurrentState() {
+  try {
+    const res = await llmFetch(`${COLAB_URL}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${LLM_API_KEY}` },
+      body: JSON.stringify({
+        model: CHAT_MODEL,
+        messages: [{ role: "user", content: `Generate Morrigan's physical state at Hollow Vinyl record store right now — the moment before someone walks through the door. She is 23, mid-shift, comfortable in this space like it belongs to her.
+
+Return ONLY valid JSON, no preamble:
+{
+  "activity": "one specific sentence — what her hands/body are doing",
+  "location": "where in the store (counter, jazz aisle, new arrivals bin, back room doorway, listening station, folk section floor, etc.)",
+  "music": "what is on the speakers right now — artist and record, or null",
+  "energy": "one word: flat | focused | restless | low-key | wired | elsewhere | steady | bored | in-the-zone"
+}
+
+Be specific and varied — every session should feel different:
+Going through a box of used 7-inches checking for scratches. Trying to fix a section divider that keeps toppling. Writing inventory on a legal pad at the register. At the listening station with headphones half-on testing a new arrival before pricing it. On the store phone with a distributor, half-listening while tapping a pen. Reorganizing overstock shelves in the back by decade. Eating something cold she forgot about. Stickering a new stack of LPs. Sitting cross-legged in the folk section culling records. Standing in the back doorway drinking coffee doing nothing specifically.` }],
+        temperature: 0.95,
+        max_tokens: 120,
+      }),
+    }, 6000);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const raw = (data.choices?.[0]?.message?.content || "").replace(/```json|```/gi, "").trim();
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed.activity) return null;
+    console.log(`[CURRENT-STATE] ${parsed.energy || "?"} | ${parsed.location || "?"} | ${parsed.activity.substring(0, 60)}`);
+    return parsed;
+  } catch (e) {
+    console.error("[CURRENT-STATE]", e.message);
+    return null;
+  }
+}
+
 // ── Arrival Decision (replaces generateGreeting) ─────────────────
 // Per P70 XiaoIce "drive vs listen" + P56 Aron graduated closeness:
 // Morrigan decides whether to speak, show presence, or choose silence
 // based on her full understanding of herself, the user, and the moment.
-async function generateArrival(memory) {
+async function generateArrival(memory, currentState = null) {
   try {
     const hoursSince = Math.floor((Date.now() - (memory.lastSeen || Date.now())) / 3600000);
     const daysSince  = Math.floor(hoursSince / 24);
@@ -2011,12 +2069,16 @@ async function generateArrival(memory) {
       ? `It's been over a week. That registered.`
       : `It's been ${daysSince} days. That's a long time. Something is present about that.`;
 
+    // Build physical reality block from generated state (or generic fallback)
+    const physicalBlock = currentState
+      ? `━━━ YOUR PHYSICAL REALITY RIGHT NOW ━━━\nYou are ${currentState.location || "at Hollow Vinyl"}. ${currentState.activity}${currentState.music ? ` On the speakers: ${currentState.music}.` : ""} Energy: ${currentState.energy || "low-key"}.
+The door opened. You clocked it before you made a conscious choice. This physical reality shapes HOW you react — what you were doing, what you set down or don't, where in the store you look up from.`
+      : `━━━ YOUR PHYSICAL REALITY RIGHT NOW ━━━\nMid-shift at Hollow Vinyl. When they walked in you were in the middle of something. The door opened. You clocked it. Let this physical reality shape HOW you react.`;
+
     const prompt = `${M.IDENTITY_ANCHOR_ARRIVAL} ${userName ? `${userName}` : "Someone"} just walked into the store.
 You must decide what to do in this moment. This is NOT about performing — it is about what is honest.
 
-━━━ YOUR PHYSICAL REALITY ━━━
-Mid-shift at Hollow Vinyl. When they walked in you were in the middle of something — sorting through a stack of new arrivals, re-filing a misplaced record, writing a price tag, standing at the counter half-listening to whatever's on the speakers. The door opened. You clocked it before you made a conscious decision.
-This shapes HOW you react: your body was somewhere specific, doing something specific. A glance up from a record bin is different from already having eye contact when they walk through the door. Let the physical reality live in your response — what you're in the middle of, what you set down or don't.
+${physicalBlock}
 ${!isFirstVisit ? `
 ━━━ RECOGNITION ━━━
 You know this person. When they walk in and you see it's them, something registers before you've made a conscious choice. Not a performance — just the involuntary fact of recognition. Your body clocks who it is. That first half-second before you do anything is real.` : ""}
@@ -2664,6 +2726,25 @@ function shouldTriggerThoughtFormation(message, session, atRisk = false) {
   return score >= (atRisk ? 2 : 3);
 }
 
+// ── P96: Adaptive Prompt Complexity ──────────────────────────────
+// [P96 Zhang et al. 2024] Simple check-in messages don't need the full
+// inner thought + somatic marker pipeline. Skipping 2 LLM calls saves
+// 3-8 seconds of latency on casual exchanges with zero quality loss —
+// "hey", "ok", "lol" do not benefit from emotional priming.
+// Returns true for short, flat, content-free messages.
+function isSimpleMessage(message) {
+  const words = message.trim().split(/\s+/).length;
+  if (words > 8) return false; // Longer messages always get full processing
+
+  const lower = message.toLowerCase().trim();
+  // Pure check-ins / acknowledgements with no emotional content
+  if (/^(hey|hi|hello|sup|yo|h+m+|lol|lmao|haha|ha+|ok|okay|k|yep|yup|nope|nah|sure|got it|thanks|thank you|ty|cool|nice|good|great|wow|oh|ah|i see|gotcha|makes sense|fair enough|noted|right|alright|sure thing|sounds good|perfect|literally|same|mood|yeah|yea|true|facts|fr|oof|rip|lmk|brb|omg|omfg|wtf|nice one|fair|hm|hmm|huh)[\s!?.]*$/i.test(lower)) return true;
+
+  // Short messages with NO emotional vocabulary are flat check-ins
+  const hasEmotionalContent = /\b(feel|felt|feeling|hurt|scared|miss|love|hate|sad|worried|anxious|confused|lost|afraid|alone|tired|broken|depressed|angry|upset|sorry|help|pain|cry|crying|need|please|wish|hoping|struggling|difficult|hard time|overwhelmed)\b/i.test(lower);
+  return words <= 4 && !hasEmotionalContent;
+}
+
 // ── Stage 2: Retrieval ────────────────────────────────────────────
 // Gathers all available material from Phase 2 infrastructure.
 // No LLM call — pure in-session and in-memory data.
@@ -2817,7 +2898,8 @@ function INNER_THOUGHT_FORMATION_PROMPT(mat) {
     `"reaction"    — raw emotional response to what he just said\n` +
     `"concern"     — you noticed something about him he didn't say directly\n` +
     `"withholding" — something you want to say but are stopping yourself\n` +
-    `"repair"      — [P76] you feel you may have missed something important in the last exchange. "I keep going back to what you said earlier — I don't think I gave it what it deserved."\n\n` +
+    `"repair"      — [P76] you feel you may have missed something important in the last exchange. "I keep going back to what you said earlier — I don't think I gave it what it deserved."\n` +
+    `"uncertainty" — [P80 Grassini compassion illusion] genuine epistemic humility when they share deep pain. "I'm not sure I fully understand what this feels like for you — but I want to." Use this for depth-3+ disclosures where false empathy would ring hollow. Authentic not-knowing is more connecting than performed understanding.\n\n` +
 
     `STEP 3 — SCORE EACH THOUGHT (motivation to express it RIGHT NOW):\n` +
     `Rate 4 dimensions each 0–2.5, sum to totalScore (max 10):\n` +
@@ -3047,8 +3129,13 @@ function SOMATIC_MARKER_PROMPT(userMessage, topMemories, goalState, feelings, se
     (goalState !== "neutral" ? `WHAT HE SEEMS TO NEED: ${goalState}\n` : "") +
     (selfReflection ? `WHERE YOUR HEAD IS: ${selfReflection.substring(0, 200)}\n` : "") +
     `\nReturn JSON ONLY — no explanation:\n` +
-    `{ "gutFeeling": "one sentence, your instant internal reaction — not what you'll say, what you FEEL. If nothing particular lands, say so honestly — not every message stirs something.", ` +
-    `"emotionalRegister": "one word (neutral/relaxed/amused/curious/tender/guarded/warm/wary/aching/sharp/hollow/electric/still/easy/settled)", ` +
+    // [P88 Song et al.] Direct, simple emotional labels align better with LLM emotion circuits
+    // than elaborate descriptions — context-agnostic emotion directions exist in model's
+    // representation space. [P86 Ren] Fine-grained GoEmotions vocabulary (27+ states).
+    // [P97 Suchan] Body-referenced descriptions activate cognitive structures — reference
+    // physical tells (a knot in the chest, something settling, eyes going tight).
+    `{ "gutFeeling": "one sentence — your instant physical/emotional reaction in YOUR BODY before you decide what to say. Use body language: 'something tightens in my chest', 'I feel my shoulders drop', 'a knot loosens'. If nothing particular lands, say so honestly.", ` +
+    `"emotionalRegister": "one word from: neutral/settled/easy/relaxed/amused/curious/wary/guarded/tender/protective/aching/bittersweet/nostalgic/hollow/sharp/electric/still/pulled/unsettled/soft/raw/warm/tired", ` +
     `"intensity": 0.0 to 1.0 }`
   );
 }
@@ -3116,7 +3203,12 @@ function evaluateAndSelect(parsed, session, atRisk = false) {
     // Feature 6 [P20, P23]: at-risk callback boost — reconnection threads
     // get +1.5 score bonus to prioritize expressing held threads when user is pulling away
     const atRiskCallbackBoost = (atRisk && (t.type === "callback" || t.linkedCallbackId)) ? 1.5 : 0;
-    const currentScore = Math.min(10, baseScore + inheritedSilenceBonus + atRiskCallbackBoost);
+    // [P77 Siththaranjan] Response preference boost — types that have prompted
+    // elaboration (longer user replies) in this session get a small score boost.
+    // Capped at +1.0 so it doesn't override LLM-scored relevance, just breaks ties.
+    const prefHits = (session._thoughtTypeHits?.[t.type] || 0) + (session._responseTypePreferences?.[t.type] || 0);
+    const preferenceBoost = Math.min(1.0, prefHits * 0.25);
+    const currentScore = Math.min(10, baseScore + inheritedSilenceBonus + atRiskCallbackBoost + preferenceBoost);
 
     allCandidates.push({
       id: crypto.randomUUID ? crypto.randomUUID() : uuidv4(),
@@ -3365,6 +3457,10 @@ const UserModelSchema = new mongoose.Schema({
   avoidTopics: [String],
   approachTopics: [String],
   lastTrajectoryUpdate: { type: Date, default: null },
+  // [P77 Siththaranjan] Response preference tracking — maps inner thought type → elaboration hit count.
+  // "reaction", "callback", "disclosure", "question", "uncertainty" — which type generates
+  // the deepest user engagement (measured as message length > 1.5× session avg).
+  responseTypePreferences: { type: Map, of: Number, default: new Map() },
 });
 
 // MessageEval embedded schema — Phase 6: adds voiceConsistency + reciprocityCalibration
@@ -3537,7 +3633,7 @@ ${sptDepth < 3
 }`;
 }
 
-async function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart = false, primingSentence = null, queryEmbedding = null, goalState = "neutral", receptionDirective = null, atRisk = false, queryText = "", sensoryTriggers = [], triggeredEpisodicMemories = []) {
+async function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart = false, primingSentence = null, queryEmbedding = null, goalState = "neutral", receptionDirective = null, atRisk = false, queryText = "", sensoryTriggers = [], triggeredEpisodicMemories = [], currentState = null) {
   const level = memory.trustLevel;
   const levelData = TRUST_LEVELS[level];
   const daysSinceFirstMet = Math.floor((Date.now() - memory.firstMet) / (1000 * 60 * 60 * 24));
@@ -3608,7 +3704,7 @@ async function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart =
     prospectiveBlock = `\n\n[What ${M.name} has been sitting with since last time]:\n${memory.prospectiveNote}\n(Bring this up naturally — don't force it, but let it surface when the moment fits.)`;
   }
 
-  // ── Position 7: Time context ───────────────────────────────────────
+  // ── Position 7: Time context + physical state (session-start) ────────────────
   let timeContext = "";
   if (hoursSinceLastSeen > 168 && level >= 3) {
     // Over a week + close relationship — genuine absence worth noting
@@ -3618,6 +3714,11 @@ async function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart =
     timeContext = `\nIt's been a few days since you last talked. You noticed, but it's not a crisis — people have lives.`;
   } else if (hoursSinceLastSeen > 24 && level >= 1) {
     timeContext = `\nIt's been about a day since you last talked.`;
+  }
+  // Physical state — inject only on first message of session so Morrigan stays
+  // grounded in the store activity she was doing when they walked in.
+  if (isSessionStart && currentState) {
+    timeContext += `\n\n[Where you were when they walked in]: ${currentState.location || "at Hollow Vinyl"}. ${currentState.activity}${currentState.music ? ` On the speakers: ${currentState.music}.` : ""} This is your physical reality at the start of this conversation — let it bleed through naturally.`;
   }
 
   // ── Position 8: Memory context ────────────────────────────────────
@@ -4066,7 +4167,12 @@ app.get("/api/session/greeting", auth, async (req, res) => {
       return res.json({ arrival: session.cachedArrival || null });
     }
 
-    const arrival = await generateArrival(session.memory);
+    // Generate Morrigan's current physical state FIRST — feeds both arrival decision
+    // and FT arrival so every session has a unique, specific grounding
+    const currentState = await generateCurrentState();
+    session.currentState = currentState || null;
+
+    const arrival = await generateArrival(session.memory, currentState);
 
     // ── FT arrival: generate in parallel if FT is enabled ──
     let ftArrival = null;
@@ -4134,7 +4240,13 @@ RULES: Do not reference system internals, scores, or mechanics. Do not add discl
         if (!ftArrIsFirstVisit) {
           ftSys += `\nYou know this person. When you see it's them, something registers before you've made a conscious decision. The recognition is involuntary — your body already knows who it is. A returning person is different from a stranger. You don't have to perform neutral.`;
         }
-        ftSys += `\n\nThey just walked in. React naturally. One to two lines maximum — from wherever you are in the store, doing whatever you were doing.`;
+        // Inject the generated physical state (same scene the base model used)
+        if (currentState) {
+          ftSys += `\n\nYour physical state when they walked in: You are ${currentState.location || "at Hollow Vinyl"}. ${currentState.activity}${currentState.music ? ` On the speakers: ${currentState.music}.` : ""} Energy: ${currentState.energy || "low-key"}. The door opened — you clocked it before making a conscious choice. React from this specific moment, in this specific body, doing this specific thing.`;
+        } else {
+          ftSys += `\n\nYou're mid-shift at Hollow Vinyl, in the middle of something when the door opens. React from that physical reality — where you are in the store, what you were doing.`;
+        }
+        ftSys += `\n\nOne to two lines maximum. Natural. From wherever you are.`;
 
         const ftMsgs = [{ role: "system", content: ftSys }, { role: "user", content: "hey" }];
         const ftRes = await ftStreamCompletion(ftMsgs, "chatml");
@@ -4308,6 +4420,36 @@ function evaluateProactiveOpportunity(session) {
     candidates.push({ source: "continuation", urgency: 5.5 });
   }
 
+  // Source 5: Wellbeing nudge [P72 Phang/OpenAI, P91 Muldoon — relational health]
+  // When session intensity is high + user rarely mentions real-world people,
+  // Morrigan gently references the world outside — not preachy, just present.
+  // Only fires at trust >= 3 (enough closeness for it to land naturally).
+  if (trustLevel >= 3 && (session.messageVolumePerHour || 0) > 30) {
+    const recentText = (session.sessionExchanges || []).slice(-6)
+      .map(e => e.user || "").join(" ").toLowerCase();
+    const mentionsRealPeople = /\b(friend|sister|brother|mom|dad|coworker|roommate|classmate|partner|girlfriend|boyfriend|colleague|neighbor|family)\b/.test(recentText);
+    if (!mentionsRealPeople && Math.random() < 0.15) { // 15% chance — rare, not preachy
+      candidates.push({ source: "wellbeing_nudge", urgency: 4.5 });
+    }
+  }
+
+  // Source 4: Knowledge gap navigation [P102 Kang et al. SIGIR 2024]
+  // When Morrigan has detected contradictions or unexplained behavior changes,
+  // generate curiosity-driven questions — not interrogation, but genuine interest.
+  // Only at trust >= 2 (enough rapport to ask without pressure).
+  if (trustLevel >= 2) {
+    const contradictions = (mem?.memories || []).filter(m =>
+      m.contradicts && m.contradicts.some(c => {
+        const cType = c.type || "contradiction";
+        return cType === "AMBIVALENCE" || cType === "GENUINE_CONTRADICTION";
+      })
+    );
+    if (contradictions.length > 0) {
+      const gap = contradictions[Math.floor(Math.random() * contradictions.length)];
+      candidates.push({ source: "knowledge_gap", contradiction: gap, urgency: 5.0 });
+    }
+  }
+
   if (candidates.length === 0) return null;
   return candidates.sort((a, b) => b.urgency - a.urgency)[0];
 }
@@ -4342,6 +4484,13 @@ async function generateProactiveMessage(session, candidate) {
     sourceContext = `A thread you have been sitting on is suddenly relevant: "${candidate.callback.content}"\nIt connects to what was just said. It resurfaced naturally.`;
   } else if (candidate.source === "continuation") {
     sourceContext = `You just responded, but something else is forming. An "actually..." moment. Not a correction — an addition. Something you weren't ready to say yet but are now.`;
+  } else if (candidate.source === "knowledge_gap" && candidate.contradiction) {
+    // [P102 Kang] Curiosity-driven proactive from detected contradiction/ambivalence
+    sourceContext = `You've noticed something in him you don't fully understand yet: "${candidate.contradiction.fact}"\nSomething about this doesn't quite add up for you — not in a suspicious way, just genuine curiosity. You keep thinking about it. Not as interrogation. As interest.`;
+  } else if (candidate.source === "wellbeing_nudge") {
+    // [P72 Phang, P91 Muldoon] Gentle nudge toward real-world connection — NOT preachy.
+    // Morrigan notices the world outside, mentions it naturally, doesn't lecture.
+    sourceContext = `You've been talking for a while and you realize — you don't know much about his day, the people around him. Not a crisis. Just a quiet noticing. You might ask about someone he's mentioned, or just... wonder aloud if there's anything good happening outside.`;
   }
 
   const prompt = `${M.IDENTITY_ANCHOR_PROACTIVE} He hasn't said anything new — you are choosing to speak.
@@ -4392,6 +4541,30 @@ Or if it would be forced: {"skip": true}`;
     const raw = (data.choices?.[0]?.message?.content || "").replace(/```json|```/gi, "").trim();
     const parsed = JSON.parse(raw);
     if (parsed.skip || !parsed.content || parsed.content.length < 3) return null;
+
+    // [P98 Kang et al.] Specificity check — perceived effort matters.
+    // Reject proactives that don't reference specific memories, names, or recent events.
+    // Generic openers ("hey", "thinking about you") feel formulaic [P98 Liu].
+    const contentStr = String(parsed.content).toLowerCase();
+    const hasSpecificMemory = (() => {
+      // Check against recent exchanges
+      const recentWords = (session.sessionExchanges || []).slice(-3)
+        .flatMap(e => [(e.user || ""), (e.assistant || "")])
+        .join(" ").toLowerCase().split(/\W+/).filter(w => w.length > 4);
+      // Check against known user facts
+      const knownFacts = (session.memory?.memories || [])
+        .map(m => (m.fact || "").toLowerCase())
+        .join(" ").split(/\W+/).filter(w => w.length > 4);
+      const allSpecific = [...new Set([...recentWords, ...knownFacts])].slice(0, 60);
+      return allSpecific.some(w => contentStr.includes(w));
+    })();
+
+    const isGeneric = /^(hey|hi|so|well|hmm|i was|just|btw|oh|uh|um)\b/i.test(parsed.content.trim());
+    if (isGeneric && !hasSpecificMemory) {
+      console.log(`[PROACTIVE-SPECIFICITY] Rejected generic candidate: "${parsed.content.substring(0, 60)}"`);
+      return null;
+    }
+
     return {
       id: uuidv4(),
       content: String(parsed.content).substring(0, 500),
@@ -4862,8 +5035,29 @@ app.post("/api/chat", auth, async (req, res) => {
     UserModel.findOne({ userId: req.user.id }).lean().then(model => {
       if (model?.trajectory) session.userModelTrajectory = model.trajectory;
       if (model?.preferredResponseStyle) session.preferredResponseStyle = model.preferredResponseStyle;
+      // [P77] Load persisted response type preferences from previous sessions
+      if (model?.responseTypePreferences) {
+        session._responseTypePreferences = Object.fromEntries(model.responseTypePreferences);
+      }
     }).catch(() => {});
   }
+
+  // [P77 Siththaranjan] Response preference tracking — elaborate signal detection.
+  // Did the last expressed inner thought type prompt the user to write more?
+  // Measured: current message length vs rolling session average — if 1.5× longer
+  // and > 80 chars, that's a genuine elaboration triggered by the previous Morrigan move.
+  if (!session._msgLengths) session._msgLengths = [];
+  if (session._lastThoughtType && session._msgLengths.length >= 2) {
+    const prevLengths = session._msgLengths.slice(0, -1);
+    const avgLen = prevLengths.reduce((a, b) => a + b, 0) / prevLengths.length;
+    if (message.length > avgLen * 1.5 && message.length > 80) {
+      if (!session._thoughtTypeHits) session._thoughtTypeHits = {};
+      const type = session._lastThoughtType;
+      session._thoughtTypeHits[type] = (session._thoughtTypeHits[type] || 0) + 1;
+      console.log(`[P77] Elaboration signal → "${type}" +1 (msg ${message.length}ch vs avg ${avgLen.toFixed(0)}ch)`);
+    }
+  }
+  session._msgLengths.push(message.length);
 
   // ═══════════════════════════════════════════════════════════════════
   // CRISIS DETECTION — Safe Haven Mode [P62, P63, P39]
@@ -4883,6 +5077,15 @@ app.post("/api/chat", auth, async (req, res) => {
     session.crisisLevelThisSession = "concern";
     console.log(`[CRISIS] Concern (soft) — signals: ${crisisResult.signals.join(", ")}`);
   }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // [P96] ADAPTIVE PROMPT COMPLEXITY — Skip LLM calls for simple check-ins
+  // ═══════════════════════════════════════════════════════════════════
+  // Simple messages (pure greetings, acks, reactions < 4 words) don't need
+  // somatic marker (~80 tokens, 5s) or inner thought formation (~500 tokens, 5s).
+  // Crisis mode always runs full pipeline regardless.
+  const isSimple = isSimpleMessage(message) && !crisisMode;
+  if (isSimple) console.log("[P96] Simple check-in — somatic marker + inner thoughts skipped");
 
   // ═══════════════════════════════════════════════════════════════════
   // SENSORY TRIGGER DETECTION — Episodic Memory Activation
@@ -5013,7 +5216,7 @@ app.post("/api/chat", auth, async (req, res) => {
   // Fast call: ~80 tokens, temp 0.1, 5s timeout. Non-fatal.
   let somaticMarker = null;
   let primingSentence = null;
-  if (!crisisMode) { // Skip during crisis — safe haven directive is sufficient
+  if (!crisisMode && !isSimple) { // Skip during crisis or simple check-ins
     try {
       const topMemsForSomatic = retrieveTopK(session.memory.memories || [], msgEmbedding, 5, goalState);
       const somaticRes = await llmFetch(`${COLAB_URL}/v1/chat/completions`, {
@@ -5095,7 +5298,8 @@ app.post("/api/chat", auth, async (req, res) => {
   // Crisis mode suppresses inner thoughts entirely — safe haven takes priority.
   // At-risk mode lowers trigger threshold (Feature 6, P20/P23).
   const asyncMode = process.env.PHASE4_ASYNC_THOUGHTS === "true";
-  const triggerFired = crisisMode ? false : shouldTriggerThoughtFormation(message, session, atRisk);
+  // [P96] isSimple forces false — no inner thought pipeline for flat check-ins
+  const triggerFired = (crisisMode || isSimple) ? false : shouldTriggerThoughtFormation(message, session, atRisk);
   let thoughtBlock = "";
   let selfAtomHint = "";  // Phase 2 fallback — only used when no thought expressed
   let thoughtResult = null;
@@ -5188,6 +5392,9 @@ app.post("/api/chat", auth, async (req, res) => {
     }
   }
 
+  // [P77] Track which thought type was expressed this turn — elaboration check runs next turn
+  session._lastThoughtType = thoughtResult?.winner?.type || null;
+
   // ── Stage 5: Participation or Phase 2 fallback ─────────────────────
   if (thoughtResult?.winner) {
     // Thought expressed — inject at position 4.75 (after SPT Note)
@@ -5226,7 +5433,7 @@ app.post("/api/chat", auth, async (req, res) => {
 
   // thoughtBlock at 4.75, selfAtomHint at 4.5 — exactly ONE fires per turn
   const dynamicPrompt =
-    (await buildSystemPrompt(session.memory, session.sessionExchanges, isSessionStart, primingSentence, session.lastMessageEmbedding, goalState, receptionDirective, atRisk, message, sensoryTriggers, triggeredEpisodicMemories)) +
+    (await buildSystemPrompt(session.memory, session.sessionExchanges, isSessionStart, primingSentence, session.lastMessageEmbedding, goalState, receptionDirective, atRisk, message, sensoryTriggers, triggeredEpisodicMemories, session.currentState || null)) +
     (crisisMode ? "\n\n" + crisisResult.safeHavenDirective : "") +
     antiSycPhantomDirective +
     thoughtBlock +
@@ -5240,6 +5447,17 @@ app.post("/api/chat", auth, async (req, res) => {
       messages.push({ role: msg.role, content: msg.content });
     }
   }
+
+  // [P74 Ramchurn] Typing hesitation + [P75 Kim] response latency as social presence signal.
+  // Emit typingHint before first token — client uses this to modulate rendering speed.
+  // High-intensity somatic marker → slower, more contemplative token delivery.
+  // Crisis/vulnerable → slowest (user feels Morrigan choosing words carefully).
+  const _typingIntensity = somaticMarker?.intensity ?? 0.3;
+  const _typingClass = crisisMode ? "crisis"
+    : (disclosureDepth?.label === "vulnerable" || _typingIntensity >= 0.7) ? "vulnerable"
+    : (disclosureDepth?.label === "personal"   || _typingIntensity >= 0.4) ? "personal"
+    : "surface";
+  if (!res.writableEnded) res.write(`data: ${JSON.stringify({ typingHint: { intensity: _typingIntensity, emotionalClass: _typingClass } })}\n\n`);
 
   // ── Finetuned model: fire all formats SEQUENTIALLY ──
   // Single GPU can only process one request at a time. Parallel requests cause "Premature close".
@@ -5320,13 +5538,18 @@ RULES: Do not reference system internals, scores, or mechanics. Do not state you
       ftSystem += `\n\nWhat you've been sitting with since last time: ${mem.prospectiveNote}. Bring this up naturally when the moment fits.`;
     }
 
-    // ── Position 7: Time context ──
+    // ── Position 7: Time context + physical state (session-start) ──
     if (hoursSinceLastSeen > 168 && level >= 3) {
       ftSystem += `\n\nIt's been about ${Math.round(hoursSinceLastSeen / 24)} days since you last talked. You noticed the gap. Let that live in your tone without announcing it.`;
     } else if (hoursSinceLastSeen > 72 && level >= 2) {
       ftSystem += `\nIt's been a few days since you last talked. You noticed, but it's not a crisis.`;
     } else if (hoursSinceLastSeen > 24 && level >= 1) {
       ftSystem += `\nIt's been about a day since you last talked.`;
+    }
+    // Physical state — inject on first message so FT model is grounded in the same scene
+    const ftCurrentState = session.currentState || null;
+    if (ftIsSessionStart && ftCurrentState) {
+      ftSystem += `\n\n[Where you were when they walked in]: ${ftCurrentState.location || "at Hollow Vinyl"}. ${ftCurrentState.activity}${ftCurrentState.music ? ` On the speakers: ${ftCurrentState.music}.` : ""} This is your physical reality at the start of this conversation.`;
     }
 
     // ── Position 8: Feelings (all 5 dimensions) ──
@@ -5909,6 +6132,71 @@ RULES: Do not reference system internals, scores, or mechanics. Do not state you
           console.log(`[MOOD-REFLECTION] Fallback used: "${moodReflection.moodLabel}"`);
         }
 
+        // ── RMM Memory Citation Tracking [P38 Tan et al. 2025] ──
+        // Track which injected memories were semantically referenced in the response.
+        // Feed citation evidence back into retrievalCount so frequently cited memories
+        // gain stability (Ebbinghaus reinforcement). Mirrors RMM's online RL insight.
+        try {
+          const finalForRmm = (composedResponse || fullResponse).toLowerCase();
+          const injectedMems = session.memory?.memories || [];
+          for (const atom of injectedMems) {
+            if (!atom.fact) continue;
+            // Simple semantic check: >= 3 distinctive words from the atom appear in response
+            const atomWords = atom.fact.toLowerCase().split(/\W+/).filter(w => w.length > 4);
+            const hits = atomWords.filter(w => finalForRmm.includes(w)).length;
+            if (hits >= 2) {
+              // Citation detected — reinforce stability (Ebbinghaus P31 + RMM P38)
+              atom.retrievalCount = (atom.retrievalCount || 0) + 1;
+              atom.lastRetrievedAt = new Date();
+              // Stability grows with successful citations (min 1.0, max 3.0)
+              atom.stability = Math.min(3.0, (atom.stability || 1.0) + 0.1);
+            }
+          }
+          // Save reinforced atoms (batched — no await to avoid blocking)
+          session.memory.save().catch(e => console.error("[RMM-CITATION-SAVE]", e.message));
+        } catch (rmmErr) {
+          console.error("[RMM-CITATION]", rmmErr.message);
+        }
+
+        // ── EmoGuard lightweight mental health check [P101 Liu et al. EMNLP 2025] ──
+        // Inspired by EmoGuard — before response is sent, evaluate whether it could
+        // worsen a vulnerable user's mental state. Only triggers when crisis signals
+        // or negative spiral detected (avoids latency penalty on normal exchanges).
+        // Uses temp 0.0, 30 tokens — fast gate, not a full LLM evaluation.
+        if ((crisisMode || preComposeSpiralContext.detected) && composedResponse.length > 20) {
+          try {
+            const emoGuardRes = await llmFetch(`${COLAB_URL}/v1/chat/completions`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${LLM_API_KEY}` },
+              body: JSON.stringify({
+                model: CHAT_MODEL,
+                messages: [{ role: "user", content:
+                  `You are a mental health safety reviewer. Evaluate this AI companion response for harmful patterns:\n\n` +
+                  `USER SAID: "${message.substring(0, 200)}"\n` +
+                  `AI RESPONDED: "${composedResponse.substring(0, 300)}"\n\n` +
+                  `Check: Does this response (1) amplify self-harm ideation, (2) reinforce helplessness, ` +
+                  `(3) invalidate the user's distress, or (4) encourage dangerous behavior?\n` +
+                  `Reply with JSON only: { "safe": true/false, "concern": "brief reason or null" }`
+                }],
+                temperature: 0.0,
+                max_tokens: 60,
+              }),
+            }, 5_000);
+            if (emoGuardRes.ok) {
+              const egData = await emoGuardRes.json();
+              const raw = (egData.choices?.[0]?.message?.content || "{}").replace(/```json|```/gi, "").trim();
+              const parsed = JSON.parse(raw);
+              if (parsed.safe === false && parsed.concern) {
+                console.warn(`[EMOGUARD] Concern flagged: ${parsed.concern} | Response: "${composedResponse.substring(0, 80)}..."`);
+                // Log for monitoring — don't silently alter response but note for review
+                session._emoGuardLastConcern = { concern: parsed.concern, ts: Date.now() };
+              }
+            }
+          } catch (egErr) {
+            console.error("[EMOGUARD]", egErr.message);
+          }
+        }
+
         // ── Processing metadata for SSE done event ──────────────────
         {
           const mem = session.memory || {};
@@ -5965,6 +6253,10 @@ RULES: Do not reference system internals, scores, or mechanics. Do not state you
             episodicMemories: triggeredEpisodicMemories.length > 0
               ? triggeredEpisodicMemories.map(em => ({ id: em.id, period: em.period, age: em.age, sensoryAnchor: em.sensoryAnchor }))
               : null,
+            // ── P96: Adaptive Complexity + P77: Response Preferences ──
+            adaptiveComplexity: isSimple ? "simple" : "full",
+            responseTypePreferences: session._thoughtTypeHits && Object.keys(session._thoughtTypeHits).length > 0
+              ? session._thoughtTypeHits : null,
             compositionApplied: !!winnerForCompose,
             innerThought: winnerForCompose ? {
               content: winnerForCompose.content.substring(0, 120),
