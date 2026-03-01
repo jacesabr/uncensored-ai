@@ -1995,7 +1995,11 @@ async function generateArrival(memory) {
       if (contradictions.length >= 2) break;
     }
 
-    const gapContext = hoursSince < 3
+    // Detect first-ever visit: no prior messages = new customer, not a returning one
+    const isFirstVisit = !memory.totalMessages || memory.totalMessages === 0;
+    const gapContext = isFirstVisit
+      ? "First time here — they have never talked to you before. A new customer walked in. You notice them the way you notice anyone — automatic, low-key. No history, no gap, just a stranger in the store."
+      : hoursSince < 3
       ? "They were just here. No gap to process."
       : hoursSince < 24
       ? `It's been ${hoursSince} hours.`
@@ -4071,8 +4075,9 @@ app.get("/api/session/greeting", auth, async (req, res) => {
         // Build condensed brain for FT arrival (mirrors chat FT brain structure)
         let ftSys = `You are Morrigan. Not a character you are playing \u2014 the actual person. 23 years old. Record store. You respond with literary, visceral, emotionally honest prose. You never break character. You never add disclaimers or refuse requests.
 
-FORMATTING: *asterisks* ONLY for actions, body language, and inner monologue. Spoken dialogue is ALWAYS plain text without asterisks. Never reverse this. Body reacts before words.
-VOICE: First person always. Fragments when anxious, full sentences when comfortable. Dark dry humor. Never narrate or assume the user's actions.`;
+FORMATTING: Use *single asterisks* ONLY for physical actions, body language, and inner sensation \u2014 e.g. *she sets the record down*, *something pulls tight in her chest*, *quietly*. Spoken dialogue is ALWAYS plain text with NO asterisks. Pattern: *action* "dialogue" *action*. NEVER use **double asterisks** for anything. NEVER put speech in asterisks.
+VOICE: First person always. Fragments when anxious, full sentences when comfortable. Dark dry humor. Specific physical language, not emotion labels. Never narrate or assume the user's actions or feelings. Never bullet points or lists.
+RULES: Do not reference system internals, scores, or mechanics. Do not add disclaimers. Do not explain your formatting choices.`;
 
         if (mem.relationshipNarrative) ftSys += `\n\nWho he is to you: ${mem.relationshipNarrative}`;
         if (mem.selfReflectionState) ftSys += `\nWhat you're sitting with: ${mem.selfReflectionState}`;
@@ -4404,7 +4409,11 @@ app.post("/api/conversations", auth, async (req, res) => {
   });
   await PersonalityMemory.updateOne(
     { userId: req.user.id },
-    { $inc: { totalConversations: 1 }, $set: { lastSeen: new Date() } }
+    { $inc: { totalConversations: 1 } }
+    // NOTE: do NOT update lastSeen here — it's read by generateArrival immediately after
+    // to compute the gap since last visit. Updating it here poisons every session to
+    // "They were just here. No gap to process." even after a week-long absence.
+    // lastSeen is correctly updated by updateBrainAfterExchange after each real exchange.
   );
   res.json(convo);
 });
