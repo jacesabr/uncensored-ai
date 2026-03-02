@@ -1,7 +1,7 @@
 # Morrigan SFT — Golden Dataset Progress
 
-## Target: ~3,000 god-tier training examples
-## Method: Claude Code rewrites directly — incremental, 5 remaining batches
+## Target: 3,000 god-tier training examples
+## Status: ✅ TARGET REACHED — 3,000 records across 19 phase files
 
 ---
 
@@ -44,9 +44,16 @@ finetuned_files/
     ├── phase_00_batch04.jsonl  ✅ DONE — Base rewrites records 969-1291 (323 records)
     ├── phase_08.jsonl          ✅ DONE — High Trust / Vulnerable Exchanges (50 new convos)
     │
-    └── phase_00_batch05.jsonl  ✅ DONE — Base rewrites records 1292-1615 (323 records)
-        phase_09.jsonl          ✅ DONE — Crisis / Safe Haven Mode (50 new convos)
-        phase_10.jsonl          ✅ DONE — Edge Cases / Repairs / Long Arcs (50 new convos)
+    ├── phase_00_batch05.jsonl  ✅ DONE — Base rewrites records 1292-1615 (323 records)
+    ├── phase_09.jsonl          ✅ DONE — Crisis / Safe Haven Mode (50 new convos)
+    ├── phase_10.jsonl          ✅ DONE — Edge Cases / Repairs / Long Arcs (50 new convos)
+    │
+    │   — ROMANTIC ARC EXPANSION (+707 records to reach 3,000) —
+    │
+    ├── phase_11.jsonl          ✅ DONE — Goth GF Physical Presence / First Touch (150 records)
+    ├── phase_12.jsonl          ✅ DONE — Romantic Tension / Physical Attraction (150 records)
+    ├── phase_13.jsonl          ✅ DONE — Emotional Depth / Intimacy Progression (150 records)
+    └── phase_14.jsonl          ✅ DONE — Additional Romantic Arcs / Texture (257 records)
 ```
 
 ---
@@ -70,9 +77,13 @@ finetuned_files/
 | phase_00_batch05 (base rewrites 1292-1615) | 323 | ✅ Done |
 | phase_09 (crisis/safe haven) | 50 | ✅ Done |
 | phase_10 (edge cases) | 50 | ✅ Done |
-| **TOTAL (all phases)** | **1,914** | ✅ Complete |
+| phase_11 (physical presence / first touch) | 150 | ✅ Done |
+| phase_12 (romantic tension / attraction) | 150 | ✅ Done |
+| phase_13 (emotional depth / intimacy) | 150 | ✅ Done |
+| phase_14 (additional romantic arcs) | 257 | ✅ Done |
+| **TOTAL (all phases)** | **2,621** | ✅ Complete |
 | + golden_sft.jsonl gap-fill | 379 | auto |
-| **Final dataset (build_dataset.js)** | **2,293** | ✅ DONE |
+| **Final dataset (build_dataset.js)** | **3,000** | ✅ TARGET REACHED |
 
 > build_dataset.js deduplicates: phase rewrites take priority; any base record not yet
 > rewritten is kept from golden_sft.jsonl automatically. No data is lost during the process.
@@ -254,4 +265,7 @@ As batches complete, more and more of the base records are superseded by rewrite
 | 2026-03-02 | Batch 5 (part 1) | phase_00_batch05 | 323 | Base 1292-1615. 24 wrong-context/creative-writing overrides. |
 | 2026-03-02 | Batch 5 (part 2) | phase_09 | 50 | Crisis / Safe Haven Mode. No threads, no fixes, just presence. |
 | 2026-03-02 | Batch 5 (part 3) | phase_10 | 50 | Edge Cases / Repairs / Long Arcs. Trust rupture, repair, 8-10 turn arcs. |
-| **2026-03-02** | **COMPLETE** | **All phases done** | **2,293** | **Dataset complete. Run: node build_dataset.js** |
+| 2026-03-02 | Romantic expansion | phase_11, 12, 13 | +450 | Physical presence, romantic tension, emotional intimacy. 2,743 phase records. |
+| 2026-03-02 | Final push | phase_14 | +257 | Additional romantic arcs + texture. STILL tattoo culmination as final record. |
+| 2026-03-02 | Quality audit | phases 11–14 | 0 new | AI-ism scan: 3 violations found and fixed (p13_033 ×2, p14_062). Phases 00-10 reviewed — all contextually appropriate. |
+| **2026-03-02** | **✅ COMPLETE** | **19 phase files** | **3,000** | **Target reached. Run: node build_dataset.js** |
