@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Diagram 4 — Causal Attention Mask</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, 'Segoe UI', system-ui, sans-serif;
+    background: #faf9f7; padding: 40px 24px; color: #2a2a2a;
+  }
+  .diagram-wrapper {
+    max-width: 760px; margin: 0 auto;
+    border: 1px solid #e8e4de; border-radius: 12px;
+    background: #faf9f7; padding: 36px 32px 28px;
+  }
+  .diagram-title {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.12em;
+    text-transform: uppercase; color: #c96442; margin-bottom: 6px;
+  }
+  .diagram-subtitle { font-size: 18px; font-weight: 600; color: #1a1a1a; margin-bottom: 32px; }
+
+  /* Side-by-side matrices */
+  .matrices-row {
+    display: flex;
+    gap: 32px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    margin-bottom: 24px;
+  }
+  .matrix-panel {
+    flex: 1;
+    min-width: 280px;
+  }
+  .matrix-panel-label {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.1em;
+    text-transform: uppercase; color: #c96442; margin-bottom: 10px;
+  }
+
+  .grid-wrapper {
+    display: flex;
+    gap: 0;
+  }
+  .row-labels {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-right: 4px;
+    padding-top: 30px;
+  }
+  .row-label {
+    height: 46px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    font-size: 11px;
+    font-weight: 700;
+    color: #5a4a3a;
+    font-family: monospace;
+    padding-right: 6px;
+    white-space: nowrap;
+  }
+  .matrix-inner {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .col-labels-row {
+    display: flex;
+    gap: 2px;
+    margin-bottom: 2px;
+  }
+  .col-label {
+    width: 46px;
+    text-align: center;
+    font-size: 11px;
+    font-weight: 700;
+    color: #5a4a3a;
+    font-family: monospace;
+    padding-bottom: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .matrix-row-cells {
+    display: flex;
+    gap: 2px;
+  }
+  .cell {
+    width: 46px;
+    height: 46px;
+    border-radius: 5px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 600;
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* Masked cell */
+  .cell-masked {
+    background: #2a2a2a;
+    color: #555;
+  }
+  /* Stripe pattern for masked */
+  .cell-masked::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(
+      -45deg,
+      transparent,
+      transparent 4px,
+      rgba(80,80,80,0.5) 4px,
+      rgba(80,80,80,0.5) 6px
+    );
+  }
+  .cell-masked-label {
+    position: relative; z-index: 1;
+    color: #555; font-size: 11px;
+  }
+
+  /* Allowed cells — gradient shading by value */
+  .cell-attn {
+    color: #fff;
+  }
+
+  /* Diagonal cell */
+  .cell-diag {
+    border: 2px solid rgba(255,255,255,0.4);
+  }
+
+  /* Formula */
+  .formula-box {
+    background: #1d1d1d;
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin-top: 16px;
+    border: 1px solid #333;
+  }
+  .formula-label {
+    font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: #888; margin-bottom: 10px;
+  }
+  .formula-eq {
+    font-size: 13px; color: #e8e4de;
+    font-family: 'Courier New', monospace; line-height: 1.8;
+  }
+  .formula-eq .kw { color: #c084fc; }
+  .formula-eq .nm { color: #fbbf24; }
+  .formula-eq .cm { color: #6b7280; font-style: italic; font-size: 11px; }
+
+  /* Why causal? */
+  .why-box {
+    display: flex;
+    gap: 16px;
+    margin-top: 16px;
+    flex-wrap: wrap;
+  }
+  .why-item {
+    flex: 1; min-width: 200px;
+    background: #f5f0ea;
+    border: 1.5px solid #e8d8c8;
+    border-radius: 8px;
+    padding: 12px 14px;
+  }
+  .why-title {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
+    text-transform: uppercase; color: #c96442; margin-bottom: 6px;
+  }
+  .why-text {
+    font-size: 12px; color: #5a4a3a; line-height: 1.5;
+  }
+
+  .caption {
+    font-size: 12px; color: #7a6a5a; line-height: 1.6; margin-top: 18px;
+  }
+  .python-block {
+    margin-top: 28px; background: #1d1d1d; border-radius: 8px;
+    padding: 20px; border: 1px solid #333;
+  }
+  .python-label {
+    font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: #c96442; margin-bottom: 12px; font-weight: 700;
+  }
+  pre {
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+    font-size: 12px; line-height: 1.7; color: #e8e4de;
+    white-space: pre; overflow-x: auto;
+  }
+  .kw { color: #c084fc; } .fn { color: #60a5fa; }
+  .cm2 { color: #6b7280; font-style: italic; }
+  .st { color: #86efac; } .nm { color: #fbbf24; }
+</style>
+</head>
+<body>
+<div class="diagram-wrapper">
+  <div class="diagram-title">Diagram 4 of 14</div>
+  <div class="diagram-subtitle">Causal (Autoregressive) Attention Mask</div>
+
+  <div class="matrices-row">
+    <!-- MASKED LOGITS MATRIX -->
+    <div class="matrix-panel">
+      <div class="matrix-panel-label">Before softmax: mask upper triangle with −∞</div>
+      <div class="grid-wrapper">
+        <div class="row-labels">
+          <div class="row-label">The</div>
+          <div class="row-label">cat</div>
+          <div class="row-label">sat</div>
+          <div class="row-label">on</div>
+          <div class="row-label">mat</div>
+        </div>
+        <div class="matrix-inner">
+          <div class="col-labels-row">
+            <div class="col-label">The</div>
+            <div class="col-label">cat</div>
+            <div class="col-label">sat</div>
+            <div class="col-label">on</div>
+            <div class="col-label">mat</div>
+          </div>
+          <!-- Row 1: The -->
+          <div class="matrix-row-cells">
+            <div class="cell cell-attn" style="background:rgba(201,100,66,0.85);">0.8</div>
+            <div class="cell cell-masked"><span class="cell-masked-label">−∞</span></div>
+            <div class="cell cell-masked"><span class="cell-masked-label">−∞</span></div>
+            <div class="cell cell-masked"><span class="cell-masked-label">−∞</span></div>
+            <div class="cell cell-masked"><span class="cell-masked-label">−∞</span></div>
+          </div>
+          <!-- Row 2: cat -->
+          <div class="matrix-row-cells">
+            <div class="cell cell-attn" style="background:rgba(201,100,66,0.45);">0.3</div>
+            <div class="cell cell-attn cell-diag" style="background:rgba(201,100,66,0.88);">0.7</div>
+            <div class="cell cell-masked"><span class="cell-masked-label">−∞</span></div>
+            <div class="cell cell-masked"><span class="cell-masked-label">−∞</span></div>
+            <div class="cell cell-masked"><span class="cell-masked-label">−∞</span></div>
+          </div>
+          <!-- Row 3: sat -->
+          <div class="matrix-row-cells">
+            <div class="cell cell-attn" style="background:rgba(201,100,66,0.20);">0.1</div>
+            <div class="cell cell-attn" style="background:rgba(201,100,66,0.72);">0.5</div>
+            <div class="cell cell-attn cell-diag" style="background:rgba(201,100,66,0.90);">0.8</div>
+            <div class="cell cell-masked"><span class="cell-masked-label">−∞</span></div>
+            <div class="cell cell-masked"><span class="cell-masked-label">−∞</span></div>
+          </div>
+          <!-- Row 4: on -->
+          <div class="matrix-row-cells">
+            <div class="cell cell-attn" style="background:rgba(201,100,66,0.15);">0.1</div>
+            <div class="cell cell-attn" style="background:rgba(201,100,66,0.28);">0.2</div>
+            <div class="cell cell-attn" style="background:rgba(201,100,66,0.55);">0.4</div>
+            <div class="cell cell-attn cell-diag" style="background:rgba(201,100,66,0.85);">0.6</div>
+            <div class="cell cell-masked"><span class="cell-masked-label">−∞</span></div>
+          </div>
+          <!-- Row 5: mat -->
+          <div class="matrix-row-cells">
+            <div class="cell cell-attn" style="background:rgba(201,100,66,0.12);">0.1</div>
+            <div class="cell cell-attn" style="background:rgba(201,100,66,0.22);">0.1</div>
+            <div class="cell cell-attn" style="background:rgba(201,100,66,0.38);">0.2</div>
+            <div class="cell cell-attn" style="background:rgba(201,100,66,0.60);">0.3</div>
+            <div class="cell cell-attn cell-diag" style="background:rgba(201,100,66,0.88);">0.5</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Legend / explanation -->
+    <div style="flex-shrink:0;min-width:180px;padding-top:30px;">
+      <div style="font-size:10px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#9a8878;margin-bottom:12px;">Legend</div>
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div style="width:32px;height:32px;border-radius:5px;background:#2a2a2a;position:relative;overflow:hidden;flex-shrink:0;">
+            <div style="position:absolute;inset:0;background:repeating-linear-gradient(-45deg,transparent,transparent 4px,rgba(80,80,80,0.5) 4px,rgba(80,80,80,0.5) 6px);"></div>
+            <span style="position:relative;z-index:1;color:#555;font-size:10px;font-family:monospace;display:flex;align-items:center;justify-content:center;height:100%;">−∞</span>
+          </div>
+          <div style="font-size:11px;color:#5a4a3a;line-height:1.4;">Masked (future tokens) — becomes 0 after softmax</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div style="width:32px;height:32px;border-radius:5px;background:rgba(201,100,66,0.85);flex-shrink:0;"></div>
+          <div style="font-size:11px;color:#5a4a3a;line-height:1.4;">High attention to earlier token</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div style="width:32px;height:32px;border-radius:5px;background:rgba(201,100,66,0.25);flex-shrink:0;"></div>
+          <div style="font-size:11px;color:#5a4a3a;line-height:1.4;">Low attention to earlier token</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div style="width:32px;height:32px;border-radius:5px;background:rgba(201,100,66,0.88);border:2px solid rgba(255,255,255,0.4);flex-shrink:0;"></div>
+          <div style="font-size:11px;color:#5a4a3a;line-height:1.4;">Self-attention (diagonal)</div>
+        </div>
+      </div>
+
+      <div style="margin-top:16px;padding:10px;background:#f5f0ea;border-radius:6px;border:1px solid #e8d8c8;">
+        <div style="font-size:10px;font-weight:700;color:#c96442;margin-bottom:4px;letter-spacing:0.08em;text-transform:uppercase;">Key property</div>
+        <div style="font-size:11px;color:#5a4a3a;line-height:1.5;">
+          Row <em>i</em> can only attend to columns 0…<em>i</em>.<br>
+          Token at position <em>i</em> cannot see future tokens.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Formula box -->
+  <div class="formula-box">
+    <div class="formula-label">How the mask is applied</div>
+    <div class="formula-eq">
+      <span class="kw">mask</span>[i,j] = 0  if j &gt; i  (future → masked with −∞)<br>
+      <span class="kw">mask</span>[i,j] = 1  if j ≤ i  (past/present → kept)<br><br>
+      <span class="cm"># After softmax, −∞ → 0.0 (zero attention to future)</span><br>
+      score_masked = score + (<span class="nm">1</span> - mask) × (-<span class="nm">1e9</span>)<br>
+      attn_weights = softmax(score_masked / √d_k)
+    </div>
+  </div>
+
+  <!-- Why this matters -->
+  <div class="why-box">
+    <div class="why-item">
+      <div class="why-title">Training</div>
+      <div class="why-text">All positions trained in parallel — each position's loss uses only its allowed context. Teacher forcing with causal mask enables O(seq) positions simultaneously.</div>
+    </div>
+    <div class="why-item">
+      <div class="why-title">Inference</div>
+      <div class="why-text">At generation time step t, only position t generates new logits. KV cache stores past positions — no recomputation needed.</div>
+    </div>
+    <div class="why-item">
+      <div class="why-title">BERT difference</div>
+      <div class="why-text">BERT uses <strong>no</strong> causal mask — all positions attend to all positions bidirectionally. This enables better understanding but cannot generate autoregressively.</div>
+    </div>
+  </div>
+
+  <div class="caption" style="margin-top:16px;">
+    The causal mask is a lower-triangular boolean matrix. When added to raw attention logits as −∞,
+    the softmax operation converts those positions to exactly 0.0. During training, this allows
+    computing loss for all sequence positions simultaneously — a critical efficiency gain over RNNs.
+  </div>
+
+  <div class="python-block">
+    <div class="python-label">Python Demo — stdlib only</div>
+    <pre><span class="kw">import</span> math
+
+<span class="kw">def</span> <span class="fn">softmax</span>(v):
+    m = max(v)
+    e = [math.exp(x - m) <span class="kw">if</span> x > -<span class="nm">1e8</span> <span class="kw">else</span> <span class="nm">0.0</span> <span class="kw">for</span> x <span class="kw">in</span> v]
+    t = sum(e) or <span class="nm">1e-9</span>
+    <span class="kw">return</span> [x/t <span class="kw">for</span> x <span class="kw">in</span> e]
+
+<span class="kw">def</span> <span class="fn">causal_mask</span>(n):
+    <span class="st">"Lower-triangular mask: 1 where allowed, 0 where masked"</span>
+    <span class="kw">return</span> [[<span class="nm">1</span> <span class="kw">if</span> j <= i <span class="kw">else</span> <span class="nm">0</span> <span class="kw">for</span> j <span class="kw">in</span> range(n)] <span class="kw">for</span> i <span class="kw">in</span> range(n)]
+
+<span class="kw">def</span> <span class="fn">apply_mask_and_softmax</span>(scores, mask):
+    masked = [
+        [s + (<span class="nm">0</span> <span class="kw">if</span> m <span class="kw">else</span> -<span class="nm">1e9</span>) <span class="kw">for</span> s, m <span class="kw">in</span> zip(row, mrow)]
+        <span class="kw">for</span> row, mrow <span class="kw">in</span> zip(scores, mask)
+    ]
+    <span class="kw">return</span> [softmax(row) <span class="kw">for</span> row <span class="kw">in</span> masked]
+
+tokens = [<span class="st">"The"</span>, <span class="st">"cat"</span>, <span class="st">"sat"</span>, <span class="st">"on"</span>]
+n = len(tokens)
+
+<span class="cm"># Fake attention scores (Q·Kᵀ / √d_k)</span>
+scores = [[<span class="nm">0.5</span> * (n - abs(i-j)) <span class="kw">for</span> j <span class="kw">in</span> range(n)] <span class="kw">for</span> i <span class="kw">in</span> range(n)]
+mask = causal_mask(n)
+weights = apply_mask_and_softmax(scores, mask)
+
+print(<span class="st">f"{'':8s}"</span> + <span class="st">" "</span>.join(<span class="st">f"{t:6s}"</span> <span class="kw">for</span> t <span class="kw">in</span> tokens))
+<span class="kw">for</span> i, (tok, row) <span class="kw">in</span> enumerate(zip(tokens, weights)):
+    vals = <span class="st">" "</span>.join(<span class="st">f"{v:.3f}"</span> <span class="kw">if</span> v > <span class="nm">0.001</span> <span class="kw">else</span> <span class="st">"  --- "</span> <span class="kw">for</span> v <span class="kw">in</span> row)
+    print(<span class="st">f"Q={tok:5s}  {vals}"</span>)
+
+<span class="cm"># Try changing n=4 to n=6 to see the causal triangle grow.</span>
+<span class="cm"># Try removing the mask (all ones) to see BERT-style full attention.</span></pre>
+  </div>
+</div>
+</body>
+</html>

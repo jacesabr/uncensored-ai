@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LLM Book — HTML/CSS Diagrams Index</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, 'Segoe UI', system-ui, sans-serif;
+    background: #faf9f7; padding: 48px 24px; color: #2a2a2a;
+    min-height: 100vh;
+  }
+  .page-header {
+    max-width: 860px; margin: 0 auto 40px;
+    border-bottom: 2px solid #e8e4de; padding-bottom: 24px;
+  }
+  .page-eyebrow {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.14em;
+    text-transform: uppercase; color: #c96442; margin-bottom: 10px;
+  }
+  .page-title {
+    font-size: 32px; font-weight: 700; color: #1a1a1a; margin-bottom: 10px;
+    line-height: 1.2;
+  }
+  .page-subtitle {
+    font-size: 15px; color: #7a6a5a; line-height: 1.6;
+  }
+  .page-meta {
+    display: flex; gap: 20px; flex-wrap: wrap; margin-top: 16px;
+  }
+  .meta-pill {
+    background: #f0ece6; border: 1px solid #d6cfc5; border-radius: 20px;
+    padding: 4px 12px; font-size: 11px; font-weight: 600; color: #5a4a3a;
+  }
+
+  /* Diagram cards grid */
+  .cards-grid {
+    max-width: 860px; margin: 0 auto;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+    gap: 16px;
+  }
+  .card {
+    background: #fff;
+    border: 1.5px solid #e8e4de;
+    border-radius: 12px;
+    padding: 20px 22px;
+    text-decoration: none;
+    color: inherit;
+    transition: all 0.15s;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    position: relative;
+    overflow: hidden;
+  }
+  .card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 4px; height: 100%;
+    background: #c96442;
+    border-radius: 12px 0 0 12px;
+    transform: scaleY(0);
+    transform-origin: bottom;
+    transition: transform 0.15s;
+  }
+  .card:hover {
+    border-color: #c96442;
+    box-shadow: 0 4px 16px rgba(201,100,66,0.12);
+    transform: translateY(-2px);
+  }
+  .card:hover::before { transform: scaleY(1); }
+
+  .card-num {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.12em;
+    text-transform: uppercase; color: #c96442;
+  }
+  .card-title {
+    font-size: 15px; font-weight: 700; color: #1a1a1a; line-height: 1.3;
+  }
+  .card-desc {
+    font-size: 12px; color: #7a6a5a; line-height: 1.5; flex: 1;
+  }
+  .card-tags {
+    display: flex; gap: 6px; flex-wrap: wrap;
+  }
+  .tag {
+    background: #f0ece6; border: 1px solid #d6cfc5; border-radius: 4px;
+    padding: 2px 7px; font-size: 10px; font-weight: 600;
+    color: #5a4a3a; letter-spacing: 0.04em;
+  }
+  .tag.css { background: #eff6ff; border-color: #bfdbfe; color: #1e40af; }
+  .tag.py  { background: #f0fdf4; border-color: #bbf7d0; color: #166534; }
+  .card-arrow {
+    font-size: 18px; color: #c96442; position: absolute;
+    right: 18px; bottom: 18px; opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .card:hover .card-arrow { opacity: 1; }
+
+  .section-divider {
+    max-width: 860px; margin: 32px auto 16px;
+    font-size: 11px; font-weight: 700; letter-spacing: 0.12em;
+    text-transform: uppercase; color: #9a8878;
+    display: flex; align-items: center; gap: 12px;
+  }
+  .section-divider::after {
+    content: ''; flex: 1; height: 1px; background: #e8e4de;
+  }
+
+  /* Style guide box -->
+  .style-guide {
+    max-width: 860px; margin: 40px auto 0;
+    background: #1d1d1d; border-radius: 12px; padding: 24px 28px;
+    border: 1px solid #333;
+  }
+  .sg-title {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.12em;
+    text-transform: uppercase; color: #c96442; margin-bottom: 16px;
+  }
+  .sg-row { display: flex; gap: 24px; flex-wrap: wrap; }
+  .sg-item {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 12px; color: #888;
+  }
+  .sg-swatch {
+    width: 32px; height: 20px; border-radius: 4px; flex-shrink: 0;
+  }
+  .sg-code {
+    font-family: 'Courier New', monospace; font-size: 11px; color: #666;
+  }
+</style>
+</head>
+<body>
+<div class="page-header">
+  <div class="page-eyebrow">Large Language Models — Technical Book</div>
+  <div class="page-title">HTML/CSS Diagram Library</div>
+  <div class="page-subtitle">
+    14 self-contained, zero-dependency diagrams for a technical book chapter on LLMs.
+    Each includes a complete visual and a runnable Python stdlib demo.
+  </div>
+  <div class="page-meta">
+    <div class="meta-pill">14 diagrams</div>
+    <div class="meta-pill">Pure HTML/CSS — no libraries</div>
+    <div class="meta-pill">Python stdlib demos</div>
+    <div class="meta-pill">Responsive</div>
+  </div>
+</div>
+
+<div class="section-divider">Architecture &amp; Attention</div>
+
+<div class="cards-grid">
+
+  <a class="card" href="diagram_01_autoregressive.html">
+    <div class="card-num">Diagram 01</div>
+    <div class="card-title">Autoregressive Generation Loop</div>
+    <div class="card-desc">Input tokens → model → probability distribution → sample → append → repeat. Shows the feedback loop, growing token sequence, softmax bars, and temperature sampling.</div>
+    <div class="card-tags">
+      <span class="tag">generation</span>
+      <span class="tag">sampling</span>
+      <span class="tag css">CSS flow</span>
+      <span class="tag py">bigram demo</span>
+    </div>
+    <div class="card-arrow">→</div>
+  </a>
+
+  <a class="card" href="diagram_02_transformer_block.html">
+    <div class="card-num">Diagram 02</div>
+    <div class="card-title">Transformer Block Architecture</div>
+    <div class="card-desc">LayerNorm → MHA → Add → LayerNorm → FFN → Add, with dashed SVG residual bypass lines. Pre-LN variant (LLaMA/GPT-2). Full legend and dimension annotations.</div>
+    <div class="card-tags">
+      <span class="tag">transformer</span>
+      <span class="tag">residual</span>
+      <span class="tag css">SVG overlays</span>
+      <span class="tag py">LayerNorm + FFN</span>
+    </div>
+    <div class="card-arrow">→</div>
+  </a>
+
+  <a class="card" href="diagram_03_qkv_attention.html">
+    <div class="card-num">Diagram 03</div>
+    <div class="card-title">Self-Attention: Q, K, V Mechanism</div>
+    <div class="card-desc">Token → W_Q/W_K/W_V projections, scored attention matrix (color-coded), softmax weight bars, weighted sum formula. Full 3-step breakdown.</div>
+    <div class="card-tags">
+      <span class="tag">attention</span>
+      <span class="tag">QKV</span>
+      <span class="tag css">color matrix</span>
+      <span class="tag py">dot-product attn</span>
+    </div>
+    <div class="card-arrow">→</div>
+  </a>
+
+  <a class="card" href="diagram_04_causal_mask.html">
+    <div class="card-num">Diagram 04</div>
+    <div class="card-title">Causal Attention Mask</div>
+    <div class="card-desc">N×N grid with striped upper triangle (masked/−∞), gradient lower triangle (attention weights). Token labels on axes, formula box, why-this-matters cards.</div>
+    <div class="card-tags">
+      <span class="tag">masking</span>
+      <span class="tag">causal</span>
+      <span class="tag css">stripe pattern</span>
+      <span class="tag py">mask + softmax</span>
+    </div>
+    <div class="card-arrow">→</div>
+  </a>
+
+  <a class="card" href="diagram_05_multihead_attention.html">
+    <div class="card-num">Diagram 05</div>
+    <div class="card-title">Multi-Head Attention</div>
+    <div class="card-desc">Input split across h color-coded heads, each doing attention in d/h dims, concatenated outputs projected by W_O. Color-coded segments show head contributions.</div>
+    <div class="card-tags">
+      <span class="tag">multi-head</span>
+      <span class="tag">heads</span>
+      <span class="tag css">color heads</span>
+      <span class="tag py">parallel heads</span>
+    </div>
+    <div class="card-arrow">→</div>
+  </a>
+
+</div>
+
+<div class="section-divider">Positional Encoding &amp; Data</div>
+
+<div class="cards-grid">
+
+  <a class="card" href="diagram_06_rope_encoding.html">
+    <div class="card-num">Diagram 06</div>
+    <div class="card-title">RoPE Positional Encoding</div>
+    <div class="card-desc">SVG rotation circles for Q at position m and K at position n, 2D pair rotation formula, frequency-per-dimension chart. Key property: dot product depends only on m−n.</div>
+    <div class="card-tags">
+      <span class="tag">RoPE</span>
+      <span class="tag">positional</span>
+      <span class="tag css">SVG circles</span>
+      <span class="tag py">rotation + dot</span>
+    </div>
+    <div class="card-arrow">→</div>
+  </a>
+
+  <a class="card" href="diagram_07_pretraining_data.html">
+    <div class="card-num">Diagram 07</div>
+    <div class="card-title">Pre-training Data Composition</div>
+    <div class="card-desc">Dual stacked bar charts (GPT-3 vs LLaMA-3), detailed source legend cards, model comparison table across 5 models, quality vs quantity tradeoffs.</div>
+    <div class="card-tags">
+      <span class="tag">data</span>
+      <span class="tag">pretraining</span>
+      <span class="tag css">stacked bars</span>
+      <span class="tag py">weighted sampler</span>
+    </div>
+    <div class="card-arrow">→</div>
+  </a>
+
+  <a class="card" href="diagram_08_chinchilla_scaling.html">
+    <div class="card-num">Diagram 08</div>
+    <div class="card-title">Chinchilla Scaling Laws</div>
+    <div class="card-desc">SVG iso-FLOP curves with compute-optimal frontier, GPT-3 "undertrained" marker, loss surface grid, insight cards. Shows N_tokens ≈ 20×N_params rule visually.</div>
+    <div class="card-tags">
+      <span class="tag">scaling</span>
+      <span class="tag">Chinchilla</span>
+      <span class="tag css">SVG curves</span>
+      <span class="tag py">scaling law L(N,D)</span>
+    </div>
+    <div class="card-arrow">→</div>
+  </a>
+
+</div>
+
+<div class="section-divider">Training Methods</div>
+
+<div class="cards-grid">
+
+  <a class="card" href="diagram_09_rlhf.html">
+    <div class="card-num">Diagram 09</div>
+    <div class="card-title">RLHF — 3-Stage Pipeline</div>
+    <div class="card-desc">Three color-coded stage cards (SFT / Reward Model / PPO), human preference comparison pairs with reward scores, KL penalty formula box. Modern variants (DPO, RLAIF) covered.</div>
+    <div class="card-tags">
+      <span class="tag">RLHF</span>
+      <span class="tag">PPO</span>
+      <span class="tag css">3-stage flow</span>
+      <span class="tag py">Bradley-Terry loss</span>
+    </div>
+    <div class="card-arrow">→</div>
+  </a>
+
+  <a class="card" href="diagram_10_lora.html">
+    <div class="card-num">Diagram 10</div>
+    <div class="card-title">LoRA Decomposition</div>
+    <div class="card-desc">Frozen W matrix (striped, large), trainable A (tall/thin) and B (wide/short) visually scaled to show r ≪ d, parameter count comparison bars, where adapters are injected.</div>
+    <div class="card-tags">
+      <span class="tag">LoRA</span>
+      <span class="tag">fine-tuning</span>
+      <span class="tag css">sized matrices</span>
+      <span class="tag py">low-rank forward</span>
+    </div>
+    <div class="card-arrow">→</div>
+  </a>
+
+</div>
+
+<div class="section-divider">Inference &amp; Tokenization</div>
+
+<div class="cards-grid">
+
+  <a class="card" href="diagram_11_kv_cache.html">
+    <div class="card-num">Diagram 11</div>
+    <div class="card-title">KV Cache — Inference Optimization</div>
+    <div class="card-desc">Step-by-step token generation showing cached K/V entries growing per step, new token K/V highlighted, memory growth bar chart, O(n) vs O(n²) cost comparison.</div>
+    <div class="card-tags">
+      <span class="tag">KV cache</span>
+      <span class="tag">inference</span>
+      <span class="tag css">step timeline</span>
+      <span class="tag py">cache sim</span>
+    </div>
+    <div class="card-arrow">→</div>
+  </a>
+
+  <a class="card" href="diagram_12_bpe.html">
+    <div class="card-num">Diagram 12</div>
+    <div class="card-title">BPE Tokenization — Merge Steps</div>
+    <div class="card-desc">4-step visual merge on "low/lower/lowest" with frequency tables, color-coded merged tokens, real-world tokenization examples (including number splitting), vocab size comparison.</div>
+    <div class="card-tags">
+      <span class="tag">BPE</span>
+      <span class="tag">tokenization</span>
+      <span class="tag css">merge steps</span>
+      <span class="tag py">BPE from scratch</span>
+    </div>
+    <div class="card-arrow">→</div>
+  </a>
+
+</div>
+
+<div class="section-divider">Representations &amp; Architecture Families</div>
+
+<div class="cards-grid">
+
+  <a class="card" href="diagram_13_embedding_space.html">
+    <div class="card-num">Diagram 13</div>
+    <div class="card-title">Embedding Space — Word Clusters</div>
+    <div class="card-desc">SVG scatter plot showing 5 semantic clusters (royalty, geography, animals, temperature, motion), vector analogy arrows, cosine similarity table with bars, antonym paradox explained.</div>
+    <div class="card-tags">
+      <span class="tag">embeddings</span>
+      <span class="tag">word2vec</span>
+      <span class="tag css">SVG scatter</span>
+      <span class="tag py">cosine + analogy</span>
+    </div>
+    <div class="card-arrow">→</div>
+  </a>
+
+  <a class="card" href="diagram_14_bert_vs_gpt.html">
+    <div class="card-num">Diagram 14</div>
+    <div class="card-title">BERT vs GPT — Attention Patterns</div>
+    <div class="card-desc">Side-by-side 5×5 attention matrices: BERT full grid (all colored), GPT lower triangle only (upper masked/striped). MLM vs CLM objectives, architecture table, use-case cards.</div>
+    <div class="card-tags">
+      <span class="tag">BERT</span>
+      <span class="tag">GPT</span>
+      <span class="tag css">dual matrices</span>
+      <span class="tag py">mask comparison</span>
+    </div>
+    <div class="card-arrow">→</div>
+  </a>
+
+</div>
+
+<!-- Style guide -->
+<div class="style-guide">
+  <div class="sg-title">Design system used across all diagrams</div>
+  <div class="sg-row">
+    <div class="sg-item">
+      <div class="sg-swatch" style="background:#faf9f7;border:1px solid #555;"></div>
+      <div>
+        <div style="color:#e8e4de;font-weight:600;font-size:12px;">Background</div>
+        <div class="sg-code">#faf9f7</div>
+      </div>
+    </div>
+    <div class="sg-item">
+      <div class="sg-swatch" style="background:#c96442;"></div>
+      <div>
+        <div style="color:#e8e4de;font-weight:600;font-size:12px;">Accent</div>
+        <div class="sg-code">#c96442</div>
+      </div>
+    </div>
+    <div class="sg-item">
+      <div class="sg-swatch" style="background:#e8e4de;"></div>
+      <div>
+        <div style="color:#e8e4de;font-weight:600;font-size:12px;">Border</div>
+        <div class="sg-code">#e8e4de</div>
+      </div>
+    </div>
+    <div class="sg-item">
+      <div class="sg-swatch" style="background:#1d1d1d;"></div>
+      <div>
+        <div style="color:#e8e4de;font-weight:600;font-size:12px;">Code BG</div>
+        <div class="sg-code">#1d1d1d</div>
+      </div>
+    </div>
+    <div class="sg-item">
+      <div style="color:#e8e4de;font-size:12px;font-weight:600;">Font</div>
+      <div class="sg-code">-apple-system, 'Segoe UI', system-ui</div>
+    </div>
+    <div class="sg-item">
+      <div style="color:#e8e4de;font-size:12px;font-weight:600;">Code font</div>
+      <div class="sg-code">'JetBrains Mono', 'Courier New', monospace</div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

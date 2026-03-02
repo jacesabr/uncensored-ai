@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Diagram 12 — BPE Tokenization</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, 'Segoe UI', system-ui, sans-serif;
+    background: #faf9f7; padding: 40px 24px; color: #2a2a2a;
+  }
+  .diagram-wrapper {
+    max-width: 820px; margin: 0 auto;
+    border: 1px solid #e8e4de; border-radius: 12px;
+    background: #faf9f7; padding: 36px 32px 28px;
+  }
+  .diagram-title {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.12em;
+    text-transform: uppercase; color: #c96442; margin-bottom: 6px;
+  }
+  .diagram-subtitle { font-size: 18px; font-weight: 600; color: #1a1a1a; margin-bottom: 8px; }
+  .diagram-tagline { font-size: 13px; color: #7a6a5a; font-style: italic; margin-bottom: 28px; }
+
+  /* Merge step visualization */
+  .merge-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    margin-bottom: 24px;
+  }
+  .merge-step {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+    padding: 16px 0;
+    border-bottom: 1px solid #f0ece6;
+  }
+  .merge-step:last-child { border-bottom: none; }
+
+  .step-badge {
+    width: 28px; height: 28px; border-radius: 50%;
+    background: #c96442; color: #fff;
+    font-size: 11px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; margin-top: 4px;
+  }
+  .step-badge.gray { background: #e8e4de; color: #5a4a3a; }
+  .step-inner { flex: 1; }
+  .step-desc {
+    font-size: 11px; font-weight: 700; color: #c96442;
+    letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 8px;
+  }
+
+  /* Character sequence display */
+  .char-seq {
+    display: flex;
+    gap: 3px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+  }
+  .char-tok {
+    border-radius: 5px;
+    padding: 6px 8px;
+    font-size: 12px;
+    font-weight: 700;
+    font-family: monospace;
+    transition: all 0.2s;
+  }
+  .char-tok.plain {
+    background: #f0ece6; border: 1.5px solid #d6cfc5; color: #4a3f35;
+  }
+  .char-tok.highlighted {
+    background: #c96442; border: 1.5px solid #a8512f; color: #fff;
+  }
+  .char-tok.merged {
+    background: #2563eb; border: 1.5px solid #1d4ed8; color: #fff;
+  }
+  .char-tok.merged2 {
+    background: #16a34a; border: 1.5px solid #15803d; color: #fff;
+  }
+  .char-tok.merged3 {
+    background: #7c3aed; border: 1.5px solid #6d28d9; color: #fff;
+  }
+  .char-tok.space {
+    background: #f8f6f2; border: 1.5px dashed #d6cfc5; color: #9a8878;
+    font-size: 10px;
+  }
+
+  /* Frequency table */
+  .freq-table-section {
+    margin-bottom: 8px;
+  }
+  .freq-table {
+    width: 100%; border-collapse: collapse; font-size: 11px;
+  }
+  .freq-table th {
+    background: #1d1d1d; color: #e8e4de;
+    font-size: 9px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+    padding: 5px 8px; text-align: left; border: 1px solid #333;
+  }
+  .freq-table td {
+    padding: 5px 8px; border: 1px solid #e8e4de; color: #4a3f35;
+    font-family: monospace;
+  }
+  .freq-table tr:nth-child(even) td { background: #f5f0ea; }
+  .freq-table .best-pair td { background: #fef3c7 !important; font-weight: 700; }
+  .freq-table .merged-row td { background: #dbeafe !important; font-weight: 700; color: #1e3a8a; }
+
+  /* Real-world tokenization examples */
+  .tokenize-section {
+    margin-bottom: 20px;
+  }
+  .tokenize-label {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.1em;
+    text-transform: uppercase; color: #9a8878; margin-bottom: 10px;
+  }
+  .tokenize-example {
+    background: #1d1d1d; border-radius: 8px; padding: 14px 16px;
+    margin-bottom: 10px; border: 1px solid #333;
+  }
+  .tokenize-input {
+    font-size: 12px; color: #888; margin-bottom: 8px; font-family: monospace;
+  }
+  .tokenize-tokens {
+    display: flex; gap: 4px; flex-wrap: wrap;
+  }
+  .tok-pill {
+    border-radius: 4px; padding: 4px 8px; font-size: 11px;
+    font-weight: 600; font-family: monospace;
+  }
+  .tok-pill.a { background: #c96442; color: #fff; }
+  .tok-pill.b { background: #2563eb; color: #fff; }
+  .tok-pill.c { background: #16a34a; color: #fff; }
+  .tok-pill.d { background: #7c3aed; color: #fff; }
+  .tok-pill.e { background: #d97706; color: #fff; }
+  .tok-pill.f { background: #0891b2; color: #fff; }
+  .tok-pill.g { background: #be185d; color: #fff; }
+  .tok-pill.sep {
+    background: transparent; color: #555; font-size: 14px; padding: 4px 2px;
+  }
+
+  /* Vocab size comparison -->
+  .vocab-section {
+    display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px;
+  }
+  .vocab-card {
+    flex: 1; min-width: 160px;
+    background: #f5f0ea; border: 1.5px solid #e8d8c8; border-radius: 8px;
+    padding: 12px 14px;
+  }
+  .vocab-title {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
+    text-transform: uppercase; color: #c96442; margin-bottom: 5px;
+  }
+  .vocab-val { font-size: 16px; font-weight: 700; color: #2a2a2a; margin-bottom: 4px; }
+  .vocab-desc { font-size: 11px; color: #7a6a5a; line-height: 1.4; }
+
+  .caption { font-size: 12px; color: #7a6a5a; line-height: 1.6; margin-top: 18px; }
+  .python-block {
+    margin-top: 28px; background: #1d1d1d; border-radius: 8px;
+    padding: 20px; border: 1px solid #333;
+  }
+  .python-label {
+    font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: #c96442; margin-bottom: 12px; font-weight: 700;
+  }
+  pre {
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+    font-size: 12px; line-height: 1.7; color: #e8e4de; white-space: pre; overflow-x: auto;
+  }
+  .kw { color: #c084fc; } .fn { color: #60a5fa; }
+  .cm { color: #6b7280; font-style: italic; } .st { color: #86efac; } .nm { color: #fbbf24; }
+</style>
+</head>
+<body>
+<div class="diagram-wrapper">
+  <div class="diagram-title">Diagram 12 of 14</div>
+  <div class="diagram-subtitle">Byte-Pair Encoding (BPE) Tokenization</div>
+  <div class="diagram-tagline">Sennrich et al. 2016 — iteratively merge most frequent adjacent pairs to build vocabulary</div>
+
+  <!-- Step-by-step merge visualization -->
+  <div style="font-size:10px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#c96442;margin-bottom:14px;">
+    Step-by-step merge on corpus: "low lower lowest"
+  </div>
+
+  <div class="merge-steps">
+
+    <!-- Step 0: Initial -->
+    <div class="merge-step">
+      <div class="step-badge gray">0</div>
+      <div class="step-inner">
+        <div class="step-desc">Initial — split into characters + end-of-word marker</div>
+        <div class="char-seq">
+          <div class="char-tok plain">l</div><div class="char-tok plain">o</div><div class="char-tok plain">w</div><div class="char-tok space">Ġ</div>
+          <span style="color:#d6cfc5;padding:0 4px;">|</span>
+          <div class="char-tok plain">l</div><div class="char-tok plain">o</div><div class="char-tok plain">w</div><div class="char-tok plain">e</div><div class="char-tok plain">r</div><div class="char-tok space">Ġ</div>
+          <span style="color:#d6cfc5;padding:0 4px;">|</span>
+          <div class="char-tok plain">l</div><div class="char-tok plain">o</div><div class="char-tok plain">w</div><div class="char-tok plain">e</div><div class="char-tok plain">s</div><div class="char-tok plain">t</div><div class="char-tok space">Ġ</div>
+        </div>
+        <div class="freq-table-section">
+          <table class="freq-table">
+            <tr><th>Pair</th><th>Count</th><th>Decision</th></tr>
+            <tr class="best-pair"><td>("l","o")</td><td>3</td><td>★ MERGE FIRST</td></tr>
+            <tr><td>("o","w")</td><td>3</td><td>tied</td></tr>
+            <tr><td>("w","Ġ")</td><td>2</td><td></td></tr>
+            <tr><td>("w","e")</td><td>2</td><td></td></tr>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 1: Merge l+o → lo -->
+    <div class="merge-step">
+      <div class="step-badge">1</div>
+      <div class="step-inner">
+        <div class="step-desc">Merge ("l","o") → "lo" — appears 3 times</div>
+        <div class="char-seq">
+          <div class="char-tok merged">lo</div><div class="char-tok plain">w</div><div class="char-tok space">Ġ</div>
+          <span style="color:#d6cfc5;padding:0 4px;">|</span>
+          <div class="char-tok merged">lo</div><div class="char-tok plain">w</div><div class="char-tok plain">e</div><div class="char-tok plain">r</div><div class="char-tok space">Ġ</div>
+          <span style="color:#d6cfc5;padding:0 4px;">|</span>
+          <div class="char-tok merged">lo</div><div class="char-tok plain">w</div><div class="char-tok plain">e</div><div class="char-tok plain">s</div><div class="char-tok plain">t</div><div class="char-tok space">Ġ</div>
+        </div>
+        <div style="font-size:11px;color:#7a6a5a;margin-top:4px;">New vocab rule added: "lo" → token ID 257. Next best pair: ("lo","w") count=3</div>
+      </div>
+    </div>
+
+    <!-- Step 2: Merge lo+w → low -->
+    <div class="merge-step">
+      <div class="step-badge">2</div>
+      <div class="step-inner">
+        <div class="step-desc">Merge ("lo","w") → "low" — appears 3 times</div>
+        <div class="char-seq">
+          <div class="char-tok merged2">low</div><div class="char-tok space">Ġ</div>
+          <span style="color:#d6cfc5;padding:0 4px;">|</span>
+          <div class="char-tok merged2">low</div><div class="char-tok plain">e</div><div class="char-tok plain">r</div><div class="char-tok space">Ġ</div>
+          <span style="color:#d6cfc5;padding:0 4px;">|</span>
+          <div class="char-tok merged2">low</div><div class="char-tok plain">e</div><div class="char-tok plain">s</div><div class="char-tok plain">t</div><div class="char-tok space">Ġ</div>
+        </div>
+        <div style="font-size:11px;color:#7a6a5a;margin-top:4px;">New rule: "low" → token 258. Next: ("low","e") count=2 or ("e","r") count=1</div>
+      </div>
+    </div>
+
+    <!-- Step 3: Merge low+e → lowe -->
+    <div class="merge-step">
+      <div class="step-badge">3</div>
+      <div class="step-inner">
+        <div class="step-desc">Merge ("low","e") → "lowe" — appears 2 times</div>
+        <div class="char-seq">
+          <div class="char-tok merged2">low</div><div class="char-tok space">Ġ</div>
+          <span style="color:#d6cfc5;padding:0 4px;">|</span>
+          <div class="char-tok merged3">lowe</div><div class="char-tok plain">r</div><div class="char-tok space">Ġ</div>
+          <span style="color:#d6cfc5;padding:0 4px;">|</span>
+          <div class="char-tok merged3">lowe</div><div class="char-tok plain">s</div><div class="char-tok plain">t</div><div class="char-tok space">Ġ</div>
+        </div>
+        <div style="font-size:11px;color:#7a6a5a;margin-top:4px;">This continues until vocab_size target is reached (e.g., 50,257 for GPT-2, 128,000 for LLaMA-3).</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Real-world examples -->
+  <div class="tokenize-section">
+    <div class="tokenize-label">Real tokenization examples (GPT-4 / LLaMA-3 tokenizer)</div>
+
+    <div class="tokenize-example">
+      <div class="tokenize-input">Input: "tokenization"</div>
+      <div class="tokenize-tokens">
+        <div class="tok-pill a">token</div>
+        <div class="tok-pill b">ization</div>
+        <div style="font-size:10px;color:#888;padding:4px 6px;">→ 2 tokens</div>
+      </div>
+    </div>
+
+    <div class="tokenize-example">
+      <div class="tokenize-input">Input: "unhappiness"</div>
+      <div class="tokenize-tokens">
+        <div class="tok-pill a">un</div>
+        <div class="tok-pill b">happiness</div>
+        <div style="font-size:10px;color:#888;padding:4px 6px;">→ 2 tokens (common morphemes merged)</div>
+      </div>
+    </div>
+
+    <div class="tokenize-example">
+      <div class="tokenize-input">Input: "antidisestablishmentarianism"</div>
+      <div class="tokenize-tokens">
+        <div class="tok-pill a">ant</div>
+        <div class="tok-pill b">id</div>
+        <div class="tok-pill c">is</div>
+        <div class="tok-pill d">establish</div>
+        <div class="tok-pill e">ment</div>
+        <div class="tok-pill f">arian</div>
+        <div class="tok-pill g">ism</div>
+        <div style="font-size:10px;color:#888;padding:4px 6px;">→ 7 tokens</div>
+      </div>
+    </div>
+
+    <div class="tokenize-example">
+      <div class="tokenize-input">Input: "1234567890" — numbers split differently!</div>
+      <div class="tokenize-tokens">
+        <div class="tok-pill a">12</div>
+        <div class="tok-pill b">345</div>
+        <div class="tok-pill c">678</div>
+        <div class="tok-pill d">90</div>
+        <div style="font-size:10px;color:#888;padding:4px 6px;">→ 4 tokens (inconsistent — LLM arithmetic weakness)</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Vocab size comparison -->
+  <div class="vocab-section">
+    <div class="vocab-card">
+      <div class="vocab-title">GPT-2</div>
+      <div class="vocab-val">50,257</div>
+      <div class="vocab-desc">BPE, ~256 byte tokens + 50k merges. English-centric. "Ġ" = space prefix.</div>
+    </div>
+    <div class="vocab-card">
+      <div class="vocab-title">LLaMA-3</div>
+      <div class="vocab-val">128,000</div>
+      <div class="vocab-desc">tiktoken BPE, multilingual. Larger vocab = fewer tokens per text = longer effective context.</div>
+    </div>
+    <div class="vocab-card">
+      <div class="vocab-title">LLaMA-1/2</div>
+      <div class="vocab-val">32,000</div>
+      <div class="vocab-desc">SentencePiece BPE. Smaller vocab = more tokens per text, but faster embedding lookup.</div>
+    </div>
+    <div class="vocab-card">
+      <div class="vocab-title">Gemma</div>
+      <div class="vocab-val">256,000</div>
+      <div class="vocab-desc">Very large vocab. Improves non-English languages dramatically. 1 Japanese char ≈ 1 token.</div>
+    </div>
+  </div>
+
+  <div class="caption">
+    BPE starts with a character-level vocabulary and iteratively merges the most frequent adjacent pair.
+    After k merges, the vocabulary has 256 (bytes) + k entries. The tokenizer is trained on the same corpus as the model —
+    frequent subwords (like "-ing", "un-", "tion") become single tokens. This balances sequence length vs vocabulary size:
+    rare words split into known subwords, avoiding the unknown-token problem of word-level tokenizers.
+  </div>
+
+  <div class="python-block">
+    <div class="python-label">Python Demo — stdlib only</div>
+    <pre><span class="kw">import</span> collections, re
+
+<span class="kw">def</span> <span class="fn">get_pairs</span>(vocab):
+    <span class="st">"""Count all adjacent pair frequencies across corpus."""</span>
+    pairs = collections.Counter()
+    <span class="kw">for</span> word, freq <span class="kw">in</span> vocab.items():
+        symbols = word.split()
+        <span class="kw">for</span> i <span class="kw">in</span> range(len(symbols)-<span class="nm">1</span>):
+            pairs[(symbols[i], symbols[i+<span class="nm">1</span>])] += freq
+    <span class="kw">return</span> pairs
+
+<span class="kw">def</span> <span class="fn">merge_vocab</span>(vocab, pair):
+    <span class="st">"""Replace all occurrences of pair in vocab."""</span>
+    merged = <span class="st">" "</span>.join(pair)
+    replacement = <span class="st">""</span>.join(pair)
+    new_vocab = {}
+    <span class="kw">for</span> word, freq <span class="kw">in</span> vocab.items():
+        new_vocab[word.replace(merged, replacement)] = freq
+    <span class="kw">return</span> new_vocab
+
+<span class="cm"># Initial word-level vocab with character split + end marker</span>
+corpus = [<span class="st">"low"</span>, <span class="st">"low"</span>, <span class="st">"low"</span>, <span class="st">"lower"</span>, <span class="st">"lower"</span>, <span class="st">"lowest"</span>, <span class="st">"newest"</span>, <span class="st">"newer"</span>]
+vocab = collections.Counter()
+<span class="kw">for</span> word <span class="kw">in</span> corpus:
+    vocab[<span class="st">" "</span>.join(list(word) + [<span class="st">"&lt;/w&gt;"</span>])] += <span class="nm">1</span>
+
+print(<span class="st">"Initial vocab:"</span>, dict(vocab))
+num_merges = <span class="nm">6</span>  <span class="cm"># try 3 or 10</span>
+merge_rules = []
+
+<span class="kw">for</span> i <span class="kw">in</span> range(num_merges):
+    pairs = get_pairs(vocab)
+    <span class="kw">if not</span> pairs: <span class="kw">break</span>
+    best = pairs.most_common(<span class="nm">1</span>)[<span class="nm">0</span>][<span class="nm">0</span>]
+    vocab = merge_vocab(vocab, best)
+    merge_rules.append(best)
+    print(<span class="st">f"Merge {i+1}: {best[0]!r} + {best[1]!r} → {''.join(best)!r}  (count={pairs[best]})"</span>)
+
+print(<span class="st">f"\nFinal vocab after {num_merges} merges:"</span>, list(vocab.keys()))
+<span class="cm"># Try num_merges=10 to see words fully merged into whole-word tokens.</span></pre>
+  </div>
+</div>
+</body>
+</html>

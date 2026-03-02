@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Diagram 9 — RLHF Pipeline</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, 'Segoe UI', system-ui, sans-serif;
+    background: #faf9f7; padding: 40px 24px; color: #2a2a2a;
+  }
+  .diagram-wrapper {
+    max-width: 820px; margin: 0 auto;
+    border: 1px solid #e8e4de; border-radius: 12px;
+    background: #faf9f7; padding: 36px 32px 28px;
+  }
+  .diagram-title {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.12em;
+    text-transform: uppercase; color: #c96442; margin-bottom: 6px;
+  }
+  .diagram-subtitle { font-size: 18px; font-weight: 600; color: #1a1a1a; margin-bottom: 28px; }
+
+  /* Three stages */
+  .stages-row {
+    display: flex;
+    gap: 0;
+    align-items: stretch;
+    margin-bottom: 28px;
+    flex-wrap: nowrap;
+  }
+  .stage {
+    flex: 1;
+    border-radius: 10px;
+    padding: 18px 16px;
+    position: relative;
+    min-width: 0;
+  }
+  .stage-1 {
+    background: linear-gradient(135deg, #f5f0ea, #ede4d8);
+    border: 1.5px solid #d6cfc5;
+  }
+  .stage-2 {
+    background: linear-gradient(135deg, #1d1d1d, #2a2a2a);
+    border: 1.5px solid #444;
+    color: #e8e4de;
+  }
+  .stage-3 {
+    background: linear-gradient(135deg, #3b0a02, #5a1a0a);
+    border: 1.5px solid #c96442;
+    color: #e8e4de;
+  }
+
+  .stage-num {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.12em;
+    text-transform: uppercase; margin-bottom: 8px;
+    opacity: 0.7;
+  }
+  .stage-1 .stage-num { color: #c96442; }
+  .stage-2 .stage-num { color: #888; }
+  .stage-3 .stage-num { color: #e8a882; }
+
+  .stage-name {
+    font-size: 13px; font-weight: 700; margin-bottom: 12px;
+    line-height: 1.3;
+  }
+  .stage-1 .stage-name { color: #2a2a2a; }
+
+  .stage-body { font-size: 11px; line-height: 1.6; }
+  .stage-1 .stage-body { color: #5a4a3a; }
+  .stage-2 .stage-body { color: #aaa; }
+  .stage-3 .stage-body { color: #d0a898; }
+
+  .stage-arrow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 8px;
+    flex-shrink: 0;
+  }
+  .stage-arrow span {
+    font-size: 24px; color: #c96442; font-weight: bold;
+  }
+
+  /* Mini diagrams inside each stage */
+  .mini-diagram {
+    margin-top: 12px;
+    border-radius: 6px;
+    padding: 10px;
+    font-size: 10px;
+    line-height: 1.7;
+  }
+  .stage-1 .mini-diagram {
+    background: rgba(255,255,255,0.5);
+    border: 1px solid #d6cfc5;
+    color: #5a4a3a;
+    font-family: monospace;
+  }
+  .stage-2 .mini-diagram {
+    background: #333;
+    border: 1px solid #555;
+    color: #ccc;
+    font-family: monospace;
+  }
+  .stage-3 .mini-diagram {
+    background: rgba(0,0,0,0.3);
+    border: 1px solid #7a3a1a;
+    color: #d0a898;
+    font-family: monospace;
+  }
+
+  /* Stage icons / labels */
+  .stage-icon {
+    font-size: 24px;
+    margin-bottom: 8px;
+  }
+
+  /* KL penalty box */
+  .kl-box {
+    background: #f5f0ea;
+    border: 2px solid #c96442;
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin-bottom: 20px;
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .kl-title {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
+    text-transform: uppercase; color: #c96442; margin-bottom: 6px;
+  }
+  .kl-formula {
+    font-family: 'Courier New', monospace;
+    font-size: 13px; color: #4a3f35; line-height: 2;
+  }
+  .kl-desc { font-size: 11px; color: #7a6a5a; line-height: 1.6; flex: 1; min-width: 200px; }
+
+  /* Human feedback visualization */
+  .feedback-section {
+    margin-bottom: 20px;
+  }
+  .feedback-label {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.1em;
+    text-transform: uppercase; color: #9a8878; margin-bottom: 10px;
+  }
+  .feedback-pair {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+  }
+  .response-card {
+    flex: 1; min-width: 160px;
+    border-radius: 8px; padding: 12px 14px; font-size: 11px; line-height: 1.5;
+  }
+  .response-a {
+    background: #eef4ff; border: 1.5px solid #99b8e8; color: #1e3a8a;
+  }
+  .response-b {
+    background: #fef3c7; border: 1.5px solid #f59e0b; color: #92400e;
+  }
+  .preferred-badge {
+    background: #16a34a; color: #fff; font-size: 9px; font-weight: 700;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    padding: 2px 8px; border-radius: 4px; margin-top: 6px; display: inline-block;
+  }
+  .vs-badge {
+    font-size: 14px; font-weight: 700; color: #9a8878; flex-shrink: 0; padding: 0 4px;
+  }
+  .reward-arrow {
+    font-size: 11px; color: #7a6a5a; flex-shrink: 0;
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+  }
+  .reward-value {
+    font-size: 12px; font-weight: 700; font-family: monospace;
+  }
+  .reward-high { color: #16a34a; }
+  .reward-low  { color: #dc2626; }
+
+  .insight-row {
+    display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px;
+  }
+  .insight-card {
+    flex: 1; min-width: 180px;
+    background: #f5f0ea; border: 1.5px solid #e8d8c8; border-radius: 8px;
+    padding: 12px 14px;
+  }
+  .insight-title {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
+    text-transform: uppercase; color: #c96442; margin-bottom: 5px;
+  }
+  .insight-text { font-size: 12px; color: #5a4a3a; line-height: 1.5; }
+
+  .caption { font-size: 12px; color: #7a6a5a; line-height: 1.6; margin-top: 18px; }
+  .python-block {
+    margin-top: 28px; background: #1d1d1d; border-radius: 8px;
+    padding: 20px; border: 1px solid #333;
+  }
+  .python-label {
+    font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: #c96442; margin-bottom: 12px; font-weight: 700;
+  }
+  pre {
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+    font-size: 12px; line-height: 1.7; color: #e8e4de; white-space: pre; overflow-x: auto;
+  }
+  .kw { color: #c084fc; } .fn { color: #60a5fa; }
+  .cm { color: #6b7280; font-style: italic; } .st { color: #86efac; } .nm { color: #fbbf24; }
+</style>
+</head>
+<body>
+<div class="diagram-wrapper">
+  <div class="diagram-title">Diagram 9 of 14</div>
+  <div class="diagram-subtitle">RLHF — Reinforcement Learning from Human Feedback (3-Stage Pipeline)</div>
+
+  <!-- Three stages -->
+  <div class="stages-row">
+    <!-- Stage 1: SFT -->
+    <div class="stage stage-1">
+      <div class="stage-num">Stage 1</div>
+      <div class="stage-name">Supervised Fine-Tuning (SFT)</div>
+      <div class="stage-body">
+        Fine-tune base LLM on human-written demonstrations of ideal behavior.
+        <br><br>
+        Loss: standard cross-entropy next-token prediction on curated examples.
+      </div>
+      <div class="mini-diagram">
+        Prompt:  "How do I make pasta?"<br>
+        Response: [human-written ideal answer]<br>
+        ↓<br>
+        Train: minimize −log P(response|prompt)<br>
+        ↓<br>
+        SFT model: base LLM that<br>
+        follows instructions
+      </div>
+    </div>
+
+    <div class="stage-arrow"><span>→</span></div>
+
+    <!-- Stage 2: Reward Model -->
+    <div class="stage stage-2">
+      <div class="stage-num">Stage 2</div>
+      <div class="stage-name">Reward Model Training</div>
+      <div class="stage-body">
+        Human labelers rank pairs of SFT outputs. Reward model learns to predict human preference.
+        <br><br>
+        Architecture: LLM + scalar head. Trained on pairwise comparisons.
+      </div>
+      <div class="mini-diagram">
+        Prompt + Response A → RM → r_A = 3.2<br>
+        Prompt + Response B → RM → r_B = 1.1<br>
+        Human prefers A ▶▶ B<br>
+        ↓<br>
+        Loss: −log σ(r_A − r_B)<br>
+        (Bradley-Terry model)<br>
+        ↓<br>
+        RM: assigns scalar reward
+      </div>
+    </div>
+
+    <div class="stage-arrow"><span>→</span></div>
+
+    <!-- Stage 3: PPO RL -->
+    <div class="stage stage-3">
+      <div class="stage-num">Stage 3</div>
+      <div class="stage-name">PPO RL Optimization</div>
+      <div class="stage-body">
+        Optimize SFT policy using PPO, maximizing RM reward while penalizing KL divergence from SFT.
+        <br><br>
+        Result: model aligned with human preferences.
+      </div>
+      <div class="mini-diagram">
+        Prompt → Policy LLM → Response<br>
+        Response → RM → reward r<br>
+        KL(π_RL ‖ π_SFT) → penalty<br>
+        ↓<br>
+        Objective = r − β·KL<br>
+        ↓<br>
+        PPO gradient update<br>
+        (clip ratio for stability)
+      </div>
+    </div>
+  </div>
+
+  <!-- Human preference visualization -->
+  <div class="feedback-section">
+    <div class="feedback-label">Stage 2 in detail — human pairwise comparison → reward signal</div>
+    <div class="feedback-pair">
+      <div class="response-card response-a">
+        <strong>Response A:</strong> "To make pasta, boil water with salt, add pasta, cook 8-10 min, drain, toss with sauce. The salted water seasons the pasta itself."
+        <div class="preferred-badge">✓ Preferred</div>
+      </div>
+      <div class="vs-badge">VS</div>
+      <div class="response-card response-b">
+        <strong>Response B:</strong> "Put pasta in water. Cook it. It takes some time. Then eat it."
+      </div>
+      <div class="reward-arrow">
+        → RM →
+        <div class="reward-value reward-high">r_A = +3.2</div>
+        <div class="reward-value reward-low">r_B = +0.4</div>
+        <div style="font-size:10px;color:#888;">Loss: −log σ(2.8)</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- KL penalty -->
+  <div class="kl-box">
+    <div style="min-width:240px;">
+      <div class="kl-title">PPO Objective with KL Penalty</div>
+      <div class="kl-formula">
+        max E[ r(x,y) − β · KL(π_RL ‖ π_SFT) ]
+      </div>
+    </div>
+    <div class="kl-desc">
+      <strong>Why KL penalty?</strong> Without it, the policy "reward hacks" — learning to produce responses that score high on the reward model but are bizarre or incoherent.
+      The KL term keeps the RL policy close to the SFT policy, preventing mode collapse.
+      β ≈ 0.02–0.05 is typical. Higher β = stays closer to SFT, lower β = more aggressively optimizes reward.
+    </div>
+  </div>
+
+  <div class="insight-row">
+    <div class="insight-card">
+      <div class="insight-title">Modern variants</div>
+      <div class="insight-text">DPO (Direct Preference Optimization) skips the RM entirely, converting pairwise preferences to a classification loss directly on the policy. Used by LLaMA-3, Mistral.</div>
+    </div>
+    <div class="insight-card">
+      <div class="insight-title">Data requirements</div>
+      <div class="insight-text">InstructGPT used ~13K SFT examples, ~33K RM comparison pairs. Quality >> quantity. Annotators must follow detailed rubrics (helpfulness, harmlessness, honesty).</div>
+    </div>
+    <div class="insight-card">
+      <div class="insight-title">Constitutional AI</div>
+      <div class="insight-text">Anthropic's variant: model critiques its own outputs using a "constitution" of principles, then revises. Reduces need for human feedback in Stage 1/2 (RLAIF).</div>
+    </div>
+  </div>
+
+  <div class="caption" style="margin-top:16px;">
+    RLHF (Ouyang et al. 2022, InstructGPT) transformed ChatGPT from a text completer to an instruction follower.
+    The three-stage pipeline — SFT → reward model → PPO — bridges the gap between "predict the next token"
+    and "do what humans actually want." The KL penalty is critical: pure reward maximization leads to degenerate outputs.
+  </div>
+
+  <div class="python-block">
+    <div class="python-label">Python Demo — stdlib only</div>
+    <pre><span class="kw">import</span> math, random
+
+<span class="cm"># Simulate reward model training on pairwise preferences</span>
+<span class="kw">def</span> <span class="fn">sigmoid</span>(x): <span class="kw">return</span> <span class="nm">1</span> / (<span class="nm">1</span> + math.exp(-x))
+
+<span class="cm"># Pairwise preference data: (reward_chosen, reward_rejected)</span>
+<span class="kw">def</span> <span class="fn">rm_loss</span>(r_chosen, r_rejected):
+    <span class="st">"""Bradley-Terry pairwise loss: -log σ(r_chosen - r_rejected)"""</span>
+    <span class="kw">return</span> -math.log(sigmoid(r_chosen - r_rejected) + <span class="nm">1e-9</span>)
+
+<span class="cm"># PPO-style objective (simplified scalar version)</span>
+<span class="kw">def</span> <span class="fn">ppo_objective</span>(reward, kl_penalty, beta=<span class="nm">0.03</span>):
+    <span class="st">"""Reward minus KL divergence penalty."""</span>
+    <span class="kw">return</span> reward - beta * kl_penalty
+
+<span class="cm"># Simulate training loop</span>
+rm_score = <span class="nm">0.5</span>   <span class="cm"># current reward model scalar (starts naive)</span>
+sft_score = <span class="nm">0.5</span>  <span class="cm"># reference policy</span>
+beta = <span class="nm">0.03</span>       <span class="cm"># KL penalty weight — try 0.0 or 0.3</span>
+
+print(<span class="st">f"{'Step':5s} {'RL reward':12s} {'KL penalty':12s} {'Objective':12s} {'Status'}"</span>)
+<span class="kw">for</span> step <span class="kw">in</span> range(<span class="nm">10</span>):
+    <span class="cm"># Simulate RL reward improving but KL drifting</span>
+    rm_score += random.uniform(<span class="nm">0.1</span>, <span class="nm">0.3</span>)
+    kl = (rm_score - sft_score) ** <span class="nm">2</span> * <span class="nm">5</span>  <span class="cm"># KL grows as we diverge from SFT</span>
+    obj = ppo_objective(rm_score, kl, beta)
+    status = <span class="st">"✓ good"</span> <span class="kw">if</span> obj > <span class="nm">1.5</span> <span class="kw">else</span> (<span class="st">"⚠ drifting"</span> <span class="kw">if</span> kl > <span class="nm">2.0</span> <span class="kw">else</span> <span class="st">"→ training"</span>)
+    print(<span class="st">f"{step+1:5d} {rm_score:12.3f} {kl:12.3f} {obj:12.3f} {status}"</span>)
+
+print(<span class="st">f"\nRM pairwise loss examples:"</span>)
+<span class="kw">for</span> (rc, rr) <span class="kw">in</span> [(<span class="nm">3.0</span>, <span class="nm">1.0</span>), (<span class="nm">1.2</span>, <span class="nm">1.1</span>), (<span class="nm">5.0</span>, <span class="nm">0.5</span>)]:
+    print(<span class="st">f"  chosen={rc:.1f}, rejected={rr:.1f} → loss={rm_loss(rc,rr):.4f}"</span>)
+<span class="cm"># Try beta=0.0 (no KL penalty) — watch objective keep climbing but model drifts.</span>
+<span class="cm"># Try beta=0.3 (heavy penalty) — objective stays low, model stays close to SFT.</span></pre>
+  </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Diagram 6 — RoPE Positional Encoding</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, 'Segoe UI', system-ui, sans-serif;
+    background: #faf9f7; padding: 40px 24px; color: #2a2a2a;
+  }
+  .diagram-wrapper {
+    max-width: 820px; margin: 0 auto;
+    border: 1px solid #e8e4de; border-radius: 12px;
+    background: #faf9f7; padding: 36px 32px 28px;
+  }
+  .diagram-title {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.12em;
+    text-transform: uppercase; color: #c96442; margin-bottom: 6px;
+  }
+  .diagram-subtitle { font-size: 18px; font-weight: 600; color: #1a1a1a; margin-bottom: 8px; }
+  .diagram-tagline { font-size: 13px; color: #7a6a5a; font-style: italic; margin-bottom: 28px; }
+
+  /* Rotation visualization */
+  .rotation-row {
+    display: flex;
+    gap: 20px;
+    align-items: center;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+  }
+
+  /* SVG circles for rotation */
+  .circle-panel {
+    flex-shrink: 0;
+    text-align: center;
+  }
+  .circle-label {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.1em;
+    text-transform: uppercase; color: #9a8878; margin-bottom: 8px;
+  }
+  svg.rot-circle {
+    display: block;
+    margin: 0 auto;
+  }
+
+  /* 2D pair grid */
+  .pairs-section {
+    margin-bottom: 24px;
+  }
+  .pairs-label {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.1em;
+    text-transform: uppercase; color: #c96442; margin-bottom: 12px;
+  }
+  .pairs-row {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+  .pair-box {
+    flex: 1; min-width: 120px;
+    border-radius: 8px;
+    padding: 12px 14px;
+    border: 1.5px solid #e8e4de;
+    background: #f8f6f2;
+  }
+  .pair-title {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
+    text-transform: uppercase; color: #9a8878; margin-bottom: 8px;
+  }
+  .pair-formula {
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    color: #4a3f35;
+    line-height: 1.8;
+  }
+  .pair-formula .q { color: #f59e0b; font-weight: 700; }
+  .pair-formula .k { color: #3b82f6; font-weight: 700; }
+  .pair-formula .theta { color: #c96442; font-weight: 700; }
+
+  /* Relative distance property */
+  .property-box {
+    background: #1d1d1d;
+    border-radius: 8px;
+    padding: 18px 20px;
+    margin-bottom: 20px;
+    border: 1px solid #333;
+  }
+  .property-label {
+    font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: #c96442; margin-bottom: 12px; font-weight: 700;
+  }
+  .property-eq {
+    font-size: 13px; color: #e8e4de;
+    font-family: 'Courier New', monospace; line-height: 2;
+  }
+  .q-c { color: #fbbf24; }
+  .k-c { color: #60a5fa; }
+  .r-c { color: #c96442; }
+  .cm-c { color: #6b7280; font-style: italic; font-size: 11px; }
+
+  /* θ frequency chart */
+  .freq-section {
+    margin-bottom: 20px;
+  }
+  .freq-label {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.1em;
+    text-transform: uppercase; color: #9a8878; margin-bottom: 10px;
+  }
+  .freq-bars {
+    display: flex;
+    gap: 4px;
+    align-items: flex-end;
+    height: 80px;
+    background: #f5f0ea;
+    border-radius: 6px;
+    padding: 8px 12px 4px;
+    border: 1px solid #e8d8c8;
+  }
+  .freq-bar-col {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    height: 100%;
+    justify-content: flex-end;
+  }
+  .freq-bar {
+    width: 100%;
+    border-radius: 2px 2px 0 0;
+    min-width: 12px;
+  }
+  .freq-tok-label {
+    font-size: 9px; color: #9a8878; white-space: nowrap;
+    font-family: monospace;
+  }
+
+  .advantages-row {
+    display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px;
+  }
+  .adv-card {
+    flex: 1; min-width: 160px;
+    background: #f5f0ea; border: 1.5px solid #e8d8c8; border-radius: 8px;
+    padding: 12px 14px;
+  }
+  .adv-title {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
+    text-transform: uppercase; color: #c96442; margin-bottom: 5px;
+  }
+  .adv-text { font-size: 12px; color: #5a4a3a; line-height: 1.5; }
+
+  .caption { font-size: 12px; color: #7a6a5a; line-height: 1.6; margin-top: 18px; }
+  .python-block {
+    margin-top: 28px; background: #1d1d1d; border-radius: 8px;
+    padding: 20px; border: 1px solid #333;
+  }
+  .python-label {
+    font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: #c96442; margin-bottom: 12px; font-weight: 700;
+  }
+  pre {
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+    font-size: 12px; line-height: 1.7; color: #e8e4de; white-space: pre; overflow-x: auto;
+  }
+  .kw { color: #c084fc; } .fn { color: #60a5fa; }
+  .cm { color: #6b7280; font-style: italic; } .st { color: #86efac; } .nm { color: #fbbf24; }
+</style>
+</head>
+<body>
+<div class="diagram-wrapper">
+  <div class="diagram-title">Diagram 6 of 14</div>
+  <div class="diagram-subtitle">Rotary Positional Encoding (RoPE)</div>
+  <div class="diagram-tagline">Used in LLaMA, GPT-NeoX, PaLM — encodes position as rotation angle in 2D subspaces</div>
+
+  <!-- Core idea: rotation of Q and K vectors -->
+  <div class="rotation-row">
+    <!-- SVG circle: Query at position m -->
+    <div class="circle-panel">
+      <div class="circle-label">Query q at position m — rotated by m·θ</div>
+      <svg class="rot-circle" width="160" height="160" viewBox="-80 -80 160 160">
+        <!-- Grid lines -->
+        <line x1="-70" y1="0" x2="70" y2="0" stroke="#e8e4de" stroke-width="1"/>
+        <line x1="0" y1="-70" x2="0" y2="70" stroke="#e8e4de" stroke-width="1"/>
+        <!-- Unit circle -->
+        <circle cx="0" cy="0" r="55" fill="none" stroke="#e8e4de" stroke-width="1.5" stroke-dasharray="4,4"/>
+        <!-- Original vector (0°) -->
+        <line x1="0" y1="0" x2="45" y2="0" stroke="#d6cfc5" stroke-width="1.5" stroke-dasharray="3,3"/>
+        <text x="48" y="4" font-size="9" fill="#9a8878" font-family="sans-serif">q (unrotated)</text>
+        <!-- Rotated query vector (position m=2, angle ~40°) -->
+        <line x1="0" y1="0" x2="42" y2="-28" stroke="#f59e0b" stroke-width="2.5"/>
+        <polygon points="42,-28 36,-22 38,-32" fill="#f59e0b"/>
+        <text x="44" y="-30" font-size="10" fill="#f59e0b" font-family="sans-serif" font-weight="bold">R(m·θ)·q</text>
+        <!-- Angle arc -->
+        <path d="M 30 0 A 30 30 0 0 0 23 -15" fill="none" stroke="#c96442" stroke-width="1.5"/>
+        <text x="20" y="-4" font-size="9" fill="#c96442" font-family="sans-serif">m·θ</text>
+        <!-- Axis labels -->
+        <text x="62" y="12" font-size="9" fill="#9a8878" font-family="sans-serif">x</text>
+        <text x="-8" y="-62" font-size="9" fill="#9a8878" font-family="sans-serif">y</text>
+      </svg>
+    </div>
+
+    <div style="font-size:24px;color:#a09080;padding:0 4px;">·</div>
+
+    <!-- SVG circle: Key at position n -->
+    <div class="circle-panel">
+      <div class="circle-label">Key k at position n — rotated by n·θ</div>
+      <svg class="rot-circle" width="160" height="160" viewBox="-80 -80 160 160">
+        <line x1="-70" y1="0" x2="70" y2="0" stroke="#e8e4de" stroke-width="1"/>
+        <line x1="0" y1="-70" x2="0" y2="70" stroke="#e8e4de" stroke-width="1"/>
+        <circle cx="0" cy="0" r="55" fill="none" stroke="#e8e4de" stroke-width="1.5" stroke-dasharray="4,4"/>
+        <line x1="0" y1="0" x2="45" y2="0" stroke="#d6cfc5" stroke-width="1.5" stroke-dasharray="3,3"/>
+        <text x="48" y="4" font-size="9" fill="#9a8878" font-family="sans-serif">k (unrotated)</text>
+        <!-- Rotated key vector (position n=5, angle ~100°) -->
+        <line x1="0" y1="0" x2="-26" y2="-44" stroke="#3b82f6" stroke-width="2.5"/>
+        <polygon points="-26,-44 -18,-40 -28,-36" fill="#3b82f6"/>
+        <text x="-68" y="-46" font-size="10" fill="#3b82f6" font-family="sans-serif" font-weight="bold">R(n·θ)·k</text>
+        <path d="M 30 0 A 30 30 0 0 0 -16 -26" fill="none" stroke="#c96442" stroke-width="1.5"/>
+        <text x="-10" y="-10" font-size="9" fill="#c96442" font-family="sans-serif">n·θ</text>
+        <text x="62" y="12" font-size="9" fill="#9a8878" font-family="sans-serif">x</text>
+        <text x="-8" y="-62" font-size="9" fill="#9a8878" font-family="sans-serif">y</text>
+      </svg>
+    </div>
+
+    <!-- Key property: dot product depends only on m-n -->
+    <div style="flex:1;min-width:200px;">
+      <div style="background:#f5f0ea;border:1.5px solid #c96442;border-radius:8px;padding:16px;">
+        <div style="font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#c96442;margin-bottom:10px;">Key Property</div>
+        <div style="font-size:13px;font-family:'Courier New',monospace;line-height:2;color:#4a3f35;">
+          ⟨R(m·θ)q, R(n·θ)k⟩<br>
+          = ⟨q, R((n-m)·θ)k⟩
+        </div>
+        <div style="font-size:11px;color:#7a6a5a;margin-top:10px;line-height:1.5;">
+          The dot product depends only on the <strong>relative distance (n−m)</strong> between positions, not their absolute values.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2D pair rotation formula -->
+  <div class="pairs-section">
+    <div class="pairs-label">Rotation applied per 2D pair of dimensions</div>
+    <div class="pairs-row">
+      <div class="pair-box">
+        <div class="pair-title">Rotation matrix R(θ)</div>
+        <div class="pair-formula">
+          [ cos θ  −sin θ ]<br>
+          [ sin θ   cos θ ]<br>
+          <br>
+          Applied to each<br>
+          (x₂ᵢ, x₂ᵢ₊₁) pair
+        </div>
+      </div>
+      <div class="pair-box">
+        <div class="pair-title">Per-dimension frequency</div>
+        <div class="pair-formula">
+          θᵢ = 1 / (10000<sup>2i/d</sup>)<br>
+          <br>
+          i=0: fast rotation (local)<br>
+          i=d/2: slow rotation (global)<br>
+          <br>
+          <span style="color:#c96442;">Same as sinusoidal PE freq!</span>
+        </div>
+      </div>
+      <div class="pair-box">
+        <div class="pair-title">Applied to Q and K only</div>
+        <div class="pair-formula">
+          <span class="q">q</span>ₘ = <span class="theta">R</span>(m) · W<span class="q">Q</span>·x<br>
+          <span class="k">k</span>ₙ = <span class="theta">R</span>(n) · W<span class="k">K</span>·x<br>
+          <br>
+          V is NOT rotated<br>
+          (values don't need position)
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Frequency visualization -->
+  <div class="freq-section">
+    <div class="freq-label">Rotation speed per dimension pair — slow at high dims (captures long-range), fast at low dims (captures local)</div>
+    <div class="freq-bars">
+      <div class="freq-bar-col">
+        <div class="freq-bar" style="height:68px;background:#c96442;"></div>
+        <div class="freq-tok-label">dim 0</div>
+      </div>
+      <div class="freq-bar-col">
+        <div class="freq-bar" style="height:56px;background:#d97706;"></div>
+        <div class="freq-tok-label">dim 2</div>
+      </div>
+      <div class="freq-bar-col">
+        <div class="freq-bar" style="height:44px;background:#ca8a04;"></div>
+        <div class="freq-tok-label">dim 4</div>
+      </div>
+      <div class="freq-bar-col">
+        <div class="freq-bar" style="height:34px;background:#65a30d;"></div>
+        <div class="freq-tok-label">dim 8</div>
+      </div>
+      <div class="freq-bar-col">
+        <div class="freq-bar" style="height:24px;background:#0891b2;"></div>
+        <div class="freq-tok-label">dim 16</div>
+      </div>
+      <div class="freq-bar-col">
+        <div class="freq-bar" style="height:14px;background:#2563eb;"></div>
+        <div class="freq-tok-label">dim 32</div>
+      </div>
+      <div class="freq-bar-col">
+        <div class="freq-bar" style="height:6px;background:#7c3aed;"></div>
+        <div class="freq-tok-label">dim 64</div>
+      </div>
+      <div class="freq-bar-col">
+        <div class="freq-bar" style="height:2px;background:#9333ea;"></div>
+        <div class="freq-tok-label">dim 128</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="advantages-row">
+    <div class="adv-card">
+      <div class="adv-title">vs. learned PE</div>
+      <div class="adv-text">No extra parameters. Generalizes to longer sequences than seen during training (used for context extension in LLaMA-2 Long).</div>
+    </div>
+    <div class="adv-card">
+      <div class="adv-title">vs. sinusoidal PE</div>
+      <div class="adv-text">Applied to Q/K directly (not added to input), so relative distance is naturally encoded in the dot product — not just the vectors.</div>
+    </div>
+    <div class="adv-card">
+      <div class="adv-title">Adoption</div>
+      <div class="adv-text">LLaMA 1/2/3, Mistral, Falcon, GPT-NeoX, PaLM 2, Gemma. Dominant positional encoding in modern open-source LLMs.</div>
+    </div>
+  </div>
+
+  <div class="caption" style="margin-top:16px;">
+    RoPE encodes position m by rotating each 2D pair of dimensions of Q and K by angle m·θᵢ.
+    The inner product of a rotated Q at position m with a rotated K at position n depends only on
+    their relative offset (m−n), giving the model natural sensitivity to distance without absolute position leakage.
+  </div>
+
+  <div class="python-block">
+    <div class="python-label">Python Demo — stdlib only</div>
+    <pre><span class="kw">import</span> math
+
+<span class="kw">def</span> <span class="fn">rope_rotate</span>(x, pos, base=<span class="nm">10000</span>):
+    <span class="st">"""Apply RoPE rotation to vector x at sequence position pos."""</span>
+    d = len(x)
+    out = list(x)
+    <span class="kw">for</span> i <span class="kw">in</span> range(<span class="nm">0</span>, d, <span class="nm">2</span>):      <span class="cm"># process pairs (x2i, x2i+1)</span>
+        theta = pos / (base ** (i / d))
+        cos_t, sin_t = math.cos(theta), math.sin(theta)
+        x0, x1 = x[i], x[i+<span class="nm">1</span>]
+        out[i]   = x0 * cos_t - x1 * sin_t
+        out[i+<span class="nm">1</span>] = x0 * sin_t + x1 * cos_t
+    <span class="kw">return</span> out
+
+<span class="kw">def</span> <span class="fn">dot</span>(a, b): <span class="kw">return</span> sum(x*y <span class="kw">for</span> x,y <span class="kw">in</span> zip(a,b))
+
+<span class="cm"># Show that dot product depends only on relative distance</span>
+d = <span class="nm">8</span>  <span class="cm"># try 4 or 16</span>
+q = [<span class="nm">1.0</span> <span class="kw">if</span> i%<span class="nm">2</span>==<span class="nm">0</span> <span class="kw">else</span> <span class="nm">0.5</span> <span class="kw">for</span> i <span class="kw">in</span> range(d)]
+k = [<span class="nm">0.8</span> <span class="kw">if</span> i%<span class="nm">2</span>==<span class="nm">0</span> <span class="kw">else</span> <span class="nm">0.3</span> <span class="kw">for</span> i <span class="kw">in</span> range(d)]
+
+print(<span class="st">"Relative distance → dot product (should depend only on gap):"</span>)
+<span class="kw">for</span> gap <span class="kw">in</span> [<span class="nm">0</span>, <span class="nm">1</span>, <span class="nm">2</span>, <span class="nm">5</span>, <span class="nm">10</span>]:
+    scores = []
+    <span class="kw">for</span> m <span class="kw">in</span> range(<span class="nm">5</span>):     <span class="cm"># different absolute positions</span>
+        n = m + gap
+        rq = rope_rotate(q, m)
+        rk = rope_rotate(k, n)
+        scores.append(round(dot(rq, rk), <span class="nm">4</span>))
+    variance = max(scores) - min(scores)
+    print(<span class="st">f"  gap={gap:2d}: scores={scores}  variance={variance:.4f}"</span>)
+
+<span class="cm"># Try changing base=10000 to 500000 — LLaMA-3 uses 500k for long context!</span></pre>
+  </div>
+</div>
+</body>
+</html>

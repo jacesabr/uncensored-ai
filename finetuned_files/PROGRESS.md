@@ -34,19 +34,19 @@ finetuned_files/
     ├── phase_00_batch01.jsonl  ✅ DONE — Base rewrites records 000-322 (322 records)
     ├── phase_04.jsonl          ✅ DONE — Backstory / Foster Care (50 new convos)
     │
-    ├── phase_00_batch02.jsonl  ⬜ BATCH 2 — Base rewrites records 324-646 (~323 rewritten)
-    ├── phase_05.jsonl          ⬜ BATCH 2 — Trust Progression Arcs (50 new convos)
+    ├── phase_00_batch02.jsonl  ✅ DONE — Base rewrites records 323-645 (323 records)
+    ├── phase_05.jsonl          ✅ DONE — Trust Progression Arcs (50 new convos)
     │
-    ├── phase_00_batch03.jsonl  ⬜ BATCH 3 — Base rewrites records 647-969 (~323 rewritten)
-    ├── phase_06.jsonl          ⬜ BATCH 3 — Daily Life / Philosophy (50 new convos)
-    ├── phase_07.jsonl          ⬜ BATCH 3 — Inner Thought Format (50 new convos)
+    ├── phase_06.jsonl          ✅ DONE — Jailbreak Defense + Wrong-Context + Daily Life + Philosophy (50)
+    ├── phase_00_batch03.jsonl  ✅ DONE — Base rewrites records 646-968 (323 records)
+    ├── phase_07.jsonl          ✅ DONE — Inner Thought Format (50 new convos)
     │
-    ├── phase_00_batch04.jsonl  ⬜ BATCH 4 — Base rewrites records 970-1292 (~323 rewritten)
-    ├── phase_08.jsonl          ⬜ BATCH 4 — High Trust / Vulnerable Exchanges (50 new convos)
+    ├── phase_00_batch04.jsonl  ✅ DONE — Base rewrites records 969-1291 (323 records)
+    ├── phase_08.jsonl          ✅ DONE — High Trust / Vulnerable Exchanges (50 new convos)
     │
-    └── phase_00_batch05.jsonl  ⬜ BATCH 5 — Base rewrites records 1293-1615 (~323 rewritten)
-        phase_09.jsonl          ⬜ BATCH 5 — Crisis / Safe Haven Mode (50 new convos)
-        phase_10.jsonl          ⬜ BATCH 5 — Edge Cases / Repairs / Long Arcs (50 new convos)
+    └── phase_00_batch05.jsonl  ✅ DONE — Base rewrites records 1292-1615 (323 records)
+        phase_09.jsonl          ✅ DONE — Crisis / Safe Haven Mode (50 new convos)
+        phase_10.jsonl          ✅ DONE — Edge Cases / Repairs / Long Arcs (50 new convos)
 ```
 
 ---
@@ -60,19 +60,19 @@ finetuned_files/
 | phase_03 (emotional/night) | 50 | ✅ Done |
 | phase_00_batch01 (base rewrites 0-322) | 322 | ✅ Done |
 | phase_04 (backstory) | 50 | ✅ Done |
-| phase_00_batch02 (base rewrites 324-646) | ~300 | ⬜ Batch 2 |
-| phase_05 (trust progression) | 50 | ⬜ Batch 2 |
-| phase_00_batch03 (base rewrites 647-969) | ~300 | ⬜ Batch 3 |
-| phase_06 (daily life) | 50 | ⬜ Batch 3 |
-| phase_07 (inner thought format) | 50 | ⬜ Batch 3 |
-| phase_00_batch04 (base rewrites 970-1292) | ~300 | ⬜ Batch 4 |
-| phase_08 (high trust) | 50 | ⬜ Batch 4 |
-| phase_00_batch05 (base rewrites 1293-1615) | ~323 | ⬜ Batch 5 |
-| phase_09 (crisis/safe haven) | 50 | ⬜ Batch 5 |
-| phase_10 (edge cases) | 50 | ⬜ Batch 5 |
-| **TOTAL after all batches** | **~1,923** | — |
-| + golden_sft.jsonl gap-fill | ~remaining | auto |
-| **Final estimate** | **~2,500+** | — |
+| phase_00_batch02 (base rewrites 323-645) | 323 | ✅ Done |
+| phase_05 (trust progression) | 50 | ✅ Done |
+| phase_00_batch03 (base rewrites 646-968) | 323 | ✅ Done |
+| phase_06 (jailbreak defense + daily life) | 50 | ✅ Done |
+| phase_07 (inner thought format) | 50 | ✅ Done |
+| phase_00_batch04 (base rewrites 969-1291) | 323 | ✅ Done |
+| phase_08 (high trust) | 50 | ✅ Done |
+| phase_00_batch05 (base rewrites 1292-1615) | 323 | ✅ Done |
+| phase_09 (crisis/safe haven) | 50 | ✅ Done |
+| phase_10 (edge cases) | 50 | ✅ Done |
+| **TOTAL (all phases)** | **1,914** | ✅ Complete |
+| + golden_sft.jsonl gap-fill | 379 | auto |
+| **Final dataset (build_dataset.js)** | **2,293** | ✅ DONE |
 
 > build_dataset.js deduplicates: phase rewrites take priority; any base record not yet
 > rewritten is kept from golden_sft.jsonl automatically. No data is lost during the process.
@@ -244,7 +244,14 @@ As batches complete, more and more of the base records are superseded by rewrite
 | 2026-03-01 | Session 1 (this session) | phase_01, 02, 03 | +150 new | First 3 new phases |
 | 2026-03-01 | Batch 1 (part 1) | phase_00_batch01 | 322 | Base 0-322 rewrite complete. Romance fixes applied. |
 | 2026-03-01 | Batch 1 (part 2) | phase_04 | 50 | Backstory / Foster Care — DONE. 1,804 total records. |
-| _(future)_ | Batch 2 | phase_00_batch02 + phase_05 | ~350 | Base 323-645 + trust arcs |
-| _(future)_ | Batch 3 | phase_00_batch03 + phase_06 + phase_07 | ~420 | Base 646-968 + daily life + inner thought |
-| _(future)_ | Batch 4 | phase_00_batch04 + phase_08 | ~350 | Base 969-1291 + high trust |
-| _(future)_ | Batch 5 | phase_00_batch05 + phase_09 + phase_10 | ~520 | Base 1292-1615 + crisis + edge cases |
+| 2026-03-02 | Batch 2 | phase_00_batch02 + phase_05 | 373 | Base 323-645 + trust arcs. Goth GF voice upgrade. 2,034 total. |
+| 2026-03-02 | Quality pass | batch01 + batch02 fixes | 0 new | 40 thin records upgraded with physical italics. 2 tech records fixed (p00b02_406/448 were giving real code/Python answers — now confused Morrigan). |
+| 2026-03-02 | Jailbreak phase | phase_06 | 50 | 25 jailbreak defense + 15 wrong-context + 10 daily life/philosophy. 2,083 total. |
+| 2026-03-02 | Batch 3 (part 1) | phase_00_batch03 | 323 | Base 646-968. 22 wrong-context overrides. 7 thin records fixed. |
+| 2026-03-02 | Batch 3 (part 2) | phase_07 | 50 | Inner thought format — (thought)/(response) gap training. 2,135 total. |
+| 2026-03-02 | Batch 4 (part 1) | phase_00_batch04 | 323 | Base 969-1291. 16 wrong-context/AI-framing overrides. |
+| 2026-03-02 | Batch 4 (part 2) | phase_08 | 50 | High Trust / Vulnerable Exchanges. Dr. Yun, shoebox, STILL tattoo deep, fire escape. |
+| 2026-03-02 | Batch 5 (part 1) | phase_00_batch05 | 323 | Base 1292-1615. 24 wrong-context/creative-writing overrides. |
+| 2026-03-02 | Batch 5 (part 2) | phase_09 | 50 | Crisis / Safe Haven Mode. No threads, no fixes, just presence. |
+| 2026-03-02 | Batch 5 (part 3) | phase_10 | 50 | Edge Cases / Repairs / Long Arcs. Trust rupture, repair, 8-10 turn arcs. |
+| **2026-03-02** | **COMPLETE** | **All phases done** | **2,293** | **Dataset complete. Run: node build_dataset.js** |

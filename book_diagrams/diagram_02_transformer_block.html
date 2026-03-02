@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Diagram 2 — Transformer Block Architecture</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, 'Segoe UI', system-ui, sans-serif;
+    background: #faf9f7;
+    padding: 40px 24px;
+    color: #2a2a2a;
+  }
+  .diagram-wrapper {
+    max-width: 680px;
+    margin: 0 auto;
+    border: 1px solid #e8e4de;
+    border-radius: 12px;
+    background: #faf9f7;
+    padding: 36px 32px 28px;
+  }
+  .diagram-title {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.12em;
+    text-transform: uppercase; color: #c96442; margin-bottom: 6px;
+  }
+  .diagram-subtitle {
+    font-size: 18px; font-weight: 600; color: #1a1a1a; margin-bottom: 32px;
+  }
+
+  /* The block column */
+  .block-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+    padding: 0 60px;
+  }
+
+  .block-row {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    position: relative;
+    margin: 0;
+  }
+
+  .node {
+    flex: 1;
+    text-align: center;
+    border-radius: 8px;
+    padding: 10px 16px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    position: relative;
+    z-index: 2;
+  }
+  .node-io {
+    background: #f0ece6;
+    border: 1.5px solid #d6cfc5;
+    color: #4a3f35;
+  }
+  .node-norm {
+    background: #fff8f0;
+    border: 1.5px solid #e8c99a;
+    color: #7a5520;
+  }
+  .node-attn {
+    background: #c96442;
+    border: 1.5px solid #a8512f;
+    color: #fff;
+    box-shadow: 0 2px 10px rgba(201,100,66,0.28);
+    padding: 12px 16px;
+  }
+  .node-add {
+    background: #eef4ff;
+    border: 1.5px dashed #99b8e8;
+    color: #2a5298;
+    font-size: 11px;
+    padding: 8px 16px;
+  }
+  .node-ffn {
+    background: #1d1d1d;
+    border: 1.5px solid #444;
+    color: #e8e4de;
+    padding: 12px 16px;
+  }
+
+  .v-arrow {
+    text-align: center;
+    font-size: 20px;
+    color: #a09080;
+    line-height: 1;
+    padding: 6px 0;
+    width: 100%;
+  }
+  .v-arrow.accent { color: #c96442; }
+
+  /* Residual bypass lines */
+  .residual-wrapper {
+    position: relative;
+    width: 100%;
+  }
+  .residual-track {
+    position: absolute;
+    left: -28px;
+    top: 0;
+    bottom: 0;
+    width: 20px;
+    pointer-events: none;
+    z-index: 1;
+  }
+  .residual-track.right {
+    left: auto;
+    right: -28px;
+  }
+  .res-line {
+    position: absolute;
+    left: 10px;
+    width: 2px;
+    background: #99b8e8;
+    top: 0;
+    bottom: 0;
+  }
+  .res-arrow-down {
+    position: absolute;
+    bottom: -2px;
+    left: 4px;
+    font-size: 14px;
+    color: #99b8e8;
+    line-height: 1;
+  }
+  .res-label {
+    position: absolute;
+    left: -44px;
+    top: 50%;
+    transform: translateY(-50%) rotate(-90deg);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #99b8e8;
+    white-space: nowrap;
+  }
+
+  /* Residual connector SVG overlay */
+  .block-outer {
+    position: relative;
+    width: 100%;
+  }
+  svg.residuals {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    overflow: visible;
+  }
+
+  .sublayer-label {
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #9a8878;
+    margin-top: 4px;
+    margin-bottom: 2px;
+    text-align: center;
+    width: 100%;
+  }
+  .section-brace {
+    border-left: 2px solid #e8e4de;
+    border-right: 2px solid #e8e4de;
+    border-radius: 0;
+    padding: 8px 0;
+    width: 100%;
+    position: relative;
+  }
+  .section-brace::before {
+    content: attr(data-label);
+    position: absolute;
+    right: -88px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #c96442;
+    white-space: nowrap;
+    background: #faf9f7;
+    padding: 2px 4px;
+  }
+
+  .dimensions-note {
+    font-size: 10px;
+    color: #9a8878;
+    font-style: italic;
+    text-align: center;
+    margin-top: 2px;
+  }
+
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 24px;
+    padding-top: 16px;
+    border-top: 1px solid #e8e4de;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 11px;
+    color: #5a4a3a;
+  }
+  .legend-swatch {
+    width: 20px;
+    height: 12px;
+    border-radius: 3px;
+    flex-shrink: 0;
+  }
+
+  .caption {
+    font-size: 12px;
+    color: #7a6a5a;
+    line-height: 1.6;
+    margin-top: 18px;
+  }
+  .python-block {
+    margin-top: 28px;
+    background: #1d1d1d;
+    border-radius: 8px;
+    padding: 20px;
+    border: 1px solid #333;
+  }
+  .python-label {
+    font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: #c96442; margin-bottom: 12px; font-weight: 700;
+  }
+  pre {
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+    font-size: 12px; line-height: 1.7; color: #e8e4de;
+    white-space: pre; overflow-x: auto;
+  }
+  .kw { color: #c084fc; }
+  .fn { color: #60a5fa; }
+  .cm { color: #6b7280; font-style: italic; }
+  .st { color: #86efac; }
+  .nm { color: #fbbf24; }
+</style>
+</head>
+<body>
+<div class="diagram-wrapper">
+  <div class="diagram-title">Diagram 2 of 14</div>
+  <div class="diagram-subtitle">Transformer Block Architecture</div>
+
+  <div class="block-outer">
+    <!-- SVG for residual bypass lines -->
+    <svg class="residuals" viewBox="0 0 560 560" preserveAspectRatio="none" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible;">
+      <!-- Residual 1: input → after first Add&Norm (bypasses LayerNorm + MHA) -->
+      <path d="M 55 68 L 30 68 L 30 272 L 55 272" fill="none" stroke="#99b8e8" stroke-width="2" stroke-dasharray="5,3"/>
+      <polygon points="55,268 55,276 63,272" fill="#99b8e8"/>
+      <text x="10" y="175" font-size="9" fill="#99b8e8" transform="rotate(-90,10,175)" text-anchor="middle" font-family="sans-serif" letter-spacing="1">RESIDUAL 1</text>
+
+      <!-- Residual 2: after first Add&Norm → after second Add&Norm (bypasses LayerNorm + FFN) -->
+      <path d="M 55 300 L 30 300 L 30 504 L 55 504" fill="none" stroke="#99b8e8" stroke-width="2" stroke-dasharray="5,3"/>
+      <polygon points="55,500 55,508 63,504" fill="#99b8e8"/>
+      <text x="10" y="405" font-size="9" fill="#99b8e8" transform="rotate(-90,10,405)" text-anchor="middle" font-family="sans-serif" letter-spacing="1">RESIDUAL 2</text>
+    </svg>
+
+    <div class="block-col">
+
+      <!-- INPUT -->
+      <div class="node node-io" style="width:280px;">
+        x (input embeddings)
+        <div class="dimensions-note">shape: [seq_len, d_model]</div>
+      </div>
+      <div class="v-arrow">↓</div>
+
+      <!-- SUB-LAYER 1: LayerNorm → MHA → Add -->
+      <div style="border:1.5px solid #e8e4de;border-radius:10px;padding:14px 16px;width:100%;margin-bottom:4px;position:relative;" data-section="sub1">
+        <div style="font-size:9px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#c96442;margin-bottom:10px;">Sub-layer 1 — Self-Attention</div>
+
+        <div style="display:flex;flex-direction:column;align-items:center;gap:0;">
+          <div class="node node-norm" style="width:240px;">
+            Layer Norm
+            <div class="dimensions-note">normalizes over d_model dim</div>
+          </div>
+          <div class="v-arrow">↓</div>
+          <div class="node node-attn" style="width:240px;">
+            Multi-Head Self-Attention
+            <div style="font-size:10px;opacity:0.8;margin-top:3px;">h heads, each dim = d_model/h</div>
+          </div>
+          <div class="v-arrow">↓</div>
+          <div class="node node-add" style="width:240px;">
+            Add &amp; (Residual x + output)
+          </div>
+        </div>
+      </div>
+
+      <div class="v-arrow accent">↓</div>
+
+      <!-- SUB-LAYER 2: LayerNorm → FFN → Add -->
+      <div style="border:1.5px solid #e8e4de;border-radius:10px;padding:14px 16px;width:100%;margin-bottom:4px;position:relative;">
+        <div style="font-size:9px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#c96442;margin-bottom:10px;">Sub-layer 2 — Feed-Forward Network</div>
+
+        <div style="display:flex;flex-direction:column;align-items:center;gap:0;">
+          <div class="node node-norm" style="width:240px;">
+            Layer Norm
+          </div>
+          <div class="v-arrow">↓</div>
+          <div class="node node-ffn" style="width:240px;">
+            FFN: Linear → GELU → Linear
+            <div style="font-size:10px;opacity:0.75;margin-top:3px;">d_model → 4×d_model → d_model</div>
+          </div>
+          <div class="v-arrow">↓</div>
+          <div class="node node-add" style="width:240px;">
+            Add &amp; (Residual x + output)
+          </div>
+        </div>
+      </div>
+
+      <div class="v-arrow accent">↓</div>
+
+      <!-- OUTPUT -->
+      <div class="node node-io" style="width:280px;">
+        x′ (output — same shape as input)
+        <div class="dimensions-note">passed to next block</div>
+      </div>
+
+      <div style="margin-top:12px;font-size:11px;color:#9a8878;text-align:center;font-style:italic;">
+        Stack N blocks (e.g., N=32 for LLaMA-7B, N=80 for GPT-4)
+      </div>
+    </div>
+  </div>
+
+  <!-- Legend -->
+  <div class="legend">
+    <div class="legend-item">
+      <div class="legend-swatch" style="background:#fff8f0;border:1.5px solid #e8c99a;"></div>
+      Layer Normalization
+    </div>
+    <div class="legend-item">
+      <div class="legend-swatch" style="background:#c96442;"></div>
+      Multi-Head Attention
+    </div>
+    <div class="legend-item">
+      <div class="legend-swatch" style="background:#1d1d1d;"></div>
+      Feed-Forward Network
+    </div>
+    <div class="legend-item">
+      <div class="legend-swatch" style="background:#eef4ff;border:1.5px dashed #99b8e8;"></div>
+      Residual (Add)
+    </div>
+    <div class="legend-item">
+      <div style="width:20px;height:2px;border-top:2px dashed #99b8e8;margin-top:5px;"></div>
+      Skip connection
+    </div>
+  </div>
+
+  <div class="caption" style="margin-top:16px;">
+    Both sub-layers follow the pattern: <strong>LayerNorm → operation → Add residual</strong> (Pre-LN variant, used in LLaMA/GPT-2).
+    The residual connections (dashed blue lines) let gradients flow directly to earlier layers, enabling training of very deep networks.
+    Output shape is identical to input shape, allowing arbitrary stacking.
+  </div>
+
+  <div class="python-block">
+    <div class="python-label">Python Demo — stdlib only</div>
+    <pre><span class="kw">import</span> math, random
+
+<span class="kw">def</span> <span class="fn">layer_norm</span>(x, eps=<span class="nm">1e-5</span>):
+    <span class="cm">"Normalize a vector to mean=0, std=1"</span>
+    mean = sum(x) / len(x)
+    var = sum((v - mean)**<span class="nm">2</span> <span class="kw">for</span> v <span class="kw">in</span> x) / len(x)
+    <span class="kw">return</span> [(v - mean) / math.sqrt(var + eps) <span class="kw">for</span> v <span class="kw">in</span> x]
+
+<span class="kw">def</span> <span class="fn">gelu</span>(x):
+    <span class="cm">"Gaussian Error Linear Unit activation"</span>
+    <span class="kw">return</span> x * <span class="nm">0.5</span> * (<span class="nm">1.0</span> + math.tanh(math.sqrt(<span class="nm">2</span>/math.pi)*(<span class="nm">x</span>+<span class="nm">0.044715</span>*x**<span class="nm">3</span>)))
+
+<span class="kw">def</span> <span class="fn">linear</span>(x, W):
+    <span class="cm">"Matrix-vector product: W is list of rows"</span>
+    <span class="kw">return</span> [sum(w*xi <span class="kw">for</span> w, xi <span class="kw">in</span> zip(row, x)) <span class="kw">for</span> row <span class="kw">in</span> W]
+
+<span class="kw">def</span> <span class="fn">ffn</span>(x, W1, W2):
+    hidden = [gelu(v) <span class="kw">for</span> v <span class="kw">in</span> linear(x, W1)]
+    <span class="kw">return</span> linear(hidden, W2)
+
+<span class="cm"># Simulate one transformer sub-layer: LN → FFN → Add residual</span>
+d = <span class="nm">8</span>   <span class="cm"># d_model (try 16 or 32)</span>
+x = [random.gauss(<span class="nm">0</span>, <span class="nm">1</span>) <span class="kw">for</span> _ <span class="kw">in</span> range(d)]
+W1 = [[random.gauss(<span class="nm">0</span>, <span class="nm">0.1</span>) <span class="kw">for</span> _ <span class="kw">in</span> range(d)] <span class="kw">for</span> _ <span class="kw">in</span> range(d*<span class="nm">4</span>)]
+W2 = [[random.gauss(<span class="nm">0</span>, <span class="nm">0.1</span>) <span class="kw">for</span> _ <span class="kw">in</span> range(d*<span class="nm">4</span>)] <span class="kw">for</span> _ <span class="kw">in</span> range(d)]
+
+x_norm = layer_norm(x)
+ffn_out = ffn(x_norm, W1, W2)
+x_prime = [xi + fi <span class="kw">for</span> xi, fi <span class="kw">in</span> zip(x, ffn_out)]  <span class="cm"># residual add</span>
+
+print(<span class="st">f"Input norm:  {[round(v,3) for v in x_norm]}"</span>)
+print(<span class="st">f"FFN output:  {[round(v,3) for v in ffn_out]}"</span>)
+print(<span class="st">f"After add:   {[round(v,3) for v in x_prime]}"</span>)
+print(<span class="st">f"Shape preserved: input dim={len(x)} → output dim={len(x_prime)}"</span>)
+<span class="cm"># Try changing d=8 to d=16 to see the FFN expand to d*4=64 hidden units.</span></pre>
+  </div>
+</div>
+</body>
+</html>

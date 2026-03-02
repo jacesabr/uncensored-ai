@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Diagram 13 — Embedding Space</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, 'Segoe UI', system-ui, sans-serif;
+    background: #faf9f7; padding: 40px 24px; color: #2a2a2a;
+  }
+  .diagram-wrapper {
+    max-width: 820px; margin: 0 auto;
+    border: 1px solid #e8e4de; border-radius: 12px;
+    background: #faf9f7; padding: 36px 32px 28px;
+  }
+  .diagram-title {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.12em;
+    text-transform: uppercase; color: #c96442; margin-bottom: 6px;
+  }
+  .diagram-subtitle { font-size: 18px; font-weight: 600; color: #1a1a1a; margin-bottom: 8px; }
+  .diagram-tagline { font-size: 13px; color: #7a6a5a; font-style: italic; margin-bottom: 28px; }
+
+  /* Main 2D scatter plot */
+  .scatter-section {
+    margin-bottom: 24px;
+  }
+  .scatter-label {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.1em;
+    text-transform: uppercase; color: #9a8878; margin-bottom: 10px;
+  }
+  .scatter-container {
+    position: relative;
+    background: #1d1d1d;
+    border-radius: 10px;
+    border: 1px solid #333;
+    overflow: hidden;
+  }
+  svg.scatter {
+    display: block;
+    width: 100%;
+  }
+
+  /* Cluster legend */
+  .cluster-legend {
+    display: flex; gap: 16px; flex-wrap: wrap; margin-top: 12px;
+  }
+  .cluster-item {
+    display: flex; align-items: center; gap: 7px;
+    font-size: 11px; color: #5a4a3a;
+  }
+  .cluster-dot {
+    width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0;
+  }
+
+  /* Analogy arrows */
+  .analogy-section {
+    margin-bottom: 24px;
+    background: #f5f0ea; border: 1.5px solid #e8d8c8; border-radius: 8px;
+    padding: 16px 18px;
+  }
+  .analogy-title {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
+    text-transform: uppercase; color: #c96442; margin-bottom: 12px;
+  }
+  .analogy-row {
+    display: flex; gap: 12px; align-items: center; margin-bottom: 10px;
+    flex-wrap: wrap;
+  }
+  .analogy-eq {
+    font-size: 13px; font-family: 'Courier New', monospace; color: #4a3f35;
+    line-height: 2;
+    flex: 1; min-width: 280px;
+  }
+  .analogy-eq .q { color: #c96442; font-weight: 700; }
+  .analogy-eq .a { color: #16a34a; font-weight: 700; }
+  .analogy-eq .op { color: #7a6a5a; }
+  .analogy-desc {
+    font-size: 11px; color: #7a6a5a; line-height: 1.5; flex: 1; min-width: 200px;
+  }
+
+  /* Cosine similarity table */
+  .cosine-section {
+    margin-bottom: 20px;
+  }
+  .cosine-label {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.1em;
+    text-transform: uppercase; color: #9a8878; margin-bottom: 10px;
+  }
+  .cosine-table {
+    width: 100%; border-collapse: collapse; font-size: 11px;
+  }
+  .cosine-table th {
+    background: #1d1d1d; color: #e8e4de;
+    font-size: 9px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+    padding: 6px 10px; text-align: left; border: 1px solid #333;
+  }
+  .cosine-table td {
+    padding: 6px 10px; border: 1px solid #e8e4de; color: #4a3f35;
+  }
+  .cosine-table tr:nth-child(even) td { background: #f5f0ea; }
+  .sim-high { color: #16a34a; font-weight: 700; }
+  .sim-med  { color: #d97706; font-weight: 600; }
+  .sim-low  { color: #6b7280; }
+  .sim-neg  { color: #dc2626; font-weight: 700; }
+
+  .sim-bar-cell { width: 120px; }
+  .sim-bar {
+    height: 14px; border-radius: 3px; background: #c96442;
+    display: inline-block; vertical-align: middle;
+  }
+
+  /* Interesting properties -->
+  .props-section {
+    display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px;
+  }
+  .prop-card {
+    flex: 1; min-width: 200px;
+    background: #f5f0ea; border: 1.5px solid #e8d8c8; border-radius: 8px;
+    padding: 12px 14px;
+  }
+  .prop-title {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
+    text-transform: uppercase; color: #c96442; margin-bottom: 6px;
+  }
+  .prop-text { font-size: 12px; color: #5a4a3a; line-height: 1.5; }
+  .prop-example {
+    font-family: monospace; font-size: 11px; color: #c96442;
+    background: #fdf4ef; padding: 4px 8px; border-radius: 4px; margin-top: 6px;
+  }
+
+  .caption { font-size: 12px; color: #7a6a5a; line-height: 1.6; margin-top: 18px; }
+  .python-block {
+    margin-top: 28px; background: #1d1d1d; border-radius: 8px;
+    padding: 20px; border: 1px solid #333;
+  }
+  .python-label {
+    font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: #c96442; margin-bottom: 12px; font-weight: 700;
+  }
+  pre {
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+    font-size: 12px; line-height: 1.7; color: #e8e4de; white-space: pre; overflow-x: auto;
+  }
+  .kw { color: #c084fc; } .fn { color: #60a5fa; }
+  .cm { color: #6b7280; font-style: italic; } .st { color: #86efac; } .nm { color: #fbbf24; }
+</style>
+</head>
+<body>
+<div class="diagram-wrapper">
+  <div class="diagram-title">Diagram 13 of 14</div>
+  <div class="diagram-subtitle">Embedding Space — Word Clusters in 2D (PCA Projection)</div>
+  <div class="diagram-tagline">768–4096 dimensional vectors projected to 2D. Semantic similarity = geometric proximity.</div>
+
+  <!-- Main scatter plot -->
+  <div class="scatter-section">
+    <div class="scatter-label">2D PCA projection of word embeddings — clusters emerge from co-occurrence patterns in training data</div>
+    <div class="scatter-container">
+      <svg class="scatter" viewBox="0 0 720 400" style="background:#1d1d1d;">
+        <!-- Grid -->
+        <defs>
+          <pattern id="grid" width="60" height="40" patternUnits="userSpaceOnUse">
+            <line x1="60" y1="0" x2="60" y2="40" stroke="#2a2a2a" stroke-width="1"/>
+            <line x1="0" y1="40" x2="60" y2="40" stroke="#2a2a2a" stroke-width="1"/>
+          </pattern>
+        </defs>
+        <rect width="720" height="400" fill="url(#grid)"/>
+
+        <!-- Axes -->
+        <line x1="60" y1="200" x2="660" y2="200" stroke="#333" stroke-width="1.5"/>
+        <line x1="360" y1="20" x2="360" y2="380" stroke="#333" stroke-width="1.5"/>
+        <text x="650" y="215" font-size="10" fill="#555" font-family="sans-serif">PC1</text>
+        <text x="368" y="30" font-size="10" fill="#555" font-family="sans-serif">PC2</text>
+
+        <!-- Cluster 1: Royalty (top-left) -->
+        <ellipse cx="145" cy="100" rx="55" ry="40" fill="rgba(201,100,66,0.08)" stroke="rgba(201,100,66,0.3)" stroke-width="1" stroke-dasharray="4,3"/>
+        <text x="145" y="55" font-size="9" fill="#c96442" text-anchor="middle" font-family="sans-serif" letter-spacing="1" font-weight="700">ROYALTY</text>
+
+        <circle cx="120" cy="90" r="5" fill="#c96442"/>
+        <text x="118" y="82" font-size="11" fill="#e8a882" text-anchor="middle" font-family="sans-serif" font-weight="600">king</text>
+        <circle cx="165" cy="80" r="5" fill="#c96442"/>
+        <text x="165" y="72" font-size="11" fill="#e8a882" text-anchor="middle" font-family="sans-serif" font-weight="600">queen</text>
+        <circle cx="130" cy="115" r="4" fill="#e8a882"/>
+        <text x="130" y="130" font-size="10" fill="#e8a882" text-anchor="middle" font-family="sans-serif">prince</text>
+        <circle cx="168" cy="110" r="4" fill="#e8a882"/>
+        <text x="168" y="125" font-size="10" fill="#e8a882" text-anchor="middle" font-family="sans-serif">princess</text>
+
+        <!-- Cluster 2: Geography / Countries (top-right) -->
+        <ellipse cx="560" cy="100" rx="60" ry="45" fill="rgba(37,99,235,0.08)" stroke="rgba(37,99,235,0.3)" stroke-width="1" stroke-dasharray="4,3"/>
+        <text x="560" y="48" font-size="9" fill="#60a5fa" text-anchor="middle" font-family="sans-serif" letter-spacing="1" font-weight="700">GEOGRAPHY</text>
+
+        <circle cx="535" cy="88" r="5" fill="#3b82f6"/>
+        <text x="534" y="80" font-size="11" fill="#93c5fd" text-anchor="middle" font-family="sans-serif" font-weight="600">Paris</text>
+        <circle cx="575" cy="80" r="5" fill="#3b82f6"/>
+        <text x="576" y="72" font-size="11" fill="#93c5fd" text-anchor="middle" font-family="sans-serif" font-weight="600">France</text>
+        <circle cx="545" cy="115" r="4" fill="#93c5fd"/>
+        <text x="543" y="130" font-size="10" fill="#93c5fd" text-anchor="middle" font-family="sans-serif">Berlin</text>
+        <circle cx="582" cy="110" r="4" fill="#93c5fd"/>
+        <text x="583" y="125" font-size="10" fill="#93c5fd" text-anchor="middle" font-family="sans-serif">Germany</text>
+        <circle cx="560" cy="102" r="4" fill="#93c5fd"/>
+        <text x="562" y="145" font-size="10" fill="#93c5fd" text-anchor="middle" font-family="sans-serif">London</text>
+
+        <!-- Cluster 3: Animals (middle-left) -->
+        <ellipse cx="150" cy="260" rx="65" ry="45" fill="rgba(22,163,74,0.08)" stroke="rgba(22,163,74,0.3)" stroke-width="1" stroke-dasharray="4,3"/>
+        <text x="150" y="210" font-size="9" fill="#86efac" text-anchor="middle" font-family="sans-serif" letter-spacing="1" font-weight="700">ANIMALS</text>
+
+        <circle cx="120" cy="250" r="5" fill="#22c55e"/>
+        <text x="118" y="242" font-size="11" fill="#86efac" text-anchor="middle" font-family="sans-serif" font-weight="600">dog</text>
+        <circle cx="162" cy="245" r="5" fill="#22c55e"/>
+        <text x="162" y="237" font-size="11" fill="#86efac" text-anchor="middle" font-family="sans-serif" font-weight="600">cat</text>
+        <circle cx="138" cy="275" r="4" fill="#86efac"/>
+        <text x="136" y="290" font-size="10" fill="#86efac" text-anchor="middle" font-family="sans-serif">puppy</text>
+        <circle cx="172" cy="270" r="4" fill="#86efac"/>
+        <text x="172" y="285" font-size="10" fill="#86efac" text-anchor="middle" font-family="sans-serif">kitten</text>
+        <circle cx="130" cy="263" r="4" fill="#86efac"/>
+        <text x="112" y="263" font-size="10" fill="#86efac" text-anchor="end" font-family="sans-serif">wolf</text>
+
+        <!-- Cluster 4: Temperature (bottom-right) — interesting: hot + cold near each other (antonyms cluster!) -->
+        <ellipse cx="560" cy="300" rx="65" ry="45" fill="rgba(217,119,6,0.08)" stroke="rgba(217,119,6,0.3)" stroke-width="1" stroke-dasharray="4,3"/>
+        <text x="560" y="248" font-size="9" fill="#fbbf24" text-anchor="middle" font-family="sans-serif" letter-spacing="1" font-weight="700">TEMPERATURE</text>
+
+        <circle cx="535" cy="290" r="5" fill="#ef4444"/>
+        <text x="535" y="282" font-size="11" fill="#fca5a5" text-anchor="middle" font-family="sans-serif" font-weight="600">hot</text>
+        <circle cx="575" cy="295" r="5" fill="#3b82f6"/>
+        <text x="575" y="287" font-size="11" fill="#93c5fd" text-anchor="middle" font-family="sans-serif" font-weight="600">cold</text>
+        <circle cx="548" cy="315" r="4" fill="#f97316"/>
+        <text x="548" y="330" font-size="10" fill="#fbbf24" text-anchor="middle" font-family="sans-serif">warm</text>
+        <circle cx="580" cy="318" r="4" fill="#818cf8"/>
+        <text x="581" y="333" font-size="10" fill="#fbbf24" text-anchor="middle" font-family="sans-serif">cool</text>
+        <circle cx="560" cy="303" r="4" fill="#fbbf24"/>
+        <text x="542" y="305" font-size="10" fill="#fbbf24" text-anchor="end" font-family="sans-serif">tepid</text>
+
+        <!-- Cluster 5: Verbs of motion (center) -->
+        <ellipse cx="360" cy="200" rx="55" ry="40" fill="rgba(124,58,237,0.08)" stroke="rgba(124,58,237,0.3)" stroke-width="1" stroke-dasharray="4,3"/>
+        <text x="360" y="155" font-size="9" fill="#c4b5fd" text-anchor="middle" font-family="sans-serif" letter-spacing="1" font-weight="700">MOTION</text>
+
+        <circle cx="340" cy="192" r="4" fill="#7c3aed"/>
+        <text x="338" y="185" font-size="10" fill="#c4b5fd" text-anchor="middle" font-family="sans-serif">run</text>
+        <circle cx="375" cy="188" r="4" fill="#7c3aed"/>
+        <text x="375" y="180" font-size="10" fill="#c4b5fd" text-anchor="middle" font-family="sans-serif">walk</text>
+        <circle cx="352" cy="212" r="4" fill="#a78bfa"/>
+        <text x="350" y="228" font-size="10" fill="#c4b5fd" text-anchor="middle" font-family="sans-serif">jog</text>
+        <circle cx="378" cy="210" r="4" fill="#a78bfa"/>
+        <text x="380" y="226" font-size="10" fill="#c4b5fd" text-anchor="middle" font-family="sans-serif">sprint</text>
+
+        <!-- Analogy arrows -->
+        <!-- king→queen parallel to man→woman -->
+        <line x1="120" y1="90" x2="165" y2="80" stroke="rgba(201,100,66,0.6)" stroke-width="1.5" stroke-dasharray="4,2"/>
+        <!-- Paris→France parallel to Berlin→Germany -->
+        <line x1="535" y1="88" x2="575" y2="80" stroke="rgba(37,99,235,0.5)" stroke-width="1.5" stroke-dasharray="4,2"/>
+
+        <!-- Cluster cross-connection (hot ↔ cold nearby = antonym paradox label) -->
+        <text x="560" y="345" font-size="9" fill="#666" text-anchor="middle" font-family="sans-serif" font-style="italic">hot + cold both appear near "temperature" words</text>
+        <text x="560" y="357" font-size="9" fill="#666" text-anchor="middle" font-family="sans-serif" font-style="italic">→ antonyms cluster by domain, not polarity!</text>
+
+        <!-- Axis legend -->
+        <text x="40" y="395" font-size="9" fill="#555" font-family="sans-serif" font-style="italic">Axes are PCA dimensions of learned embedding space — not semantically labeled</text>
+      </svg>
+    </div>
+
+    <div class="cluster-legend">
+      <div class="cluster-item"><div class="cluster-dot" style="background:#c96442;"></div>Royalty cluster</div>
+      <div class="cluster-item"><div class="cluster-dot" style="background:#3b82f6;"></div>Geography cluster</div>
+      <div class="cluster-item"><div class="cluster-dot" style="background:#22c55e;"></div>Animals cluster</div>
+      <div class="cluster-item"><div class="cluster-dot" style="background:#f59e0b;"></div>Temperature cluster</div>
+      <div class="cluster-item"><div class="cluster-dot" style="background:#7c3aed;"></div>Motion verbs cluster</div>
+    </div>
+  </div>
+
+  <!-- Analogies -->
+  <div class="analogy-section">
+    <div class="analogy-title">Vector arithmetic — analogies emerge from geometry</div>
+    <div class="analogy-eq">
+      <span class="q">vec("king")</span> <span class="op">−</span> <span class="q">vec("man")</span> <span class="op">+</span> <span class="q">vec("woman")</span> <span class="op">≈</span> <span class="a">vec("queen")</span>
+    </div>
+    <div class="analogy-eq">
+      <span class="q">vec("Paris")</span> <span class="op">−</span> <span class="q">vec("France")</span> <span class="op">+</span> <span class="q">vec("Germany")</span> <span class="op">≈</span> <span class="a">vec("Berlin")</span>
+    </div>
+    <div class="analogy-eq">
+      <span class="q">vec("walked")</span> <span class="op">−</span> <span class="q">vec("walk")</span> <span class="op">+</span> <span class="q">vec("run")</span> <span class="op">≈</span> <span class="a">vec("ran")</span>
+    </div>
+    <div style="font-size:11px;color:#7a6a5a;margin-top:10px;">
+      These vector offsets encode relational structure: gender, capital-country, verb tense. The same offset "works" across many pairs.
+    </div>
+  </div>
+
+  <!-- Cosine similarities -->
+  <div class="cosine-section">
+    <div class="cosine-label">Cosine similarity examples (1.0 = identical, 0.0 = orthogonal, −1.0 = opposite)</div>
+    <table class="cosine-table">
+      <tr><th>Word A</th><th>Word B</th><th>Cosine Sim</th><th>Visual</th><th>Reason</th></tr>
+      <tr><td>king</td><td>queen</td><td class="sim-high">0.89</td><td class="sim-bar-cell"><div class="sim-bar" style="width:107px;background:#16a34a;"></div></td><td>Same semantic field + royalty context</td></tr>
+      <tr><td>hot</td><td>warm</td><td class="sim-high">0.82</td><td class="sim-bar-cell"><div class="sim-bar" style="width:98px;background:#22c55e;"></div></td><td>Near-synonyms, temperature domain</td></tr>
+      <tr><td>hot</td><td>cold</td><td class="sim-med">0.58</td><td class="sim-bar-cell"><div class="sim-bar" style="width:70px;background:#d97706;"></div></td><td>Antonyms cluster in same region!</td></tr>
+      <tr><td>Paris</td><td>London</td><td class="sim-med">0.72</td><td class="sim-bar-cell"><div class="sim-bar" style="width:86px;background:#ca8a04;"></div></td><td>European capitals, similar contexts</td></tr>
+      <tr><td>king</td><td>Paris</td><td class="sim-low">0.21</td><td class="sim-bar-cell"><div class="sim-bar" style="width:25px;background:#6b7280;"></div></td><td>Different domains</td></tr>
+      <tr><td>good</td><td>bad</td><td class="sim-med">0.51</td><td class="sim-bar-cell"><div class="sim-bar" style="width:61px;background:#d97706;"></div></td><td>Antonyms share contexts ("good/bad weather")</td></tr>
+    </table>
+  </div>
+
+  <!-- Properties -->
+  <div class="props-section">
+    <div class="prop-card">
+      <div class="prop-title">Antonyms cluster together</div>
+      <div class="prop-text">Surprising: "hot" and "cold" are neighbors. They appear in the same sentences, so they learn similar embeddings. Sentiment analysis can't rely on cosine sim alone.</div>
+      <div class="prop-example">cos(hot, cold) ≈ 0.58 &gt; cos(hot, book) ≈ 0.12</div>
+    </div>
+    <div class="prop-card">
+      <div class="prop-title">Relational offsets</div>
+      <div class="prop-text">The vector from "man" to "woman" approximates the same offset as "king" to "queen". This linear structure emerges from PMI matrix factorization implicitly.</div>
+      <div class="prop-example">gender_dim ≈ vec("woman") − vec("man")</div>
+    </div>
+    <div class="prop-card">
+      <div class="prop-title">Degenerate subspaces</div>
+      <div class="prop-text">Embeddings can encode harmful biases (nurse→female, doctor→male from training data). Debiasing methods project out these directions.</div>
+      <div class="prop-example">StereoSet, WinoBias: measures embedding bias</div>
+    </div>
+  </div>
+
+  <div class="caption">
+    Word embeddings (Word2Vec, GloVe, or the token embeddings of LLMs) map each token to a dense vector in R^d.
+    Geometric proximity correlates with semantic similarity. PCA or t-SNE projections reveal clusters:
+    animals, royalty, geography, etc. The key insight from Word2Vec (Mikolov et al., 2013): the geometry of
+    the embedding space encodes relational knowledge through vector arithmetic.
+  </div>
+
+  <div class="python-block">
+    <div class="python-label">Python Demo — stdlib only</div>
+    <pre><span class="kw">import</span> math, random
+
+<span class="kw">def</span> <span class="fn">cosine</span>(a, b):
+    dot = sum(x*y <span class="kw">for</span> x,y <span class="kw">in</span> zip(a,b))
+    na = math.sqrt(sum(x**<span class="nm">2</span> <span class="kw">for</span> x <span class="kw">in</span> a))
+    nb = math.sqrt(sum(x**<span class="nm">2</span> <span class="kw">for</span> x <span class="kw">in</span> b))
+    <span class="kw">return</span> dot / (na * nb + <span class="nm">1e-9</span>)
+
+<span class="kw">def</span> <span class="fn">vec_add</span>(a,b): <span class="kw">return</span> [x+y <span class="kw">for</span> x,y <span class="kw">in</span> zip(a,b)]
+<span class="kw">def</span> <span class="fn">vec_sub</span>(a,b): <span class="kw">return</span> [x-y <span class="kw">for</span> x,y <span class="kw">in</span> zip(a,b)]
+
+<span class="cm"># Toy 4D embeddings with deliberate structure</span>
+<span class="cm"># dims: [royalty, gender, geography, temperature]</span>
+embeddings = {
+    <span class="st">"king"</span>:    [<span class="nm">0.9</span>,  <span class="nm">0.8</span>,  <span class="nm">0.0</span>,  <span class="nm">0.0</span>],
+    <span class="st">"queen"</span>:   [<span class="nm">0.9</span>, -<span class="nm">0.8</span>,  <span class="nm">0.0</span>,  <span class="nm">0.0</span>],
+    <span class="st">"man"</span>:     [<span class="nm">0.1</span>,  <span class="nm">0.9</span>,  <span class="nm">0.0</span>,  <span class="nm">0.0</span>],
+    <span class="st">"woman"</span>:   [<span class="nm">0.1</span>, -<span class="nm">0.9</span>,  <span class="nm">0.0</span>,  <span class="nm">0.0</span>],
+    <span class="st">"Paris"</span>:   [<span class="nm">0.0</span>,  <span class="nm">0.0</span>,  <span class="nm">0.9</span>,  <span class="nm">0.0</span>],
+    <span class="st">"France"</span>:  [<span class="nm">0.0</span>,  <span class="nm">0.0</span>,  <span class="nm">0.7</span>,  <span class="nm">0.0</span>],
+    <span class="st">"hot"</span>:     [<span class="nm">0.0</span>,  <span class="nm">0.0</span>,  <span class="nm">0.0</span>,  <span class="nm">0.9</span>],
+    <span class="st">"cold"</span>:    [<span class="nm">0.0</span>,  <span class="nm">0.0</span>,  <span class="nm">0.0</span>, -<span class="nm">0.9</span>],
+    <span class="st">"warm"</span>:    [<span class="nm">0.0</span>,  <span class="nm">0.0</span>,  <span class="nm">0.0</span>,  <span class="nm">0.5</span>],
+}
+
+<span class="cm"># Test analogy: king - man + woman ≈ queen</span>
+analogy = vec_add(vec_sub(embeddings[<span class="st">"king"</span>], embeddings[<span class="st">"man"</span>]), embeddings[<span class="st">"woman"</span>])
+print(<span class="st">"Analogy: king - man + woman"</span>)
+results = [(cosine(analogy, v), w) <span class="kw">for</span> w, v <span class="kw">in</span> embeddings.items() <span class="kw">if</span> w != <span class="st">"king"</span>]
+<span class="kw">for</span> sim, word <span class="kw">in</span> sorted(results, reverse=<span class="kw">True</span>)[:<span class="nm">4</span>]:
+    bar = <span class="st">"█"</span> * int(max(<span class="nm">0</span>,sim)*<span class="nm">20</span>)
+    print(<span class="st">f"  {word:8s} {bar} {sim:.3f}"</span>)
+
+<span class="cm"># Try adding noise to embeddings: add [random.gauss(0,0.3) for _ in range(4)] to each</span>
+<span class="cm"># to simulate real embeddings — watch how the analogy degrades gracefully.</span></pre>
+  </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Diagram 5 — Multi-Head Attention</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, 'Segoe UI', system-ui, sans-serif;
+    background: #faf9f7; padding: 40px 24px; color: #2a2a2a;
+  }
+  .diagram-wrapper {
+    max-width: 860px; margin: 0 auto;
+    border: 1px solid #e8e4de; border-radius: 12px;
+    background: #faf9f7; padding: 36px 32px 28px;
+  }
+  .diagram-title {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.12em;
+    text-transform: uppercase; color: #c96442; margin-bottom: 6px;
+  }
+  .diagram-subtitle { font-size: 18px; font-weight: 600; color: #1a1a1a; margin-bottom: 32px; }
+
+  .v-center { display: flex; align-items: center; justify-content: center; }
+
+  /* Input bar */
+  .input-bar {
+    background: #f0ece6; border: 1.5px solid #d6cfc5; border-radius: 8px;
+    padding: 12px 20px; text-align: center; font-size: 13px; font-weight: 600;
+    color: #4a3f35; margin-bottom: 4px;
+  }
+  .dim-note {
+    font-size: 10px; font-weight: 400; opacity: 0.65; margin-top: 3px;
+  }
+
+  /* Arrow down full width */
+  .arrow-down {
+    text-align: center; font-size: 20px; color: #a09080; padding: 6px 0; line-height: 1;
+  }
+  .arrow-down.accent { color: #c96442; }
+
+  /* Fan out → heads */
+  .split-label {
+    text-align: center; font-size: 10px; font-weight: 700; letter-spacing: 0.1em;
+    text-transform: uppercase; color: #9a8878; margin-bottom: 8px;
+  }
+
+  /* Heads row */
+  .heads-row {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    margin-bottom: 4px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+  .head-col {
+    flex: 1;
+    min-width: 100px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+  }
+  .head-label {
+    font-size: 9px; font-weight: 700; letter-spacing: 0.08em;
+    text-transform: uppercase; color: #9a8878; margin-bottom: 5px;
+  }
+  .head-box {
+    width: 100%;
+    border-radius: 7px;
+    padding: 9px 6px;
+    text-align: center;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .head-qkv {
+    background: #fef3c7; border: 1.5px solid #f59e0b; color: #92400e;
+    font-size: 10px; padding: 7px 6px;
+  }
+  .head-attn {
+    background: #c96442; border: 1.5px solid #a8512f; color: #fff;
+  }
+  .head-out {
+    background: #1d1d1d; border: 1.5px solid #444; color: #e8e4de; font-size: 10px;
+  }
+  .head-arrow {
+    font-size: 14px; color: #a09080; text-align: center; padding: 3px 0; line-height: 1;
+  }
+
+  /* Head color variants */
+  .h1 .head-qkv { background: #fef3c7; border-color: #f59e0b; }
+  .h1 .head-attn { background: #d97706; border-color: #b45309; }
+  .h2 .head-qkv { background: #dbeafe; border-color: #3b82f6; }
+  .h2 .head-attn { background: #2563eb; border-color: #1d4ed8; }
+  .h3 .head-qkv { background: #dcfce7; border-color: #22c55e; }
+  .h3 .head-attn { background: #16a34a; border-color: #15803d; }
+  .h4 .head-qkv { background: #fce7f3; border-color: #ec4899; }
+  .h4 .head-attn { background: #db2777; border-color: #be185d; }
+
+  /* Concat + project section */
+  .concat-bar {
+    background: #2d1f5e; border: 1.5px solid #5b4aaa; border-radius: 8px;
+    padding: 12px 20px; text-align: center; font-size: 12px; font-weight: 600;
+    color: #e8e4de; margin-bottom: 4px;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+  }
+  .concat-segments {
+    display: flex;
+    gap: 3px;
+    height: 28px;
+    border-radius: 6px;
+    overflow: hidden;
+    width: 260px;
+    flex-shrink: 0;
+  }
+  .concat-seg {
+    flex: 1;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 9px; font-weight: 700; color: #fff;
+  }
+
+  .proj-bar {
+    background: #c96442; border: 1.5px solid #a8512f; border-radius: 8px;
+    padding: 12px 20px; text-align: center; font-size: 12px; font-weight: 600;
+    color: #fff; box-shadow: 0 2px 8px rgba(201,100,66,0.25);
+  }
+
+  .output-bar {
+    background: #f0ece6; border: 1.5px solid #d6cfc5; border-radius: 8px;
+    padding: 12px 20px; text-align: center; font-size: 13px; font-weight: 600;
+    color: #4a3f35;
+  }
+
+  /* Insight cards */
+  .insight-row {
+    display: flex; gap: 12px; flex-wrap: wrap; margin-top: 20px;
+  }
+  .insight-card {
+    flex: 1; min-width: 180px;
+    background: #f5f0ea; border: 1.5px solid #e8d8c8; border-radius: 8px;
+    padding: 12px 14px;
+  }
+  .insight-title {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
+    text-transform: uppercase; color: #c96442; margin-bottom: 5px;
+  }
+  .insight-text { font-size: 12px; color: #5a4a3a; line-height: 1.5; }
+
+  .caption { font-size: 12px; color: #7a6a5a; line-height: 1.6; margin-top: 18px; }
+  .python-block {
+    margin-top: 28px; background: #1d1d1d; border-radius: 8px;
+    padding: 20px; border: 1px solid #333;
+  }
+  .python-label {
+    font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: #c96442; margin-bottom: 12px; font-weight: 700;
+  }
+  pre {
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+    font-size: 12px; line-height: 1.7; color: #e8e4de; white-space: pre; overflow-x: auto;
+  }
+  .kw { color: #c084fc; } .fn { color: #60a5fa; }
+  .cm { color: #6b7280; font-style: italic; } .st { color: #86efac; } .nm { color: #fbbf24; }
+</style>
+</head>
+<body>
+<div class="diagram-wrapper">
+  <div class="diagram-title">Diagram 5 of 14</div>
+  <div class="diagram-subtitle">Multi-Head Attention</div>
+
+  <!-- Input -->
+  <div class="input-bar">
+    Input X — all tokens
+    <div class="dim-note">[seq_len × d_model] &nbsp;|&nbsp; e.g., d_model = 512</div>
+  </div>
+  <div class="arrow-down">↓</div>
+  <div class="split-label">Split into h heads — each head projects to d_k = d_model / h dimensions</div>
+
+  <!-- 4 heads side by side -->
+  <div class="heads-row">
+    <div class="head-col h1">
+      <div class="head-label">Head 1</div>
+      <div class="head-box head-qkv">W¹Q, W¹K, W¹V<br><span style="font-size:9px;">[d_model × d_k]</span></div>
+      <div class="head-arrow">↓</div>
+      <div class="head-box head-attn">Scaled Dot-Product Attention<br><span style="font-size:9px;">d_k = 64</span></div>
+      <div class="head-arrow">↓</div>
+      <div class="head-box head-out">head₁ output<br><span style="font-size:9px;">[seq × d_k]</span></div>
+    </div>
+    <div class="head-col h2">
+      <div class="head-label">Head 2</div>
+      <div class="head-box head-qkv">W²Q, W²K, W²V<br><span style="font-size:9px;">[d_model × d_k]</span></div>
+      <div class="head-arrow">↓</div>
+      <div class="head-box head-attn">Scaled Dot-Product Attention<br><span style="font-size:9px;">d_k = 64</span></div>
+      <div class="head-arrow">↓</div>
+      <div class="head-box head-out">head₂ output<br><span style="font-size:9px;">[seq × d_k]</span></div>
+    </div>
+    <div class="head-col h3">
+      <div class="head-label">Head 3</div>
+      <div class="head-box head-qkv">W³Q, W³K, W³V<br><span style="font-size:9px;">[d_model × d_k]</span></div>
+      <div class="head-arrow">↓</div>
+      <div class="head-box head-attn">Scaled Dot-Product Attention<br><span style="font-size:9px;">d_k = 64</span></div>
+      <div class="head-arrow">↓</div>
+      <div class="head-box head-out">head₃ output<br><span style="font-size:9px;">[seq × d_k]</span></div>
+    </div>
+    <div class="head-col h4">
+      <div class="head-label">Head h</div>
+      <div class="head-box head-qkv">WʰQ, WʰK, WʰV<br><span style="font-size:9px;">[d_model × d_k]</span></div>
+      <div class="head-arrow">↓</div>
+      <div class="head-box head-attn">Scaled Dot-Product Attention<br><span style="font-size:9px;">d_k = 64</span></div>
+      <div class="head-arrow">↓</div>
+      <div class="head-box head-out">headₕ output<br><span style="font-size:9px;">[seq × d_k]</span></div>
+    </div>
+  </div>
+
+  <div class="arrow-down">↓</div>
+
+  <!-- Concatenate -->
+  <div class="concat-bar">
+    <span style="margin-right:8px;">Concatenate along head dimension →</span>
+    <div class="concat-segments">
+      <div class="concat-seg" style="background:#d97706;">h1</div>
+      <div class="concat-seg" style="background:#2563eb;">h2</div>
+      <div class="concat-seg" style="background:#16a34a;">h3</div>
+      <div class="concat-seg" style="background:#db2777;">hₙ</div>
+    </div>
+    <span style="margin-left:8px;font-size:11px;opacity:0.75;">[seq × (h·d_k)] = [seq × d_model]</span>
+  </div>
+
+  <div class="arrow-down">↓</div>
+
+  <!-- Output projection -->
+  <div class="proj-bar">
+    Output projection W<sup>O</sup> &nbsp;[d_model × d_model] &nbsp;→&nbsp; mix information across heads
+  </div>
+
+  <div class="arrow-down accent">↓</div>
+
+  <!-- Final output -->
+  <div class="output-bar">
+    MHA output — same shape as input [seq_len × d_model]
+  </div>
+
+  <!-- Insight cards -->
+  <div class="insight-row">
+    <div class="insight-card">
+      <div class="insight-title">Why multiple heads?</div>
+      <div class="insight-text">Each head can learn a different attention pattern: syntax, coreference, positional proximity. The model attends to multiple "aspects" simultaneously.</div>
+    </div>
+    <div class="insight-card">
+      <div class="insight-title">Computational cost</div>
+      <div class="insight-text">Each head uses d_k = d_model/h, so total FLOPs ≈ single-head attention. Parallelism is free — heads run simultaneously on GPU.</div>
+    </div>
+    <div class="insight-card">
+      <div class="insight-title">GPT-3 scale</div>
+      <div class="insight-text">d_model = 12,288, h = 96 heads, d_k = 128. Each head attends in 128-dim subspace, output projection is 12k×12k matrix.</div>
+    </div>
+  </div>
+
+  <div class="caption" style="margin-top:16px;">
+    Multi-head attention runs h attention functions in parallel, each in a d_k = d_model/h dimensional subspace.
+    The concatenated outputs are linearly projected back to d_model. This allows the model to jointly attend
+    to information from different representation subspaces at different positions.
+  </div>
+
+  <div class="python-block">
+    <div class="python-label">Python Demo — stdlib only</div>
+    <pre><span class="kw">import</span> math, random
+
+<span class="kw">def</span> <span class="fn">dot</span>(a, b): <span class="kw">return</span> sum(x*y <span class="kw">for</span> x,y <span class="kw">in</span> zip(a,b))
+<span class="kw">def</span> <span class="fn">softmax</span>(v):
+    m=max(v); e=[math.exp(x-m) <span class="kw">for</span> x <span class="kw">in</span> v]; t=sum(e)
+    <span class="kw">return</span> [x/t <span class="kw">for</span> x <span class="kw">in</span> e]
+<span class="kw">def</span> <span class="fn">matmul</span>(A, x): <span class="kw">return</span> [dot(row, x) <span class="kw">for</span> row <span class="kw">in</span> A]
+<span class="kw">def</span> <span class="fn">rand_mat</span>(r, c): <span class="kw">return</span> [[random.gauss(<span class="nm">0</span>,<span class="nm">0.1</span>) <span class="kw">for</span> _ <span class="kw">in</span> range(c)] <span class="kw">for</span> _ <span class="kw">in</span> range(r)]
+
+<span class="kw">def</span> <span class="fn">single_head_attention</span>(x_seq, Wq, Wk, Wv, d_k):
+    Q = [matmul(Wq, x) <span class="kw">for</span> x <span class="kw">in</span> x_seq]
+    K = [matmul(Wk, x) <span class="kw">for</span> x <span class="kw">in</span> x_seq]
+    V = [matmul(Wv, x) <span class="kw">for</span> x <span class="kw">in</span> x_seq]
+    scale = math.sqrt(d_k)
+    outputs = []
+    <span class="kw">for</span> q <span class="kw">in</span> Q:
+        scores = softmax([dot(q, k)/scale <span class="kw">for</span> k <span class="kw">in</span> K])
+        out = [sum(scores[j]*V[j][i] <span class="kw">for</span> j <span class="kw">in</span> range(len(V))) <span class="kw">for</span> i <span class="kw">in</span> range(d_k)]
+        outputs.append(out)
+    <span class="kw">return</span> outputs  <span class="cm"># [seq_len × d_k]</span>
+
+d_model, h, seq_len = <span class="nm">8</span>, <span class="nm">2</span>, <span class="nm">3</span>  <span class="cm"># try h=4</span>
+d_k = d_model // h
+
+x_seq = [[random.gauss(<span class="nm">0</span>, <span class="nm">1</span>) <span class="kw">for</span> _ <span class="kw">in</span> range(d_model)] <span class="kw">for</span> _ <span class="kw">in</span> range(seq_len)]
+
+head_outputs = []
+<span class="kw">for</span> i <span class="kw">in</span> range(h):
+    Wq, Wk, Wv = rand_mat(d_k, d_model), rand_mat(d_k, d_model), rand_mat(d_k, d_model)
+    out = single_head_attention(x_seq, Wq, Wk, Wv, d_k)
+    head_outputs.append(out)
+    print(<span class="st">f"Head {i+1}: output[0][:3] = {[round(v,3) for v in out[0][:3]]}"</span>)
+
+<span class="cm"># Concatenate heads: [seq × (h*d_k)] = [seq × d_model]</span>
+concat = [[v <span class="kw">for</span> h_out <span class="kw">in</span> [head_outputs[hi][pos] <span class="kw">for</span> hi <span class="kw">in</span> range(h)] <span class="kw">for</span> v <span class="kw">in</span> h_out]
+          <span class="kw">for</span> pos <span class="kw">in</span> range(seq_len)]
+Wo = rand_mat(d_model, d_model)
+final = [matmul(Wo, pos) <span class="kw">for</span> pos <span class="kw">in</span> concat]
+print(<span class="st">f"\nMHA final output[0] dim: {len(final[0])} (== d_model={d_model})"</span>)
+<span class="cm"># Try changing h=2 to h=4 — d_k halves, but concatenated output stays d_model.</span></pre>
+  </div>
+</div>
+</body>
+</html>

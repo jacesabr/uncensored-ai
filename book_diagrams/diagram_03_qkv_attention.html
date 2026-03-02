@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Diagram 3 — Self-Attention QKV</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, 'Segoe UI', system-ui, sans-serif;
+    background: #faf9f7; padding: 40px 24px; color: #2a2a2a;
+  }
+  .diagram-wrapper {
+    max-width: 820px; margin: 0 auto;
+    border: 1px solid #e8e4de; border-radius: 12px;
+    background: #faf9f7; padding: 36px 32px 28px;
+  }
+  .diagram-title {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.12em;
+    text-transform: uppercase; color: #c96442; margin-bottom: 6px;
+  }
+  .diagram-subtitle { font-size: 18px; font-weight: 600; color: #1a1a1a; margin-bottom: 32px; }
+
+  /* QKV projection section */
+  .qkv-section {
+    display: flex;
+    gap: 0;
+    align-items: flex-start;
+    margin-bottom: 28px;
+  }
+  .input-token-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+    padding-top: 30px;
+  }
+  .token-box {
+    background: #f0ece6;
+    border: 1.5px solid #d6cfc5;
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 13px;
+    font-weight: 700;
+    color: #4a3f35;
+    text-align: center;
+    min-width: 80px;
+  }
+  .token-label {
+    font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: #9a8878;
+  }
+
+  .fan-arrows {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 14px;
+    padding: 30px 16px 0;
+    flex-shrink: 0;
+    font-size: 18px;
+    color: #a09080;
+  }
+
+  .weight-matrices {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    flex-shrink: 0;
+    padding-top: 30px;
+  }
+  .wmat {
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 12px;
+    font-weight: 700;
+    text-align: center;
+    min-width: 100px;
+  }
+  .wq { background: #fef3c7; border: 1.5px solid #f59e0b; color: #92400e; }
+  .wk { background: #dbeafe; border: 1.5px solid #3b82f6; color: #1e3a8a; }
+  .wv { background: #dcfce7; border: 1.5px solid #22c55e; color: #14532d; }
+  .wmat-sub { font-size: 10px; font-weight: 400; opacity: 0.75; margin-top: 2px; }
+
+  .equals-arrows {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 14px;
+    padding: 30px 16px 0;
+    flex-shrink: 0;
+    font-size: 18px;
+    color: #a09080;
+  }
+
+  .qkv-vectors {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    flex-shrink: 0;
+    padding-top: 30px;
+  }
+  .vec {
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 12px;
+    font-weight: 700;
+    text-align: center;
+    min-width: 90px;
+  }
+  .vq { background: #fef3c7; border: 1.5px solid #f59e0b; color: #92400e; }
+  .vk { background: #dbeafe; border: 1.5px solid #3b82f6; color: #1e3a8a; }
+  .vv { background: #dcfce7; border: 1.5px solid #22c55e; color: #14532d; }
+
+  /* Attention score section */
+  .attn-section {
+    display: flex;
+    gap: 24px;
+    align-items: flex-start;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+  }
+
+  .score-matrix {
+    flex-shrink: 0;
+  }
+  .score-matrix-label {
+    font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: #9a8878; margin-bottom: 8px; text-align: center;
+  }
+  .matrix-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 44px);
+    grid-template-rows: repeat(5, 36px);
+    gap: 2px;
+  }
+  .cell {
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 600;
+    color: #fff;
+  }
+  .cell-header {
+    background: transparent !important;
+    color: #9a8878;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+  }
+  .cell-label {
+    background: #f0ece6 !important;
+    color: #5a4a3a;
+    font-weight: 700;
+    font-size: 11px;
+    border-radius: 4px;
+  }
+
+  /* softmax output bars */
+  .softmax-col {
+    flex: 1;
+    min-width: 200px;
+  }
+  .softmax-label {
+    font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: #9a8878; margin-bottom: 8px;
+  }
+  .softmax-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  .softmax-tok {
+    font-size: 11px; font-weight: 700; color: #4a3f35;
+    min-width: 32px; font-family: monospace;
+  }
+  .softmax-bar-bg {
+    flex: 1;
+    background: #f0ece6;
+    border-radius: 4px;
+    height: 20px;
+    overflow: hidden;
+  }
+  .softmax-bar-fill {
+    height: 100%;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    padding-left: 6px;
+    font-size: 10px;
+    color: #fff;
+    font-weight: 600;
+  }
+
+  /* Value weighted sum */
+  .wsum-section {
+    background: #1d1d1d;
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin-top: 8px;
+    border: 1px solid #333;
+  }
+  .wsum-label {
+    font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: #888; margin-bottom: 12px;
+  }
+  .wsum-eq {
+    font-size: 13px;
+    color: #e8e4de;
+    font-family: 'Courier New', monospace;
+    letter-spacing: 0.04em;
+    line-height: 1.8;
+  }
+  .wsum-eq .q-c { color: #fbbf24; }
+  .wsum-eq .k-c { color: #60a5fa; }
+  .wsum-eq .v-c { color: #86efac; }
+  .wsum-eq .op-c { color: #c084fc; }
+  .wsum-eq .cm { color: #6b7280; font-style: italic; font-size: 11px; }
+
+  .caption {
+    font-size: 12px; color: #7a6a5a; line-height: 1.6;
+    margin-top: 18px;
+  }
+  .python-block {
+    margin-top: 28px; background: #1d1d1d; border-radius: 8px;
+    padding: 20px; border: 1px solid #333;
+  }
+  .python-label {
+    font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: #c96442; margin-bottom: 12px; font-weight: 700;
+  }
+  pre {
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+    font-size: 12px; line-height: 1.7; color: #e8e4de;
+    white-space: pre; overflow-x: auto;
+  }
+  .kw { color: #c084fc; } .fn { color: #60a5fa; }
+  .cm { color: #6b7280; font-style: italic; }
+  .st { color: #86efac; } .nm { color: #fbbf24; }
+</style>
+</head>
+<body>
+<div class="diagram-wrapper">
+  <div class="diagram-title">Diagram 3 of 14</div>
+  <div class="diagram-subtitle">Self-Attention: Query, Key, Value Mechanism</div>
+
+  <!-- Step 1: QKV Projection -->
+  <div style="font-size:10px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#c96442;margin-bottom:12px;">
+    Step 1 — Project each token into Q, K, V vectors
+  </div>
+
+  <div class="qkv-section">
+    <!-- Input tokens column -->
+    <div class="input-token-col">
+      <div class="token-label">Input tokens</div>
+      <div class="token-box">x₁<br><span style="font-size:10px;font-weight:400;color:#9a8878">"cat"</span></div>
+      <div class="token-box">x₂<br><span style="font-size:10px;font-weight:400;color:#9a8878">"sat"</span></div>
+      <div class="token-box">x₃<br><span style="font-size:10px;font-weight:400;color:#9a8878">"on"</span></div>
+    </div>
+
+    <!-- Fan-out arrows -->
+    <div class="fan-arrows">
+      <span>×W<sub style="font-size:10px;">Q</sub></span>
+      <span>×W<sub style="font-size:10px;">K</sub></span>
+      <span>×W<sub style="font-size:10px;">V</sub></span>
+    </div>
+
+    <!-- Weight matrices -->
+    <div class="weight-matrices">
+      <div class="wmat wq">W<sup>Q</sup> <div class="wmat-sub">[d_model × d_k]</div></div>
+      <div class="wmat wk">W<sup>K</sup> <div class="wmat-sub">[d_model × d_k]</div></div>
+      <div class="wmat wv">W<sup>V</sup> <div class="wmat-sub">[d_model × d_v]</div></div>
+    </div>
+
+    <div class="equals-arrows">→<br><br>→<br><br>→</div>
+
+    <!-- QKV vectors -->
+    <div class="qkv-vectors">
+      <div class="vec vq">Q₁ (query) <div style="font-size:10px;font-weight:400;opacity:0.75;">"what am I looking for?"</div></div>
+      <div class="vec vk">K₁ K₂ K₃ (keys) <div style="font-size:10px;font-weight:400;opacity:0.75;">"what do I contain?"</div></div>
+      <div class="vec vv">V₁ V₂ V₃ (values) <div style="font-size:10px;font-weight:400;opacity:0.75;">"what to return if matched"</div></div>
+    </div>
+  </div>
+
+  <!-- Step 2: Attention scores -->
+  <div style="font-size:10px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#c96442;margin-bottom:12px;margin-top:8px;">
+    Step 2 — Dot products Q·Kᵀ → scale → softmax → attention weights
+  </div>
+
+  <div class="attn-section">
+    <!-- Score matrix (4-token example) -->
+    <div class="score-matrix">
+      <div class="score-matrix-label">Raw attention scores (Q·Kᵀ / √d_k) — then softmax →</div>
+      <div class="matrix-grid">
+        <!-- Header row -->
+        <div class="cell cell-header"></div>
+        <div class="cell cell-header">K₁<br>cat</div>
+        <div class="cell cell-header">K₂<br>sat</div>
+        <div class="cell cell-header">K₃<br>on</div>
+        <div class="cell cell-header">K₄<br>the</div>
+        <!-- Q1 row -->
+        <div class="cell cell-label">Q₁<br>cat</div>
+        <div class="cell" style="background:rgba(201,100,66,0.90);">0.62</div>
+        <div class="cell" style="background:rgba(201,100,66,0.40);">0.21</div>
+        <div class="cell" style="background:rgba(201,100,66,0.18);">0.10</div>
+        <div class="cell" style="background:rgba(201,100,66,0.12);">0.07</div>
+        <!-- Q2 row -->
+        <div class="cell cell-label">Q₂<br>sat</div>
+        <div class="cell" style="background:rgba(201,100,66,0.50);">0.38</div>
+        <div class="cell" style="background:rgba(201,100,66,0.75);">0.45</div>
+        <div class="cell" style="background:rgba(201,100,66,0.22);">0.10</div>
+        <div class="cell" style="background:rgba(201,100,66,0.12);">0.07</div>
+        <!-- Q3 row -->
+        <div class="cell cell-label">Q₃<br>on</div>
+        <div class="cell" style="background:rgba(201,100,66,0.15);">0.05</div>
+        <div class="cell" style="background:rgba(201,100,66,0.25);">0.12</div>
+        <div class="cell" style="background:rgba(201,100,66,0.85);">0.58</div>
+        <div class="cell" style="background:rgba(201,100,66,0.42);">0.25</div>
+        <!-- Q4 row -->
+        <div class="cell cell-label">Q₄<br>the</div>
+        <div class="cell" style="background:rgba(201,100,66,0.10);">0.04</div>
+        <div class="cell" style="background:rgba(201,100,66,0.18);">0.08</div>
+        <div class="cell" style="background:rgba(201,100,66,0.38);">0.22</div>
+        <div class="cell" style="background:rgba(201,100,66,0.92);">0.66</div>
+      </div>
+      <div style="font-size:10px;color:#9a8878;margin-top:8px;text-align:center;">darker = higher attention weight</div>
+    </div>
+
+    <!-- Weighted sum of values -->
+    <div class="softmax-col">
+      <div class="softmax-label">Softmax weights for query "cat" (Q₁):</div>
+      <div class="softmax-row">
+        <span class="softmax-tok">cat</span>
+        <div class="softmax-bar-bg">
+          <div class="softmax-bar-fill" style="width:62%;background:#c96442;">0.62</div>
+        </div>
+      </div>
+      <div class="softmax-row">
+        <span class="softmax-tok">sat</span>
+        <div class="softmax-bar-bg">
+          <div class="softmax-bar-fill" style="width:21%;background:#e8a882;">0.21</div>
+        </div>
+      </div>
+      <div class="softmax-row">
+        <span class="softmax-tok">on</span>
+        <div class="softmax-bar-bg">
+          <div class="softmax-bar-fill" style="width:10%;background:#e8c4aa;">0.10</div>
+        </div>
+      </div>
+      <div class="softmax-row">
+        <span class="softmax-tok">the</span>
+        <div class="softmax-bar-bg">
+          <div class="softmax-bar-fill" style="width:7%;background:#e8d4c4;">0.07</div>
+        </div>
+      </div>
+
+      <div style="margin-top:14px;font-size:11px;color:#5a4a3a;font-weight:600;">
+        Step 3 — Weighted sum of Values:
+      </div>
+      <div style="margin-top:6px;font-size:12px;color:#4a3f35;font-family:monospace;line-height:1.8;background:#f0ece6;padding:10px;border-radius:6px;">
+        output = 0.62·V₁ + 0.21·V₂ + 0.10·V₃ + 0.07·V₄
+      </div>
+    </div>
+  </div>
+
+  <!-- Formula section -->
+  <div class="wsum-section">
+    <div class="wsum-label">Full self-attention formula</div>
+    <div class="wsum-eq">
+      <span class="op-c">Attention</span>(<span class="q-c">Q</span>, <span class="k-c">K</span>, <span class="v-c">V</span>) = <span class="op-c">softmax</span>( <span class="q-c">Q</span><span class="k-c">Kᵀ</span> / √d_k ) · <span class="v-c">V</span>
+      <br>
+      <span class="cm">  ← scale by √d_k to prevent gradient vanishing in high-dim dot products</span>
+    </div>
+  </div>
+
+  <div class="caption" style="margin-top:16px;">
+    Each token queries all others via its Q vector. High Q·K dot product = strong attention = large weight on that V.
+    Scaling by √d_k stabilizes gradients when d_k is large. The output for each position is a
+    <em>weighted blend of all value vectors</em> — this is how context flows across the sequence.
+  </div>
+
+  <div class="python-block">
+    <div class="python-label">Python Demo — stdlib only</div>
+    <pre><span class="kw">import</span> math, random
+
+<span class="kw">def</span> <span class="fn">dot</span>(a, b): <span class="kw">return</span> sum(x*y <span class="kw">for</span> x, y <span class="kw">in</span> zip(a, b))
+
+<span class="kw">def</span> <span class="fn">softmax</span>(scores):
+    m = max(scores)
+    e = [math.exp(s - m) <span class="kw">for</span> s <span class="kw">in</span> scores]
+    t = sum(e)
+    <span class="kw">return</span> [v/t <span class="kw">for</span> v <span class="kw">in</span> e]
+
+<span class="kw">def</span> <span class="fn">attention</span>(Q, K, V, d_k):
+    <span class="st">"""Single-head scaled dot-product attention."""</span>
+    scale = math.sqrt(d_k)
+    outputs = []
+    <span class="kw">for</span> q <span class="kw">in</span> Q:                              <span class="cm"># each query token</span>
+        scores = [dot(q, k) / scale <span class="kw">for</span> k <span class="kw">in</span> K]  <span class="cm"># dot with all keys</span>
+        weights = softmax(scores)
+        out = [sum(w * v[i] <span class="kw">for</span> w, v <span class="kw">in</span> zip(weights, V))
+               <span class="kw">for</span> i <span class="kw">in</span> range(len(V[<span class="nm">0</span>]))]
+        outputs.append(out)
+    <span class="kw">return</span> outputs, weights  <span class="cm"># return last weights for display</span>
+
+d_k = <span class="nm">4</span>   <span class="cm"># key/query dimension  (try 8 or 16)</span>
+seq_len = <span class="nm">4</span>
+
+Q = [[random.gauss(<span class="nm">0</span>,<span class="nm">1</span>) <span class="kw">for</span> _ <span class="kw">in</span> range(d_k)] <span class="kw">for</span> _ <span class="kw">in</span> range(seq_len)]
+K = [[random.gauss(<span class="nm">0</span>,<span class="nm">1</span>) <span class="kw">for</span> _ <span class="kw">in</span> range(d_k)] <span class="kw">for</span> _ <span class="kw">in</span> range(seq_len)]
+V = [[random.gauss(<span class="nm">0</span>,<span class="nm">1</span>) <span class="kw">for</span> _ <span class="kw">in</span> range(d_k)] <span class="kw">for</span> _ <span class="kw">in</span> range(seq_len)]
+
+outputs, last_weights = attention(Q, K, V, d_k)
+tokens = [<span class="st">"cat"</span>, <span class="st">"sat"</span>, <span class="st">"on"</span>, <span class="st">"mat"</span>]
+print(<span class="st">"Attention weights for last query:"</span>)
+<span class="kw">for</span> tok, w <span class="kw">in</span> zip(tokens, last_weights):
+    bar = <span class="st">"█"</span> * int(w * <span class="nm">40</span>)
+    print(<span class="st">f"  {tok:5s} {bar} {w:.3f}"</span>)
+<span class="cm"># Try changing d_k=4 to d_k=1 — watch weights collapse to near-uniform (no discrimination).</span></pre>
+  </div>
+</div>
+</body>
+</html>

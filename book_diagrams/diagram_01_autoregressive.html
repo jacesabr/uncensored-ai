@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Diagram 1 — Autoregressive Generation Loop</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, 'Segoe UI', system-ui, sans-serif;
+    background: #faf9f7;
+    padding: 40px 24px;
+    color: #2a2a2a;
+  }
+  .diagram-wrapper {
+    max-width: 860px;
+    margin: 0 auto;
+    border: 1px solid #e8e4de;
+    border-radius: 12px;
+    background: #faf9f7;
+    padding: 36px 32px 28px;
+  }
+  .diagram-title {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #c96442;
+    margin-bottom: 6px;
+  }
+  .diagram-subtitle {
+    font-size: 18px;
+    font-weight: 600;
+    color: #1a1a1a;
+    margin-bottom: 32px;
+  }
+
+  /* ── Main loop row ── */
+  .loop-row {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    margin-bottom: 28px;
+    flex-wrap: nowrap;
+  }
+  .box {
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    text-align: center;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .box-tokens {
+    background: #f0ece6;
+    border: 1.5px solid #d6cfc5;
+    color: #4a3f35;
+    min-width: 130px;
+  }
+  .box-model {
+    background: #c96442;
+    border: 1.5px solid #a8512f;
+    color: #fff;
+    min-width: 100px;
+    box-shadow: 0 2px 8px rgba(201,100,66,0.25);
+  }
+  .box-prob {
+    background: #1d1d1d;
+    border: 1.5px solid #333;
+    color: #e8e4de;
+    min-width: 130px;
+    font-size: 11px;
+  }
+  .box-sample {
+    background: #f5f0ea;
+    border: 1.5px solid #c9b89a;
+    color: #5a4a3a;
+    min-width: 110px;
+  }
+  .box-append {
+    background: #eaf2eb;
+    border: 1.5px solid #9ec9a2;
+    color: #2d6b33;
+    min-width: 120px;
+  }
+  .arrow {
+    font-size: 18px;
+    color: #a09080;
+    padding: 0 6px;
+    flex-shrink: 0;
+  }
+
+  /* Token sequence strip */
+  .token-strip {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    align-items: center;
+    margin-bottom: 20px;
+  }
+  .token {
+    background: #f0ece6;
+    border: 1.5px solid #d6cfc5;
+    border-radius: 6px;
+    padding: 5px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #4a3f35;
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+  }
+  .token.new-token {
+    background: #c96442;
+    border-color: #a8512f;
+    color: #fff;
+    animation: highlight-pulse 1.2s ease-in-out;
+  }
+  .token.prev-new {
+    background: #e8a882;
+    border-color: #c96442;
+    color: #fff;
+  }
+  @keyframes highlight-pulse {
+    0% { transform: scale(1.2); box-shadow: 0 0 0 4px rgba(201,100,66,0.3); }
+    100% { transform: scale(1); box-shadow: none; }
+  }
+  .token-label {
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #9a8878;
+    margin-right: 4px;
+  }
+  .token-arrow-right {
+    font-size: 14px;
+    color: #c96442;
+    font-weight: bold;
+  }
+
+  /* Prob distribution bar */
+  .prob-section {
+    margin: 20px 0;
+    background: #1d1d1d;
+    border-radius: 8px;
+    padding: 16px 20px;
+    border: 1px solid #333;
+  }
+  .prob-label {
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #888;
+    margin-bottom: 12px;
+  }
+  .prob-bars {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    height: 60px;
+  }
+  .prob-bar-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    flex: 1;
+  }
+  .prob-bar {
+    width: 100%;
+    background: #c96442;
+    border-radius: 3px 3px 0 0;
+    transition: height 0.3s;
+    min-width: 28px;
+  }
+  .prob-bar.dim { background: #444; }
+  .prob-bar.selected { background: #e8a882; box-shadow: 0 0 8px rgba(201,100,66,0.5); }
+  .prob-tok {
+    font-size: 10px;
+    color: #aaa;
+    font-family: 'Courier New', monospace;
+    white-space: nowrap;
+  }
+  .prob-val {
+    font-size: 9px;
+    color: #666;
+  }
+
+  /* Feedback loop arrow */
+  .feedback-section {
+    position: relative;
+    margin-top: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+  }
+  .feedback-arrow {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    color: #c96442;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+  }
+  .feedback-line {
+    border: 2px dashed #c96442;
+    border-radius: 8px;
+    padding: 8px 20px;
+    color: #c96442;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(201,100,66,0.05);
+  }
+  .repeat-icon {
+    font-size: 18px;
+  }
+
+  /* Step labels */
+  .steps-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 18px;
+    flex-wrap: wrap;
+  }
+  .step-badge {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    background: #f0ece6;
+    border: 1px solid #d6cfc5;
+    border-radius: 4px;
+    padding: 3px 8px;
+    color: #7a6a5a;
+  }
+  .step-badge.active {
+    background: #c96442;
+    border-color: #a8512f;
+    color: #fff;
+  }
+
+  .caption {
+    font-size: 12px;
+    color: #7a6a5a;
+    line-height: 1.6;
+    margin-top: 20px;
+    border-top: 1px solid #e8e4de;
+    padding-top: 16px;
+  }
+
+  /* Python demo */
+  .python-block {
+    margin-top: 28px;
+    background: #1d1d1d;
+    border-radius: 8px;
+    padding: 20px;
+    border: 1px solid #333;
+  }
+  .python-label {
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #c96442;
+    margin-bottom: 12px;
+    font-weight: 700;
+  }
+  pre {
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+    font-size: 12px;
+    line-height: 1.7;
+    color: #e8e4de;
+    white-space: pre;
+    overflow-x: auto;
+  }
+  .kw { color: #c084fc; }
+  .fn { color: #60a5fa; }
+  .cm { color: #6b7280; font-style: italic; }
+  .st { color: #86efac; }
+  .nm { color: #fbbf24; }
+</style>
+</head>
+<body>
+<div class="diagram-wrapper">
+  <div class="diagram-title">Diagram 1 of 14</div>
+  <div class="diagram-subtitle">Autoregressive Generation Loop</div>
+
+  <!-- Step badges -->
+  <div class="steps-row">
+    <span class="step-badge">1 encode input</span>
+    <span class="step-badge active">2 forward pass</span>
+    <span class="step-badge">3 logits → softmax</span>
+    <span class="step-badge">4 sample token</span>
+    <span class="step-badge">5 append &amp; repeat</span>
+  </div>
+
+  <!-- Growing token sequence -->
+  <div style="margin-bottom:8px; font-size:10px; letter-spacing:0.1em; text-transform:uppercase; color:#9a8878;">
+    Token sequence (grows each step)
+  </div>
+  <div class="token-strip">
+    <span class="token-label">t=0</span>
+    <span class="token">&lt;s&gt;</span>
+    <span class="token">The</span>
+    <span class="token">cat</span>
+    <span class="token">sat</span>
+    <span class="token">on</span>
+    <span class="token">the</span>
+    <span class="token prev-new">mat</span>
+    <span class="token-arrow-right">→</span>
+    <span class="token new-token">and</span>
+    <span style="font-size:11px;color:#9a8878;font-style:italic;margin-left:4px;">← newly sampled</span>
+  </div>
+
+  <!-- Main pipeline row -->
+  <div class="loop-row">
+    <div class="box box-tokens">
+      <div style="font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:#9a8878;margin-bottom:4px;">Input</div>
+      All tokens 0…t
+    </div>
+    <span class="arrow">→</span>
+    <div class="box box-model">
+      Transformer<br>
+      <span style="font-size:10px;font-weight:400;opacity:0.85;">N layers</span>
+    </div>
+    <span class="arrow">→</span>
+    <div class="box box-prob">
+      Logits<br>
+      <span style="font-size:10px;opacity:0.7;">vocab × float32</span>
+    </div>
+    <span class="arrow">→</span>
+    <div style="display:flex;flex-direction:column;align-items:center;flex-shrink:0;">
+      <div class="box box-sample">Softmax<br><span style="font-size:10px;">→ Sample</span></div>
+    </div>
+    <span class="arrow">→</span>
+    <div class="box box-append">Append<br>token t+1</div>
+  </div>
+
+  <!-- Probability distribution visualization -->
+  <div class="prob-section">
+    <div class="prob-label">Softmax probability distribution over vocabulary (top candidates shown)</div>
+    <div class="prob-bars">
+      <div class="prob-bar-wrap">
+        <div class="prob-bar selected" style="height:52px;"></div>
+        <div class="prob-tok">and</div>
+        <div class="prob-val">0.38</div>
+      </div>
+      <div class="prob-bar-wrap">
+        <div class="prob-bar dim" style="height:30px;"></div>
+        <div class="prob-tok">with</div>
+        <div class="prob-val">0.21</div>
+      </div>
+      <div class="prob-bar-wrap">
+        <div class="prob-bar dim" style="height:18px;"></div>
+        <div class="prob-tok">.</div>
+        <div class="prob-val">0.13</div>
+      </div>
+      <div class="prob-bar-wrap">
+        <div class="prob-bar dim" style="height:12px;"></div>
+        <div class="prob-tok">near</div>
+        <div class="prob-val">0.08</div>
+      </div>
+      <div class="prob-bar-wrap">
+        <div class="prob-bar dim" style="height:8px;"></div>
+        <div class="prob-tok">in</div>
+        <div class="prob-val">0.05</div>
+      </div>
+      <div class="prob-bar-wrap">
+        <div class="prob-bar dim" style="height:4px;"></div>
+        <div class="prob-tok">…</div>
+        <div class="prob-val">0.15</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Feedback arrow -->
+  <div class="feedback-section">
+    <div style="font-size:11px;color:#7a6a5a;font-style:italic;">Output token is appended to input for next step:</div>
+    <div class="feedback-line">
+      <span class="repeat-icon">↩</span>
+      Repeat until EOS or max length
+    </div>
+  </div>
+
+  <div class="caption">
+    At each step <em>t</em>, the model sees <strong>all</strong> previously generated tokens and produces a probability
+    distribution over the full vocabulary (~32k–128k tokens). One token is sampled (or argmax-selected at temperature=0),
+    appended to the sequence, and the process repeats. This is O(n²) attention cost per sequence.
+  </div>
+
+  <!-- Python demo -->
+  <div class="python-block">
+    <div class="python-label">Python Demo — stdlib only</div>
+    <pre><span class="kw">import</span> random, math
+
+<span class="cm"># Tiny vocabulary and bigram "model"</span>
+vocab = [<span class="st">"The"</span>, <span class="st">"cat"</span>, <span class="st">"sat"</span>, <span class="st">"on"</span>, <span class="st">"the"</span>, <span class="st">"mat"</span>, <span class="st">"and"</span>, <span class="st">"."</span>, <span class="st">"&lt;EOS&gt;"</span>]
+bigram_probs = {
+    <span class="st">"The"</span>: {<span class="st">"cat"</span>:<span class="nm">0.8</span>, <span class="st">"mat"</span>:<span class="nm">0.2</span>},
+    <span class="st">"cat"</span>: {<span class="st">"sat"</span>:<span class="nm">0.9</span>, <span class="st">"."</span>:<span class="nm">0.1</span>},
+    <span class="st">"sat"</span>: {<span class="st">"on"</span>:<span class="nm">1.0</span>},
+    <span class="st">"on"</span>:  {<span class="st">"the"</span>:<span class="nm">1.0</span>},
+    <span class="st">"the"</span>: {<span class="st">"mat"</span>:<span class="nm">0.7</span>, <span class="st">"cat"</span>:<span class="nm">0.3</span>},
+    <span class="st">"mat"</span>: {<span class="st">"and"</span>:<span class="nm">0.5</span>, <span class="st">"."</span>:<span class="nm">0.3</span>, <span class="st">"&lt;EOS&gt;"</span>:<span class="nm">0.2</span>},
+    <span class="st">"and"</span>: {<span class="st">"the"</span>:<span class="nm">1.0</span>},
+    <span class="st">"."</span>:   {<span class="st">"&lt;EOS&gt;"</span>:<span class="nm">1.0</span>},
+}
+
+<span class="kw">def</span> <span class="fn">sample_next</span>(token, temperature=<span class="nm">1.0</span>):
+    probs = bigram_probs.get(token, {<span class="st">"&lt;EOS&gt;"</span>: <span class="nm">1.0</span>})
+    <span class="cm"># Apply temperature: logit = log(p), scale, re-softmax</span>
+    logits = {k: math.log(v) / temperature <span class="kw">for</span> k, v <span class="kw">in</span> probs.items()}
+    max_l = max(logits.values())
+    exp_l = {k: math.exp(v - max_l) <span class="kw">for</span> k, v <span class="kw">in</span> logits.items()}
+    total = sum(exp_l.values())
+    normed = {k: v / total <span class="kw">for</span> k, v <span class="kw">in</span> exp_l.items()}
+    r = random.random()
+    cumulative = <span class="nm">0.0</span>
+    <span class="kw">for</span> tok, p <span class="kw">in</span> normed.items():
+        cumulative += p
+        <span class="kw">if</span> r &lt;= cumulative:
+            <span class="kw">return</span> tok
+    <span class="kw">return</span> list(normed)[-<span class="nm">1</span>]
+
+<span class="cm"># Autoregressive loop</span>
+sequence = [<span class="st">"The"</span>]
+<span class="kw">for</span> step <span class="kw">in</span> range(<span class="nm">10</span>):
+    last = sequence[-<span class="nm">1</span>]
+    next_tok = sample_next(last, temperature=<span class="nm">1.0</span>)  <span class="cm"># Try 0.1 or 2.0</span>
+    print(<span class="st">f"Step {step+1}: {' '.join(sequence)} → [{next_tok}]"</span>)
+    sequence.append(next_tok)
+    <span class="kw">if</span> next_tok == <span class="st">"&lt;EOS&gt;"</span>: <span class="kw">break</span>
+
+print(<span class="st">f"\nFinal: {' '.join(sequence)}"</span>)
+<span class="cm"># Try changing temperature=1.0 to 0.1 (greedy) or 2.0 (chaotic) to see diversity change.</span></pre>
+  </div>
+</div>
+</body>
+</html>

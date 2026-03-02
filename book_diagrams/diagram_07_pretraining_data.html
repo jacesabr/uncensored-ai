@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Diagram 7 — Pre-training Data Composition</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, 'Segoe UI', system-ui, sans-serif;
+    background: #faf9f7; padding: 40px 24px; color: #2a2a2a;
+  }
+  .diagram-wrapper {
+    max-width: 820px; margin: 0 auto;
+    border: 1px solid #e8e4de; border-radius: 12px;
+    background: #faf9f7; padding: 36px 32px 28px;
+  }
+  .diagram-title {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.12em;
+    text-transform: uppercase; color: #c96442; margin-bottom: 6px;
+  }
+  .diagram-subtitle { font-size: 18px; font-weight: 600; color: #1a1a1a; margin-bottom: 28px; }
+
+  /* Stacked bar */
+  .stacked-bar-section {
+    margin-bottom: 28px;
+  }
+  .stacked-bar-label {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.1em;
+    text-transform: uppercase; color: #9a8878; margin-bottom: 10px;
+  }
+  .stacked-bar {
+    display: flex;
+    height: 52px;
+    border-radius: 8px;
+    overflow: hidden;
+    width: 100%;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  }
+  .bar-seg {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 700;
+    color: #fff;
+    text-align: center;
+    overflow: hidden;
+    white-space: nowrap;
+    transition: opacity 0.2s;
+    padding: 0 4px;
+  }
+  .bar-seg:hover { opacity: 0.85; }
+
+  /* Legend grid */
+  .legend-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 10px;
+    margin-bottom: 24px;
+  }
+  .legend-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 12px;
+    background: #f5f0ea;
+    border: 1px solid #e8d8c8;
+    border-radius: 8px;
+  }
+  .legend-swatch {
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+  .legend-text {}
+  .legend-name {
+    font-size: 12px; font-weight: 700; color: #2a2a2a; margin-bottom: 2px;
+  }
+  .legend-pct {
+    font-size: 11px; font-weight: 700; color: #c96442;
+  }
+  .legend-desc {
+    font-size: 11px; color: #7a6a5a; line-height: 1.4;
+  }
+
+  /* Model comparison table */
+  .model-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 24px;
+    font-size: 12px;
+  }
+  .model-table th {
+    background: #1d1d1d;
+    color: #e8e4de;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 8px 12px;
+    text-align: left;
+    border: 1px solid #333;
+  }
+  .model-table td {
+    padding: 8px 12px;
+    border: 1px solid #e8e4de;
+    color: #4a3f35;
+  }
+  .model-table tr:nth-child(even) td { background: #f5f0ea; }
+  .model-table tr:hover td { background: #ede8e0; }
+
+  /* Quality vs Quantity chart */
+  .scatter-section {
+    margin-bottom: 20px;
+  }
+  .scatter-label {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.1em;
+    text-transform: uppercase; color: #9a8878; margin-bottom: 10px;
+  }
+  .scatter-svg-wrap {
+    background: #f5f0ea;
+    border: 1px solid #e8d8c8;
+    border-radius: 8px;
+    padding: 12px;
+  }
+
+  .caption { font-size: 12px; color: #7a6a5a; line-height: 1.6; margin-top: 18px; }
+  .python-block {
+    margin-top: 28px; background: #1d1d1d; border-radius: 8px;
+    padding: 20px; border: 1px solid #333;
+  }
+  .python-label {
+    font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: #c96442; margin-bottom: 12px; font-weight: 700;
+  }
+  pre {
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+    font-size: 12px; line-height: 1.7; color: #e8e4de; white-space: pre; overflow-x: auto;
+  }
+  .kw { color: #c084fc; } .fn { color: #60a5fa; }
+  .cm { color: #6b7280; font-style: italic; } .st { color: #86efac; } .nm { color: #fbbf24; }
+</style>
+</head>
+<body>
+<div class="diagram-wrapper">
+  <div class="diagram-title">Diagram 7 of 14</div>
+  <div class="diagram-subtitle">Pre-training Data Composition</div>
+
+  <!-- Stacked bar (GPT-3 approximate) -->
+  <div class="stacked-bar-section">
+    <div class="stacked-bar-label">GPT-3 training data (300B tokens, approximate weights)</div>
+    <div class="stacked-bar">
+      <div class="bar-seg" style="width:60%;background:#c96442;">Common Crawl (60%)</div>
+      <div class="bar-seg" style="width:16%;background:#d97706;">Books (16%)</div>
+      <div class="bar-seg" style="width:10%;background:#2563eb;">Code (10%)</div>
+      <div class="bar-seg" style="width:8%;background:#059669;">Wikipedia (8%)</div>
+      <div class="bar-seg" style="width:3%;background:#7c3aed;">Other (3%)</div>
+      <div class="bar-seg" style="width:3%;background:#be185d;">News (3%)</div>
+    </div>
+  </div>
+
+  <!-- LLaMA-3 stacked bar -->
+  <div class="stacked-bar-section">
+    <div class="stacked-bar-label">LLaMA-3 training data (15T tokens, known approximate breakdown)</div>
+    <div class="stacked-bar">
+      <div class="bar-seg" style="width:45%;background:#c96442;">Web (45%)</div>
+      <div class="bar-seg" style="width:17%;background:#d97706;">Code (17%)</div>
+      <div class="bar-seg" style="width:17%;background:#2563eb;">Books (17%)</div>
+      <div class="bar-seg" style="width:10%;background:#059669;">Scientific (10%)</div>
+      <div class="bar-seg" style="width:6%;background:#7c3aed;">Wiki (6%)</div>
+      <div class="bar-seg" style="width:5%;background:#be185d;">Other (5%)</div>
+    </div>
+  </div>
+
+  <!-- Legend -->
+  <div class="legend-grid">
+    <div class="legend-item">
+      <div class="legend-swatch" style="background:#c96442;"></div>
+      <div class="legend-text">
+        <div class="legend-name">Common Crawl / Web</div>
+        <div class="legend-pct">45–60%</div>
+        <div class="legend-desc">Scraped web pages. Filtered via quality heuristics, perplexity scoring, dedup. Highest volume, lowest quality per token.</div>
+      </div>
+    </div>
+    <div class="legend-item">
+      <div class="legend-swatch" style="background:#d97706;"></div>
+      <div class="legend-text">
+        <div class="legend-name">Books / Long-form Text</div>
+        <div class="legend-pct">15–20%</div>
+        <div class="legend-desc">Project Gutenberg, Books3, ThePile books. High coherence over long context. Teaches narrative structure and reasoning chains.</div>
+      </div>
+    </div>
+    <div class="legend-item">
+      <div class="legend-swatch" style="background:#2563eb;"></div>
+      <div class="legend-text">
+        <div class="legend-name">Code</div>
+        <div class="legend-pct">10–17%</div>
+        <div class="legend-desc">GitHub, Stack Overflow. Strongly improves structured reasoning, arithmetic, step-by-step logic even in non-code tasks.</div>
+      </div>
+    </div>
+    <div class="legend-item">
+      <div class="legend-swatch" style="background:#059669;"></div>
+      <div class="legend-text">
+        <div class="legend-name">Wikipedia</div>
+        <div class="legend-pct">5–10%</div>
+        <div class="legend-desc">High-quality factual text. Oversampled (seen multiple epochs) due to quality. Ground truth for entity knowledge.</div>
+      </div>
+    </div>
+    <div class="legend-item">
+      <div class="legend-swatch" style="background:#7c3aed;"></div>
+      <div class="legend-text">
+        <div class="legend-name">Scientific / Academic</div>
+        <div class="legend-pct">5–10%</div>
+        <div class="legend-desc">ArXiv, PubMed, S2ORC. Improves technical reasoning, math notation handling, citation-style argumentation.</div>
+      </div>
+    </div>
+    <div class="legend-item">
+      <div class="legend-swatch" style="background:#be185d;"></div>
+      <div class="legend-text">
+        <div class="legend-name">Multilingual / Other</div>
+        <div class="legend-pct">3–8%</div>
+        <div class="legend-desc">News, forums, multilingual data. LLaMA-3 added non-English data to ~8% for multilingual capability.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Model comparison -->
+  <table class="model-table">
+    <tr>
+      <th>Model</th>
+      <th>Total Tokens</th>
+      <th>Largest Source</th>
+      <th>Code %</th>
+      <th>Key Design Choice</th>
+    </tr>
+    <tr>
+      <td>GPT-3 (2020)</td>
+      <td>300B</td>
+      <td>Common Crawl 60%</td>
+      <td>~3%</td>
+      <td>WebText2 quality filter</td>
+    </tr>
+    <tr>
+      <td>PaLM (2022)</td>
+      <td>780B</td>
+      <td>Web 27%</td>
+      <td>5%</td>
+      <td>Multilingual 22%</td>
+    </tr>
+    <tr>
+      <td>LLaMA-1 (2023)</td>
+      <td>1.4T</td>
+      <td>CommonCrawl 67%</td>
+      <td>4.5%</td>
+      <td>Open weights, fully public</td>
+    </tr>
+    <tr>
+      <td>LLaMA-3 (2024)</td>
+      <td>15T</td>
+      <td>Web ~45%</td>
+      <td>17%</td>
+      <td>Code &amp; multilingual boost</td>
+    </tr>
+    <tr>
+      <td>Chinchilla (2022)</td>
+      <td>1.4T</td>
+      <td>MassiveText</td>
+      <td>~3%</td>
+      <td>Optimal N/D ratio insight</td>
+    </tr>
+  </table>
+
+  <div class="caption">
+    Training data composition is a critical hyperparameter. Code data dramatically improves logical reasoning beyond programming tasks.
+    Quality filtering (dedup, perplexity scoring, classifier-based) is as important as quantity — Chinchilla showed that
+    1.4T high-quality tokens trained a 70B model to match GPT-3's 175B on 300B tokens.
+    Oversampling high-quality sources (Wikipedia, books) by 2–4× is standard practice.
+  </div>
+
+  <div class="python-block">
+    <div class="python-label">Python Demo — stdlib only</div>
+    <pre><span class="kw">import</span> random, collections
+
+<span class="cm"># Simulate a weighted data mixer</span>
+sources = {
+    <span class="st">"web"</span>:        (<span class="nm">0.45</span>, <span class="nm">1.0</span>),   <span class="cm"># (sampling weight, quality score 0-1)</span>
+    <span class="st">"books"</span>:      (<span class="nm">0.17</span>, <span class="nm">0.95</span>),
+    <span class="st">"code"</span>:       (<span class="nm">0.17</span>, <span class="nm">0.90</span>),
+    <span class="st">"scientific"</span>: (<span class="nm">0.10</span>, <span class="nm">0.92</span>),
+    <span class="st">"wikipedia"</span>:  (<span class="nm">0.06</span>, <span class="nm">0.98</span>),
+    <span class="st">"other"</span>:      (<span class="nm">0.05</span>, <span class="nm">0.70</span>),
+}
+
+<span class="kw">def</span> <span class="fn">sample_batch</span>(sources, n=<span class="nm">1000</span>):
+    names = list(sources.keys())
+    weights = [sources[s][<span class="nm">0</span>] <span class="kw">for</span> s <span class="kw">in</span> names]
+    total = sum(weights)
+    normed = [w/total <span class="kw">for</span> w <span class="kw">in</span> weights]
+    counts = collections.Counter()
+    <span class="kw">for</span> _ <span class="kw">in</span> range(n):
+        r = random.random(); cum = <span class="nm">0.0</span>
+        <span class="kw">for</span> name, p <span class="kw">in</span> zip(names, normed):
+            cum += p
+            <span class="kw">if</span> r &lt;= cum: counts[name] += <span class="nm">1</span>; <span class="kw">break</span>
+    <span class="kw">return</span> counts
+
+counts = sample_batch(sources, <span class="nm">10000</span>)
+avg_quality = sum(counts[s]*sources[s][<span class="nm">1</span>] <span class="kw">for</span> s <span class="kw">in</span> sources) / <span class="nm">10000</span>
+
+print(<span class="st">f"Sampled 10,000 tokens from mixture:"</span>)
+<span class="kw">for</span> src, cnt <span class="kw">in</span> sorted(counts.items(), key=<span class="kw">lambda</span> x: -x[<span class="nm">1</span>]):
+    bar = <span class="st">"█"</span> * (cnt // <span class="nm">100</span>)
+    print(<span class="st">f"  {src:12s} {bar} {cnt:5d} ({cnt/100:.1f}%)"</span>)
+print(<span class="st">f"\nWeighted avg quality score: {avg_quality:.3f}"</span>)
+<span class="cm"># Try boosting "code" weight to 0.30 and reducing "web" — see how avg quality shifts.</span></pre>
+  </div>
+</div>
+</body>
+</html>

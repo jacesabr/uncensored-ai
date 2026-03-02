@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Diagram 11 — KV Cache</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, 'Segoe UI', system-ui, sans-serif;
+    background: #faf9f7; padding: 40px 24px; color: #2a2a2a;
+  }
+  .diagram-wrapper {
+    max-width: 820px; margin: 0 auto;
+    border: 1px solid #e8e4de; border-radius: 12px;
+    background: #faf9f7; padding: 36px 32px 28px;
+  }
+  .diagram-title {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.12em;
+    text-transform: uppercase; color: #c96442; margin-bottom: 6px;
+  }
+  .diagram-subtitle { font-size: 18px; font-weight: 600; color: #1a1a1a; margin-bottom: 8px; }
+  .diagram-tagline { font-size: 13px; color: #7a6a5a; font-style: italic; margin-bottom: 28px; }
+
+  /* Step-by-step timeline */
+  .timeline {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    margin-bottom: 24px;
+  }
+  .step-row {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+    padding: 14px 0;
+    border-bottom: 1px solid #f0ece6;
+  }
+  .step-row:last-child { border-bottom: none; }
+
+  .step-num {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: #c96442;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+  .step-content { flex: 1; }
+  .step-title {
+    font-size: 13px; font-weight: 700; color: #2a2a2a; margin-bottom: 8px;
+  }
+
+  /* Token + KV visualization */
+  .token-kv-row {
+    display: flex;
+    gap: 4px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+  }
+  .tok-block {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+  }
+  .tok-chip {
+    border-radius: 5px;
+    padding: 5px 8px;
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+    font-family: monospace;
+  }
+  .tok-chip.cached { background: #f0ece6; border: 1.5px solid #d6cfc5; color: #4a3f35; }
+  .tok-chip.current { background: #c96442; border: 1.5px solid #a8512f; color: #fff; }
+  .kv-row-label {
+    font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase;
+    color: #9a8878;
+  }
+  .kv-chip-row {
+    display: flex;
+    gap: 3px;
+  }
+  .kv-k {
+    background: #dbeafe; border: 1px solid #3b82f6; border-radius: 3px;
+    padding: 2px 5px; font-size: 9px; font-weight: 700; color: #1e3a8a;
+  }
+  .kv-v {
+    background: #dcfce7; border: 1px solid #22c55e; border-radius: 3px;
+    padding: 2px 5px; font-size: 9px; font-weight: 700; color: #14532d;
+  }
+  .kv-new {
+    border-width: 2px !important;
+    box-shadow: 0 0 6px rgba(201,100,66,0.4);
+  }
+
+  .step-note {
+    font-size: 11px; color: #7a6a5a; line-height: 1.5; margin-top: 6px;
+  }
+  .step-note strong { color: #c96442; }
+
+  /* Memory growth chart */
+  .memory-section {
+    margin-bottom: 24px;
+  }
+  .memory-label {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.1em;
+    text-transform: uppercase; color: #9a8878; margin-bottom: 10px;
+  }
+  .memory-chart {
+    display: flex;
+    gap: 6px;
+    align-items: flex-end;
+    height: 100px;
+    background: #f5f0ea;
+    border: 1px solid #e8d8c8;
+    border-radius: 8px;
+    padding: 12px 16px 8px;
+  }
+  .mem-bar-col {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    height: 100%;
+    justify-content: flex-end;
+  }
+  .mem-bar {
+    width: 100%;
+    border-radius: 3px 3px 0 0;
+    min-width: 20px;
+    position: relative;
+  }
+  .mem-k { background: #3b82f6; }
+  .mem-v { background: #22c55e; }
+  .mem-tok-label {
+    font-size: 9px; color: #9a8878; white-space: nowrap;
+    font-family: monospace;
+  }
+  .mem-chart-row {
+    display: flex; gap: 6px; margin-top: 6px;
+  }
+  .mem-legend {
+    display: flex; gap: 12px; font-size: 10px; color: #5a4a3a; margin-top: 6px;
+  }
+  .mem-legend-item { display: flex; align-items: center; gap: 5px; }
+  .mem-swatch { width: 14px; height: 10px; border-radius: 2px; }
+
+  /* Efficiency formula */
+  .efficiency-box {
+    background: #1d1d1d;
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin-bottom: 20px;
+    border: 1px solid #333;
+  }
+  .efficiency-label {
+    font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: #888; margin-bottom: 12px; font-weight: 700;
+  }
+  .efficiency-eq {
+    font-size: 12px; color: #e8e4de; font-family: 'Courier New', monospace; line-height: 2;
+  }
+  .hl { color: #c96442; font-weight: 700; }
+  .ok { color: #86efac; }
+  .cm-c { color: #6b7280; font-style: italic; font-size: 11px; }
+
+  .tradeoff-row {
+    display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px;
+  }
+  .tradeoff-card {
+    flex: 1; min-width: 180px;
+    border-radius: 8px; padding: 12px 14px;
+  }
+  .tradeoff-card.pro { background: #f0fdf4; border: 1.5px solid #86efac; }
+  .tradeoff-card.con { background: #fff1f2; border: 1.5px solid #fca5a5; }
+  .tradeoff-title {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+    margin-bottom: 5px;
+  }
+  .tradeoff-card.pro .tradeoff-title { color: #16a34a; }
+  .tradeoff-card.con .tradeoff-title { color: #dc2626; }
+  .tradeoff-text { font-size: 12px; color: #4a3f35; line-height: 1.5; }
+
+  .caption { font-size: 12px; color: #7a6a5a; line-height: 1.6; margin-top: 18px; }
+  .python-block {
+    margin-top: 28px; background: #1d1d1d; border-radius: 8px;
+    padding: 20px; border: 1px solid #333;
+  }
+  .python-label {
+    font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: #c96442; margin-bottom: 12px; font-weight: 700;
+  }
+  pre {
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+    font-size: 12px; line-height: 1.7; color: #e8e4de; white-space: pre; overflow-x: auto;
+  }
+  .kw { color: #c084fc; } .fn { color: #60a5fa; }
+  .cm { color: #6b7280; font-style: italic; } .st { color: #86efac; } .nm { color: #fbbf24; }
+</style>
+</head>
+<body>
+<div class="diagram-wrapper">
+  <div class="diagram-title">Diagram 11 of 14</div>
+  <div class="diagram-subtitle">KV Cache — Key-Value Caching at Inference</div>
+  <div class="diagram-tagline">Without KV cache: O(n²) attention per step. With KV cache: O(n) per step — each token generated in constant time.</div>
+
+  <!-- Step-by-step generation with cache -->
+  <div class="timeline">
+
+    <div class="step-row">
+      <div class="step-num">1</div>
+      <div class="step-content">
+        <div class="step-title">Prefill phase — process entire prompt at once</div>
+        <div class="token-kv-row">
+          <div class="tok-block">
+            <div class="tok-chip cached">The</div>
+            <div class="kv-row-label">K+V</div>
+            <div class="kv-chip-row"><div class="kv-k">K₁</div><div class="kv-v">V₁</div></div>
+          </div>
+          <div class="tok-block">
+            <div class="tok-chip cached">cat</div>
+            <div class="kv-row-label">K+V</div>
+            <div class="kv-chip-row"><div class="kv-k">K₂</div><div class="kv-v">V₂</div></div>
+          </div>
+          <div class="tok-block">
+            <div class="tok-chip cached">sat</div>
+            <div class="kv-row-label">K+V</div>
+            <div class="kv-chip-row"><div class="kv-k">K₃</div><div class="kv-v">V₃</div></div>
+          </div>
+          <div class="tok-block">
+            <div class="tok-chip cached">on</div>
+            <div class="kv-row-label">K+V</div>
+            <div class="kv-chip-row"><div class="kv-k">K₄</div><div class="kv-v">V₄</div></div>
+          </div>
+          <div class="tok-block">
+            <div class="tok-chip current">→ ?</div>
+            <div class="kv-row-label">Q only</div>
+            <div class="kv-chip-row" style="background:#f0ece6;border-radius:3px;padding:2px 4px;font-size:9px;color:#9a8878;">Q₅</div>
+          </div>
+        </div>
+        <div class="step-note">All prompt tokens processed together. K and V for all positions stored in cache. Q₅ attends to all cached K's → softmax → weighted sum of all V's → next token.</div>
+      </div>
+    </div>
+
+    <div class="step-row">
+      <div class="step-num">2</div>
+      <div class="step-content">
+        <div class="step-title">Decode step t=5 — generate "the"</div>
+        <div class="token-kv-row">
+          <div class="tok-block">
+            <div class="tok-chip cached">The</div>
+            <div class="kv-chip-row"><div class="kv-k">K₁✓</div><div class="kv-v">V₁✓</div></div>
+          </div>
+          <div class="tok-block">
+            <div class="tok-chip cached">cat</div>
+            <div class="kv-chip-row"><div class="kv-k">K₂✓</div><div class="kv-v">V₂✓</div></div>
+          </div>
+          <div class="tok-block">
+            <div class="tok-chip cached">sat</div>
+            <div class="kv-chip-row"><div class="kv-k">K₃✓</div><div class="kv-v">V₃✓</div></div>
+          </div>
+          <div class="tok-block">
+            <div class="tok-chip cached">on</div>
+            <div class="kv-chip-row"><div class="kv-k">K₄✓</div><div class="kv-v">V₄✓</div></div>
+          </div>
+          <div class="tok-block">
+            <div class="tok-chip current">the</div>
+            <div class="kv-chip-row"><div class="kv-k kv-new">K₅✦</div><div class="kv-v kv-new">V₅✦</div></div>
+          </div>
+        </div>
+        <div class="step-note">Only <strong>new token</strong> "the" needs its K₅, V₅ computed. Q₅ looks up all cached K's. K₅/V₅ appended to cache. No recomputation of K₁–K₄.</div>
+      </div>
+    </div>
+
+    <div class="step-row">
+      <div class="step-num">3</div>
+      <div class="step-content">
+        <div class="step-title">Decode step t=6 — generate "mat" — cache grows by one more entry</div>
+        <div class="token-kv-row">
+          <div class="tok-block">
+            <div class="tok-chip cached">The</div>
+            <div class="kv-chip-row"><div class="kv-k">K₁</div><div class="kv-v">V₁</div></div>
+          </div>
+          <div class="tok-block">
+            <div class="tok-chip cached">cat</div>
+            <div class="kv-chip-row"><div class="kv-k">K₂</div><div class="kv-v">V₂</div></div>
+          </div>
+          <div class="tok-block">
+            <div class="tok-chip cached">sat</div>
+            <div class="kv-chip-row"><div class="kv-k">K₃</div><div class="kv-v">V₃</div></div>
+          </div>
+          <div class="tok-block">
+            <div class="tok-chip cached">on</div>
+            <div class="kv-chip-row"><div class="kv-k">K₄</div><div class="kv-v">V₄</div></div>
+          </div>
+          <div class="tok-block">
+            <div class="tok-chip cached">the</div>
+            <div class="kv-chip-row"><div class="kv-k">K₅</div><div class="kv-v">V₅</div></div>
+          </div>
+          <div class="tok-block">
+            <div class="tok-chip current">mat</div>
+            <div class="kv-chip-row"><div class="kv-k kv-new">K₆✦</div><div class="kv-v kv-new">V₆✦</div></div>
+          </div>
+        </div>
+        <div class="step-note">Pattern repeats: cache grows by +1 entry per step. Memory = O(seq_len × d_model × 2 × n_layers × n_heads). For LLaMA-3-8B at 128K context: ~16GB KV cache.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Memory growth chart -->
+  <div class="memory-section">
+    <div class="memory-label">KV cache memory grows linearly with sequence length (per layer, per head)</div>
+    <div class="memory-chart">
+      <div class="mem-bar-col">
+        <div class="mem-bar mem-k" style="height:12px;"></div>
+        <div class="mem-bar mem-v" style="height:12px;"></div>
+        <div class="mem-tok-label">128 tok</div>
+      </div>
+      <div class="mem-bar-col">
+        <div class="mem-bar mem-k" style="height:20px;"></div>
+        <div class="mem-bar mem-v" style="height:20px;"></div>
+        <div class="mem-tok-label">512 tok</div>
+      </div>
+      <div class="mem-bar-col">
+        <div class="mem-bar mem-k" style="height:32px;"></div>
+        <div class="mem-bar mem-v" style="height:32px;"></div>
+        <div class="mem-tok-label">2K tok</div>
+      </div>
+      <div class="mem-bar-col">
+        <div class="mem-bar mem-k" style="height:50px;"></div>
+        <div class="mem-bar mem-v" style="height:50px;"></div>
+        <div class="mem-tok-label">8K tok</div>
+      </div>
+      <div class="mem-bar-col">
+        <div class="mem-bar mem-k" style="height:68px;"></div>
+        <div class="mem-bar mem-v" style="height:68px;"></div>
+        <div class="mem-tok-label">32K tok</div>
+      </div>
+      <div class="mem-bar-col">
+        <div class="mem-bar mem-k" style="height:80px;"></div>
+        <div class="mem-bar mem-v" style="height:80px;"></div>
+        <div class="mem-tok-label">128K tok</div>
+      </div>
+    </div>
+    <div class="mem-legend">
+      <div class="mem-legend-item"><div class="mem-swatch" style="background:#3b82f6;"></div>Key cache</div>
+      <div class="mem-legend-item"><div class="mem-swatch" style="background:#22c55e;"></div>Value cache</div>
+    </div>
+  </div>
+
+  <!-- Efficiency box -->
+  <div class="efficiency-box">
+    <div class="efficiency-label">Compute cost comparison</div>
+    <div class="efficiency-eq">
+      Without KV cache: step t costs <span class="hl">O(t²)</span>  — recompute ALL attention for ALL tokens<br>
+      With KV cache:    step t costs <span class="ok">O(t)</span>   — only compute Q for new token, dot with cached K<br>
+      <br>
+      <span class="cm-c">Memory formula: bytes = seq_len × d_model × 2(K+V) × n_layers × 2(fp16) bytes</span><br>
+      <span class="cm-c">LLaMA-3-8B: 128K × 4096 × 2 × 32 × 2 = ~64GB at full context (why GQA matters!)</span>
+    </div>
+  </div>
+
+  <!-- Tradeoffs -->
+  <div class="tradeoff-row">
+    <div class="tradeoff-card pro">
+      <div class="tradeoff-title">Benefit</div>
+      <div class="tradeoff-text">Each generated token takes constant time (ignoring attention cost). Batching multiple sequences amortizes memory. Prefill parallelizes across full sequence.</div>
+    </div>
+    <div class="tradeoff-card con">
+      <div class="tradeoff-title">Cost</div>
+      <div class="tradeoff-text">Memory grows linearly. At 128K context, 8B model needs 64GB+ for KV alone. GQA (Grouped-Query Attention) reduces this by sharing K/V across multiple Q heads.</div>
+    </div>
+    <div class="tradeoff-card pro">
+      <div class="tradeoff-title">GQA/MQA fix</div>
+      <div class="tradeoff-text">LLaMA-3 uses GQA: 8 Q-heads share 1 K/V-head group. 8× memory reduction at &lt;1% quality loss. Multi-Query Attention (MQA) takes this further: 1 K/V total.</div>
+    </div>
+  </div>
+
+  <div class="caption">
+    The KV cache is the key inference optimization in transformer LLMs. During prefill, all K and V vectors for the prompt
+    are computed and stored. During decoding, only the new token's Q, K, V are computed — K and V appended to cache,
+    Q used to attend over all cached K's. This reduces per-token decode cost from O(n²) to O(n),
+    making long-context generation practical.
+  </div>
+
+  <div class="python-block">
+    <div class="python-label">Python Demo — stdlib only</div>
+    <pre><span class="kw">import</span> math, random
+
+<span class="kw">def</span> <span class="fn">dot</span>(a,b): <span class="kw">return</span> sum(x*y <span class="kw">for</span> x,y <span class="kw">in</span> zip(a,b))
+<span class="kw">def</span> <span class="fn">softmax</span>(v):
+    m=max(v); e=[math.exp(x-m) <span class="kw">for</span> x <span class="kw">in</span> v]; t=sum(e)
+    <span class="kw">return</span> [x/t <span class="kw">for</span> x <span class="kw">in</span> e]
+
+<span class="kw">class</span> <span class="fn">KVCache</span>:
+    <span class="kw">def</span> <span class="fn">__init__</span>(self): self.K = []; self.V = []
+    <span class="kw">def</span> <span class="fn">append</span>(self, k, v): self.K.append(k); self.V.append(v)
+    <span class="kw">def</span> <span class="fn">size_bytes</span>(self, dtype_bytes=<span class="nm">2</span>):  <span class="cm"># fp16</span>
+        <span class="kw">return</span> len(self.K) * len(self.K[<span class="nm">0</span>]) * <span class="nm">2</span> * dtype_bytes  <span class="cm"># K + V</span>
+
+d_k = <span class="nm">16</span>  <span class="cm"># try 64 or 128</span>
+n_layers = <span class="nm">4</span>
+cache = KVCache()
+
+<span class="cm"># Simulate autoregressive decode with KV cache</span>
+print(<span class="st">f"{'Step':5s} {'CacheSize':10s} {'MemKB':8s} {'AttentionOps':12s} {'Without cache'}"</span>)
+<span class="kw">for</span> step <span class="kw">in</span> range(<span class="nm">1</span>, <span class="nm">12</span>):
+    <span class="cm"># New token: compute Q, K, V (O(d) each)</span>
+    q = [random.gauss(<span class="nm">0</span>,<span class="nm">1</span>) <span class="kw">for</span> _ <span class="kw">in</span> range(d_k)]
+    k = [random.gauss(<span class="nm">0</span>,<span class="nm">1</span>) <span class="kw">for</span> _ <span class="kw">in</span> range(d_k)]
+    v = [random.gauss(<span class="nm">0</span>,<span class="nm">1</span>) <span class="kw">for</span> _ <span class="kw">in</span> range(d_k)]
+    cache.append(k, v)
+
+    <span class="cm"># Attention: Q dot-product with all cached K's (O(t) ops)</span>
+    scores = softmax([dot(q, ki)/math.sqrt(d_k) <span class="kw">for</span> ki <span class="kw">in</span> cache.K])
+    out = [sum(scores[j]*cache.V[j][i] <span class="kw">for</span> j <span class="kw">in</span> range(len(cache.K))) <span class="kw">for</span> i <span class="kw">in</span> range(d_k)]
+
+    mem_kb = cache.size_bytes() * n_layers / <span class="nm">1024</span>
+    ops_with = step      <span class="cm"># O(t) with cache</span>
+    ops_without = step**<span class="nm">2</span>  <span class="cm"># O(t²) without cache</span>
+    print(<span class="st">f"{step:5d} {step:10d} {mem_kb:8.2f} {ops_with:12d} {ops_without:13d}"</span>)
+
+<span class="cm"># Try d_k=128, n_layers=32 — see how quickly memory grows at realistic scales.</span></pre>
+  </div>
+</div>
+</body>
+</html>

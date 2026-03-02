@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Diagram 14 — BERT vs GPT Attention Patterns</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, 'Segoe UI', system-ui, sans-serif;
+    background: #faf9f7; padding: 40px 24px; color: #2a2a2a;
+  }
+  .diagram-wrapper {
+    max-width: 860px; margin: 0 auto;
+    border: 1px solid #e8e4de; border-radius: 12px;
+    background: #faf9f7; padding: 36px 32px 28px;
+  }
+  .diagram-title {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.12em;
+    text-transform: uppercase; color: #c96442; margin-bottom: 6px;
+  }
+  .diagram-subtitle { font-size: 18px; font-weight: 600; color: #1a1a1a; margin-bottom: 28px; }
+
+  /* Side by side comparison */
+  .comparison-row {
+    display: flex;
+    gap: 24px;
+    align-items: flex-start;
+    margin-bottom: 28px;
+    flex-wrap: wrap;
+  }
+  .model-panel {
+    flex: 1;
+    min-width: 300px;
+  }
+  .model-header {
+    border-radius: 8px 8px 0 0;
+    padding: 14px 16px;
+    text-align: center;
+    margin-bottom: 0;
+  }
+  .bert-header { background: #1d3a5e; border: 1.5px solid #2563eb; }
+  .gpt-header  { background: #3b0a02; border: 1.5px solid #c96442; }
+
+  .model-name {
+    font-size: 16px; font-weight: 700; color: #fff; margin-bottom: 4px;
+  }
+  .model-tagline {
+    font-size: 11px; color: rgba(255,255,255,0.7);
+  }
+
+  .matrix-section {
+    border: 1.5px solid #e8e4de;
+    border-top: none;
+    border-radius: 0 0 8px 8px;
+    padding: 16px;
+    background: #fff;
+  }
+  .matrix-label {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.1em;
+    text-transform: uppercase; color: #9a8878; margin-bottom: 10px;
+    text-align: center;
+  }
+
+  /* Attention matrix grid */
+  .att-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    margin-bottom: 12px;
+  }
+  .att-row {
+    display: flex;
+    gap: 0;
+  }
+  .att-header-cell {
+    width: 40px; height: 30px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 700; color: #5a4a3a;
+    font-family: monospace;
+  }
+  .att-row-label {
+    width: 40px; height: 40px;
+    display: flex; align-items: center; justify-content: flex-end;
+    padding-right: 6px;
+    font-size: 10px; font-weight: 700; color: #5a4a3a;
+    font-family: monospace;
+  }
+  .att-cell {
+    width: 40px; height: 40px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 9px; font-weight: 600;
+    color: #fff;
+    border: 1px solid rgba(255,255,255,0.05);
+    position: relative;
+  }
+  /* Masked cell */
+  .att-cell.masked {
+    background: #2a2a2a !important;
+    position: relative;
+    overflow: hidden;
+  }
+  .att-cell.masked::after {
+    content: '';
+    position: absolute; inset: 0;
+    background: repeating-linear-gradient(
+      -45deg, transparent, transparent 5px,
+      rgba(60,60,60,0.6) 5px, rgba(60,60,60,0.6) 7px
+    );
+  }
+
+  /* Info below grid */
+  .model-info {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 12px;
+  }
+  .info-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: 11px;
+    color: #5a4a3a;
+    line-height: 1.4;
+  }
+  .info-label {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.06em;
+    text-transform: uppercase; color: #9a8878;
+    white-space: nowrap; min-width: 80px;
+  }
+  .info-val { flex: 1; }
+  .info-val.bert-color { color: #2563eb; font-weight: 600; }
+  .info-val.gpt-color  { color: #c96442; font-weight: 600; }
+
+  /* Tokens axis labels -->
+  .tok-axis {
+    display: flex; gap: 0; padding-left: 40px;
+    margin-bottom: 4px;
+  }
+  .tok-axis-item {
+    width: 40px;
+    font-size: 9px; font-weight: 700; color: #5a4a3a;
+    font-family: monospace; text-align: center;
+    white-space: nowrap; overflow: hidden;
+  }
+
+  /* Architecture comparison table -->
+  .arch-table {
+    width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 20px;
+  }
+  .arch-table th {
+    background: #1d1d1d; color: #e8e4de;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+    padding: 8px 12px; text-align: left; border: 1px solid #333;
+  }
+  .arch-table td {
+    padding: 8px 12px; border: 1px solid #e8e4de; color: #4a3f35; vertical-align: top;
+  }
+  .arch-table tr:nth-child(even) td { background: #f5f0ea; }
+  .bert-val { color: #2563eb; font-weight: 600; }
+  .gpt-val  { color: #c96442; font-weight: 600; }
+
+  /* Use case cards -->
+  .usecases-row {
+    display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px;
+  }
+  .usecase-card {
+    flex: 1; min-width: 180px;
+    border-radius: 8px; padding: 12px 14px;
+  }
+  .usecase-card.bert { background: #eff6ff; border: 1.5px solid #99b8e8; }
+  .usecase-card.gpt  { background: #fff5f2; border: 1.5px solid #e8a882; }
+  .usecase-title {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
+    text-transform: uppercase; margin-bottom: 6px;
+  }
+  .usecase-card.bert .usecase-title { color: #2563eb; }
+  .usecase-card.gpt  .usecase-title { color: #c96442; }
+  .usecase-text { font-size: 11px; color: #5a4a3a; line-height: 1.5; }
+
+  /* MLM vs CLM -->
+  .objective-row {
+    display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 20px;
+  }
+  .objective-box {
+    flex: 1; min-width: 280px;
+    background: #1d1d1d; border-radius: 8px; padding: 16px 18px; border: 1px solid #333;
+  }
+  .obj-title {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+  .obj-title.bert { color: #60a5fa; }
+  .obj-title.gpt  { color: #e8a882; }
+  .obj-eq {
+    font-size: 12px; color: #e8e4de; font-family: 'Courier New', monospace; line-height: 1.9;
+  }
+  .mask { color: #fbbf24; font-weight: 700; }
+  .pred { color: #86efac; font-weight: 700; }
+
+  .caption { font-size: 12px; color: #7a6a5a; line-height: 1.6; margin-top: 18px; }
+  .python-block {
+    margin-top: 28px; background: #1d1d1d; border-radius: 8px;
+    padding: 20px; border: 1px solid #333;
+  }
+  .python-label {
+    font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: #c96442; margin-bottom: 12px; font-weight: 700;
+  }
+  pre {
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+    font-size: 12px; line-height: 1.7; color: #e8e4de; white-space: pre; overflow-x: auto;
+  }
+  .kw { color: #c084fc; } .fn { color: #60a5fa; }
+  .cm { color: #6b7280; font-style: italic; } .st { color: #86efac; } .nm { color: #fbbf24; }
+</style>
+</head>
+<body>
+<div class="diagram-wrapper">
+  <div class="diagram-title">Diagram 14 of 14</div>
+  <div class="diagram-subtitle">BERT vs GPT — Bidirectional vs Causal Attention Patterns</div>
+
+  <!-- Side by side attention matrices -->
+  <div class="comparison-row">
+
+    <!-- BERT panel -->
+    <div class="model-panel">
+      <div class="model-header bert-header">
+        <div class="model-name">BERT</div>
+        <div class="model-tagline">Bidirectional Encoder Representations from Transformers</div>
+      </div>
+      <div class="matrix-section">
+        <div class="matrix-label">Attention pattern — every position attends to every other position</div>
+
+        <!-- Column headers -->
+        <div class="tok-axis">
+          <div class="tok-axis-item">The</div>
+          <div class="tok-axis-item">cat</div>
+          <div class="tok-axis-item">sat</div>
+          <div class="tok-axis-item">on</div>
+          <div class="tok-axis-item">mat</div>
+        </div>
+
+        <div class="att-grid">
+          <!-- Row: The -->
+          <div class="att-row">
+            <div class="att-row-label">The</div>
+            <div class="att-cell" style="background:rgba(37,99,235,0.88);">0.6</div>
+            <div class="att-cell" style="background:rgba(37,99,235,0.55);">0.4</div>
+            <div class="att-cell" style="background:rgba(37,99,235,0.38);">0.3</div>
+            <div class="att-cell" style="background:rgba(37,99,235,0.22);">0.2</div>
+            <div class="att-cell" style="background:rgba(37,99,235,0.60);">0.4</div>
+          </div>
+          <!-- Row: cat -->
+          <div class="att-row">
+            <div class="att-row-label">cat</div>
+            <div class="att-cell" style="background:rgba(37,99,235,0.48);">0.3</div>
+            <div class="att-cell" style="background:rgba(37,99,235,0.90);">0.7</div>
+            <div class="att-cell" style="background:rgba(37,99,235,0.55);">0.4</div>
+            <div class="att-cell" style="background:rgba(37,99,235,0.20);">0.2</div>
+            <div class="att-cell" style="background:rgba(37,99,235,0.28);">0.2</div>
+          </div>
+          <!-- Row: sat -->
+          <div class="att-row">
+            <div class="att-row-label">sat</div>
+            <div class="att-cell" style="background:rgba(37,99,235,0.32);">0.2</div>
+            <div class="att-cell" style="background:rgba(37,99,235,0.60);">0.4</div>
+            <div class="att-cell" style="background:rgba(37,99,235,0.88);">0.7</div>
+            <div class="att-cell" style="background:rgba(37,99,235,0.48);">0.3</div>
+            <div class="att-cell" style="background:rgba(37,99,235,0.35);">0.2</div>
+          </div>
+          <!-- Row: on -->
+          <div class="att-row">
+            <div class="att-row-label">on</div>
+            <div class="att-cell" style="background:rgba(37,99,235,0.20);">0.1</div>
+            <div class="att-cell" style="background:rgba(37,99,235,0.30);">0.2</div>
+            <div class="att-cell" style="background:rgba(37,99,235,0.55);">0.4</div>
+            <div class="att-cell" style="background:rgba(37,99,235,0.90);">0.7</div>
+            <div class="att-cell" style="background:rgba(37,99,235,0.68);">0.5</div>
+          </div>
+          <!-- Row: mat -->
+          <div class="att-row">
+            <div class="att-row-label">mat</div>
+            <div class="att-cell" style="background:rgba(37,99,235,0.55);">0.4</div>
+            <div class="att-cell" style="background:rgba(37,99,235,0.28);">0.2</div>
+            <div class="att-cell" style="background:rgba(37,99,235,0.38);">0.2</div>
+            <div class="att-cell" style="background:rgba(37,99,235,0.62);">0.4</div>
+            <div class="att-cell" style="background:rgba(37,99,235,0.90);">0.7</div>
+          </div>
+        </div>
+        <div style="font-size:10px;color:#9a8878;text-align:center;margin-top:4px;">All N×N cells active — full bidirectional attention</div>
+
+        <div class="model-info">
+          <div class="info-row">
+            <div class="info-label">Mask type</div>
+            <div class="info-val bert-color">None — full bidirectional</div>
+          </div>
+          <div class="info-row">
+            <div class="info-label">Training</div>
+            <div class="info-val">MLM (15% tokens masked, predict from both sides)</div>
+          </div>
+          <div class="info-row">
+            <div class="info-label">Can generate?</div>
+            <div class="info-val" style="color:#dc2626;font-weight:600;">No — sees full context, can't do left-to-right generation</div>
+          </div>
+          <div class="info-row">
+            <div class="info-label">Best for</div>
+            <div class="info-val">Classification, NER, QA, sentence embeddings</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- GPT panel -->
+    <div class="model-panel">
+      <div class="model-header gpt-header">
+        <div class="model-name">GPT</div>
+        <div class="model-tagline">Generative Pre-trained Transformer (Causal)</div>
+      </div>
+      <div class="matrix-section">
+        <div class="matrix-label">Attention pattern — each position only attends to prior positions</div>
+
+        <!-- Column headers -->
+        <div class="tok-axis">
+          <div class="tok-axis-item">The</div>
+          <div class="tok-axis-item">cat</div>
+          <div class="tok-axis-item">sat</div>
+          <div class="tok-axis-item">on</div>
+          <div class="tok-axis-item">mat</div>
+        </div>
+
+        <div class="att-grid">
+          <!-- Row: The -->
+          <div class="att-row">
+            <div class="att-row-label">The</div>
+            <div class="att-cell" style="background:rgba(201,100,66,0.90);">1.0</div>
+            <div class="att-cell masked"></div>
+            <div class="att-cell masked"></div>
+            <div class="att-cell masked"></div>
+            <div class="att-cell masked"></div>
+          </div>
+          <!-- Row: cat -->
+          <div class="att-row">
+            <div class="att-row-label">cat</div>
+            <div class="att-cell" style="background:rgba(201,100,66,0.40);">0.3</div>
+            <div class="att-cell" style="background:rgba(201,100,66,0.90);">0.7</div>
+            <div class="att-cell masked"></div>
+            <div class="att-cell masked"></div>
+            <div class="att-cell masked"></div>
+          </div>
+          <!-- Row: sat -->
+          <div class="att-row">
+            <div class="att-row-label">sat</div>
+            <div class="att-cell" style="background:rgba(201,100,66,0.18);">0.1</div>
+            <div class="att-cell" style="background:rgba(201,100,66,0.55);">0.4</div>
+            <div class="att-cell" style="background:rgba(201,100,66,0.90);">0.7</div>
+            <div class="att-cell masked"></div>
+            <div class="att-cell masked"></div>
+          </div>
+          <!-- Row: on -->
+          <div class="att-row">
+            <div class="att-row-label">on</div>
+            <div class="att-cell" style="background:rgba(201,100,66,0.15);">0.1</div>
+            <div class="att-cell" style="background:rgba(201,100,66,0.30);">0.2</div>
+            <div class="att-cell" style="background:rgba(201,100,66,0.55);">0.4</div>
+            <div class="att-cell" style="background:rgba(201,100,66,0.88);">0.7</div>
+            <div class="att-cell masked"></div>
+          </div>
+          <!-- Row: mat -->
+          <div class="att-row">
+            <div class="att-row-label">mat</div>
+            <div class="att-cell" style="background:rgba(201,100,66,0.12);">0.1</div>
+            <div class="att-cell" style="background:rgba(201,100,66,0.22);">0.1</div>
+            <div class="att-cell" style="background:rgba(201,100,66,0.38);">0.2</div>
+            <div class="att-cell" style="background:rgba(201,100,66,0.60);">0.4</div>
+            <div class="att-cell" style="background:rgba(201,100,66,0.90);">0.7</div>
+          </div>
+        </div>
+        <div style="font-size:10px;color:#9a8878;text-align:center;margin-top:4px;">Lower triangle only — future tokens masked with −∞</div>
+
+        <div class="model-info">
+          <div class="info-row">
+            <div class="info-label">Mask type</div>
+            <div class="info-val gpt-color">Causal — lower triangular mask</div>
+          </div>
+          <div class="info-row">
+            <div class="info-label">Training</div>
+            <div class="info-val">CLM — predict next token from left context only</div>
+          </div>
+          <div class="info-row">
+            <div class="info-label">Can generate?</div>
+            <div class="info-val" style="color:#16a34a;font-weight:600;">Yes — autoregressive token-by-token generation</div>
+          </div>
+          <div class="info-row">
+            <div class="info-label">Best for</div>
+            <div class="info-val">Text generation, code, reasoning, chat</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Training objectives -->
+  <div class="objective-row">
+    <div class="objective-box">
+      <div class="obj-title bert">BERT: Masked Language Modeling (MLM)</div>
+      <div class="obj-eq">
+        Input:  "The <span class="mask">[MASK]</span> sat on the mat"<br>
+        Target: predict <span class="pred">"cat"</span> from full context<br>
+        Loss:   −log P(<span class="pred">cat</span> | The, <span class="mask">_</span>, sat, on, the, mat)<br>
+        <br>
+        Also: Next Sentence Prediction (NSP) — is B the next of A?
+      </div>
+    </div>
+    <div class="objective-box">
+      <div class="obj-title gpt">GPT: Causal Language Modeling (CLM)</div>
+      <div class="obj-eq">
+        Input:  "The cat sat on the"<br>
+        Target: predict <span class="pred">"mat"</span> from left context only<br>
+        Loss:   −Σ log P(xₜ | x₁…xₜ₋₁)<br>
+        <br>
+        Same objective as generation — training = inference!
+      </div>
+    </div>
+  </div>
+
+  <!-- Architecture comparison table -->
+  <table class="arch-table">
+    <tr>
+      <th>Property</th>
+      <th>BERT (Encoder)</th>
+      <th>GPT (Decoder)</th>
+    </tr>
+    <tr>
+      <td>Attention mask</td>
+      <td class="bert-val">Full — all positions see all</td>
+      <td class="gpt-val">Causal — lower triangle only</td>
+    </tr>
+    <tr>
+      <td>Pre-training objective</td>
+      <td class="bert-val">MLM (+ NSP in original)</td>
+      <td class="gpt-val">CLM (next token prediction)</td>
+    </tr>
+    <tr>
+      <td>Context at position t</td>
+      <td class="bert-val">Full sequence (past + future)</td>
+      <td class="gpt-val">Only tokens 0…t−1</td>
+    </tr>
+    <tr>
+      <td>Can generate text?</td>
+      <td>No (not autoregressive)</td>
+      <td class="gpt-val">Yes</td>
+    </tr>
+    <tr>
+      <td>Token representation</td>
+      <td class="bert-val">Deeply contextualized from both directions — best for understanding</td>
+      <td>Contextualized from left only</td>
+    </tr>
+    <tr>
+      <td>Representative models</td>
+      <td>BERT, RoBERTa, DeBERTa, ALBERT, BGE</td>
+      <td>GPT-2/3/4, LLaMA, Mistral, Claude, Gemini</td>
+    </tr>
+    <tr>
+      <td>Primary use</td>
+      <td class="bert-val">Classification, embeddings, NLU tasks</td>
+      <td class="gpt-val">Generation, reasoning, instruction following</td>
+    </tr>
+  </table>
+
+  <!-- Use cases -->
+  <div class="usecases-row">
+    <div class="usecase-card bert">
+      <div class="usecase-title">BERT is best for:</div>
+      <div class="usecase-text">
+        • Sentence embeddings (semantic search, RAG retrieval)<br>
+        • Named entity recognition<br>
+        • Question answering (extractive)<br>
+        • Text classification / sentiment<br>
+        • Cross-encoder reranking
+      </div>
+    </div>
+    <div class="usecase-card gpt">
+      <div class="usecase-title">GPT is best for:</div>
+      <div class="usecase-text">
+        • Open-ended text generation<br>
+        • Code generation<br>
+        • Chain-of-thought reasoning<br>
+        • Instruction following / chat<br>
+        • Summarization, translation
+      </div>
+    </div>
+    <div class="usecase-card" style="background:#f5f0ea;border:1.5px solid #e8d8c8;">
+      <div class="usecase-title" style="color:#7c3aed;">Encoder-Decoder (T5, BART)</div>
+      <div class="usecase-text">
+        Hybrid: BERT encoder reads full input, GPT-style decoder generates output autoregressively. Best for conditional generation: translation, summarization, question answering with long context.
+      </div>
+    </div>
+  </div>
+
+  <div class="caption">
+    BERT's bidirectional attention produces richer token representations — "bank" in "river bank" can attend to "river" even if it appears later.
+    GPT's causal mask ensures that training loss at every position uses only its valid left-context, making generation and training mathematically identical.
+    This is why GPT-style models dominate modern LLMs: one training objective (CLM) directly optimizes the generation capability.
+  </div>
+
+  <div class="python-block">
+    <div class="python-label">Python Demo — stdlib only</div>
+    <pre><span class="kw">import</span> math
+
+<span class="kw">def</span> <span class="fn">softmax</span>(v):
+    m=max(v); e=[math.exp(x-m) <span class="kw">for</span> x <span class="kw">in</span> v]; t=sum(e)
+    <span class="kw">return</span> [x/t <span class="kw">for</span> x <span class="kw">in</span> e]
+
+<span class="kw">def</span> <span class="fn">make_bert_mask</span>(n):
+    <span class="st">"Full attention — no masking"</span>
+    <span class="kw">return</span> [[<span class="nm">1</span>]*n <span class="kw">for</span> _ <span class="kw">in</span> range(n)]
+
+<span class="kw">def</span> <span class="fn">make_gpt_mask</span>(n):
+    <span class="st">"Causal mask — lower triangular"</span>
+    <span class="kw">return</span> [[<span class="nm">1</span> <span class="kw">if</span> j<=i <span class="kw">else</span> <span class="nm">0</span> <span class="kw">for</span> j <span class="kw">in</span> range(n)] <span class="kw">for</span> i <span class="kw">in</span> range(n)]
+
+<span class="kw">def</span> <span class="fn">masked_attention_weights</span>(n, mask_fn):
+    <span class="st">"Compute attention weights with a given mask."</span>
+    raw = [[<span class="nm">1.0</span> - <span class="nm">0.1</span>*abs(i-j) <span class="kw">for</span> j <span class="kw">in</span> range(n)] <span class="kw">for</span> i <span class="kw">in</span> range(n)]
+    mask = mask_fn(n)
+    weights = []
+    <span class="kw">for</span> i <span class="kw">in</span> range(n):
+        row = [raw[i][j] <span class="kw">if</span> mask[i][j] <span class="kw">else</span> -<span class="nm">1e9</span> <span class="kw">for</span> j <span class="kw">in</span> range(n)]
+        weights.append(softmax(row))
+    <span class="kw">return</span> weights
+
+tokens = [<span class="st">"The"</span>, <span class="st">"cat"</span>, <span class="st">"sat"</span>, <span class="st">"on"</span>]
+n = len(tokens)
+
+<span class="cm"># How many positions each token can attend to</span>
+<span class="kw">for</span> name, mask_fn <span class="kw">in</span> [(<span class="st">"BERT"</span>, make_bert_mask), (<span class="st">"GPT"</span>, make_gpt_mask)]:
+    weights = masked_attention_weights(n, mask_fn)
+    print(<span class="st">f"\n{name} attention weights:"</span>)
+    print(<span class="st">f"{'':6s}"</span> + <span class="st">" "</span>.join(<span class="st">f"{t:6s}"</span> <span class="kw">for</span> t <span class="kw">in</span> tokens))
+    <span class="kw">for</span> i, (tok, row) <span class="kw">in</span> enumerate(zip(tokens, weights)):
+        vals = <span class="st">" "</span>.join(<span class="st">f"{v:.3f}"</span> <span class="kw">if</span> v > <span class="nm">0.001</span> <span class="kw">else</span> <span class="st">"  --- "</span> <span class="kw">for</span> v <span class="kw">in</span> row)
+        print(<span class="st">f"Q={tok:4s}  {vals}"</span>)
+
+<span class="cm"># Try n=6 — BERT: always 6 positions. GPT: row 0 sees 1, row 5 sees 6.</span>
+<span class="cm"># This is why BERT can't generate: it needs to see the full sequence first.</span></pre>
+  </div>
+</div>
+</body>
+</html>
