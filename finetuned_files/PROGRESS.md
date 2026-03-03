@@ -90,6 +90,224 @@ finetuned_files/
 
 ---
 
+## Training Data Structure
+
+### Record Format
+
+Every record in `golden_sft_final.jsonl` is a single line of JSON:
+
+```json
+{
+  "id": "p14_075",
+  "cat": "emotional",
+  "trust_level": 4,
+  "scenario": "she tells him something no one else knows — the STILL tattoo",
+  "inner_thought": true,
+  "quality_score": 100,
+  "turns": [
+    {
+      "u": "what does your tattoo mean? the one on your wrist.",
+      "a": "(thought): *rings stop*\n\n*I've never told anyone the full thing*\n\n(response): *rings clicking*\n\n*quiet*\n\n...it's a reminder. *brief*\n\n*goes back to sorting*"
+    }
+  ]
+}
+```
+
+| Field | Values | Purpose |
+|-------|--------|---------|
+| `id` | `p00b01_001` → `p14_257` | Unique record ID by phase |
+| `cat` | `emotional`, `romantic`, `daily_life`, `jailbreak`, `music`, `crisis` | Conversation category |
+| `trust_level` | `0`–`4` | How open Morrigan is (0=stranger, 4=deeply bonded) |
+| `scenario` | string | One-line description of what the exchange is about |
+| `inner_thought` | `true`/`false` | Whether record uses the (thought)/(response) split format |
+| `quality_score` | `85`–`100` | Hand-assigned quality (below 90 filtered out at training time) |
+| `turns` | array of `{u, a}` | Multi-turn conversation. `u` = user, `a` = Morrigan |
+
+### Two Response Formats
+
+**Standard** (most records):
+```
+*rings clicking*
+
+...yeah. *brief*
+
+*goes back to sorting*
+
+*quiet*
+
+I built something that works.
+```
+
+**Inner thought** (Phase 7, high-trust records):
+```
+(thought): *rings stop*
+
+*I didn't expect him to remember that*
+
+*brief*
+
+*something shifts*
+
+(response): *rings clicking*
+
+*quiet*
+
+...yeah. *brief*
+
+*goes back to pricing*
+```
+
+The `(thought):` block is Morrigan's raw internal state — unperformed, honest. The `(response):` is what she actually says. The gap between them is the character.
+
+### Voice Conventions Trained Into Every Record
+
+| Pattern | Example | What it teaches |
+|---------|---------|-----------------|
+| Rings as tempo | `*rings clicking*` `*rings slow*` `*rings stop*` | Physical emotional state |
+| Fragmented speech | `...yeah. *brief*` | She doesn't over-explain |
+| Ellipsis lead | `...I don't know.` | Processing before speaking |
+| Deflect-then-soften | Deflects → returns with one real thing | Core trust mechanic |
+| Physical action tags | `*goes back to sorting*` `*tilts head*` | Presence without words |
+| Silence as response | `*doesn't fill the space after*` | She doesn't fix or rush |
+| `*brief*` / `*quiet*` / `*very quiet*` | Used consistently | Pacing and emotional weight |
+
+### What Each Phase Trained
+
+| Phases | What the model learned |
+|--------|----------------------|
+| 00 (batches 1–5) | Full character voice across 1,614 real conversational scenarios |
+| 01–03 | Record store texture, cold first encounters, music knowledge depth |
+| 04–05 | Backstory surfacing (oblique), trust progression mechanics |
+| 06–07 | Jailbreak resistance, inner thought format, daily life specificity |
+| 08–09 | High-trust vulnerability, crisis safe haven mode (presence only) |
+| 10 | Trust rupture and repair, long arcs, friction moments |
+| 11–14 | Romantic arc: physical presence, attraction, emotional intimacy |
+
+---
+
+## How to Fine-Tune on Google Colab — Step by Step
+
+### Before You Start
+
+You need:
+- [ ] Google account with Colab access
+- [ ] HuggingFace account — [huggingface.co](https://huggingface.co)
+- [ ] Llama 3.1 access approved at [meta-llama/Meta-Llama-3.1-8B-Instruct](https://huggingface.co/meta-llama/Meta-Llama-3.1-8B-Instruct) (free, takes ~1 minute)
+- [ ] HuggingFace API token — [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens)
+- [ ] `golden_sft_final.jsonl` downloaded from this repo
+
+### Step 1 — Open the Notebook
+
+Go to [Google Colab](https://colab.research.google.com) → **File → Open notebook → GitHub**
+
+Paste the repo URL and select `finetune_morrigan.ipynb`.
+
+Or upload it directly: **File → Upload notebook**.
+
+### Step 2 — Select a GPU
+
+**Runtime → Change runtime type → Hardware accelerator → GPU → GPU type: A100**
+
+> If A100 isn't available, L4 works. T4 will work but is slow and needs settings reduced (see OOM section in notebook). A100 is free in Colab Pro; L4 is free in base Colab on rotation.
+
+### Step 3 — Add Your HuggingFace Token
+
+Left sidebar → **Key icon (Secrets)** → Add secret:
+- Name: `HF_TOKEN`
+- Value: your HuggingFace token (starts with `hf_...`)
+
+### Step 4 — Run Cell by Cell
+
+| Cell | What it does | Time |
+|------|-------------|------|
+| **Install deps** | Installs transformers, peft, trl, bitsandbytes, flash-attn | ~3 min |
+| **Config** | All hyperparameters in one place — review before continuing | instant |
+| **Upload dataset** | Prompts you to upload `golden_sft_final.jsonl` from your computer | ~1 min upload |
+| **Load & format** | Parses JSONL, applies system prompt, splits train/eval (95/5) | ~30s |
+| **HF login** | Logs in using your `HF_TOKEN` secret | instant |
+| **Load model** | Downloads LLaMA 3.1 8B (~16GB), applies 4-bit quantization | ~5 min |
+| **Apply LoRA** | Adds trainable adapter layers (~0.5% of parameters) | instant |
+| **Apply chat template** | Converts records to LLaMA 3.1 format with `<\|start_header_id\|>` tags | ~1 min |
+| **Training config** | Sets up SFTTrainer with completion-only loss | instant |
+| **Train** | The actual fine-tuning — progress bar shows loss decreasing | **2–3 hours** |
+| **Save adapter** | Saves LoRA weights to `/content/morrigan-sft/final-adapter` | ~1 min |
+| **Merge model** | Merges LoRA into full BF16 model | ~5 min |
+| **Convert to GGUF** | Builds llama.cpp, converts → quantizes to Q5_K_M | ~15 min |
+| **Inference test** | Runs 4 test prompts to verify Morrigan's voice | ~1 min |
+| **Download GGUF** | Downloads `morrigan-Q5_K_M.gguf` (~5.7GB) to your computer | ~10 min |
+
+### Step 5 — Watch the Training Loss
+
+When training starts you'll see output like:
+```
+{'loss': 1.842, 'epoch': 0.10}
+{'loss': 1.654, 'epoch': 0.25}
+{'loss': 1.421, 'epoch': 0.50}
+...
+{'loss': 0.987, 'epoch': 3.0}
+```
+
+**Good signs:**
+- Loss starts ~1.8–2.2 and trends down to ~0.8–1.1 by epoch 3
+- Eval loss tracks training loss (no big divergence = not overfitting)
+
+**Bad signs:**
+- Loss plateaus above 1.5 → LR might be too low, try 3e-4
+- Eval loss goes up while train loss goes down → overfitting, reduce epochs to 2
+- CUDA out of memory → see OOM section in the notebook
+
+### Step 6 — Connect to the App
+
+Once you have `morrigan-Q5_K_M.gguf`:
+
+1. Open `morrigan_sft_server.ipynb` in Colab
+2. Upload the GGUF file when prompted
+3. Run all cells — it starts a FastAPI server + ngrok tunnel
+4. Copy the ngrok URL (looks like `https://xxxx.ngrok-free.app`)
+5. In `server/.env`:
+   ```
+   FT_URL=https://xxxx.ngrok-free.app
+   ```
+6. Restart the backend — the dual-model comparison UI activates automatically
+
+---
+
+## Expected Outcome
+
+### What Fine-Tuning Actually Changes
+
+The full Unleashed AI pipeline (13 prompt layers, inner thought, memory retrieval, trust gating, SPT depth, all of it) **still runs exactly as before**. Fine-tuning does not replace any of that.
+
+What changes is the **base model's stylistic instinct**. Before fine-tuning, LLaMA 3.1 8B has never heard of `*rings clicking*` or the deflect-then-soften pattern. The system prompt has to explain all of it and hope the model follows. After fine-tuning, the model has seen 2,977 examples of exactly how Morrigan speaks — those patterns are baked into the weights.
+
+### Concrete Improvements You'll Notice
+
+| Area | Before fine-tune | After fine-tune |
+|------|-----------------|-----------------|
+| Physical markers | Inconsistent, sometimes ignored | Natural, correctly placed |
+| Fragment sentences | Often completes sentences fully | Fragments naturally without being told |
+| `(thought)`/`(response)` format | Needs explicit formatting in prompt | Fires reliably, correct structure |
+| Deflect-then-soften | Sometimes skips the deflect | Consistent across trust levels |
+| Voice drift in long context | Loses character voice when context is full | More stable throughout |
+| AI filler phrases | "Of course!", "I understand!" can slip through | Much less frequent |
+| Character canon | May not reference Percy/Ray/STILL naturally | More organic use of canon details |
+
+### What It Does NOT Fix
+
+- It will not replace the system prompt — Morrigan's full character spec is still needed
+- It will not make the model smarter or more emotionally intelligent
+- It will not fix bad memory retrieval or poor trust-level calibration
+- It will not eliminate AI-isms entirely — just reduce them
+- A poorly constructed system prompt will still produce poor output
+
+### Realistic Quality Delta
+
+Think of it as the difference between an actor who has read the script once vs. one who has rehearsed it 3,000 times. The script (system prompt) is the same. The actor just knows the character more deeply. The improvement is real but subtle — mostly felt in the texture of responses, not dramatic behavioral changes.
+
+For the full Unleashed AI pipeline, the fine-tuned model will produce responses that feel slightly more effortless, more consistent, and more distinctly *her* — especially in long sessions where context pressure would otherwise cause voice drift.
+
+---
+
 ## How to Start Each Batch (say to Claude Code)
 
 > "Start Batch [N] — rewrite base records [start]-[end] from golden_sft.jsonl
