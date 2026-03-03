@@ -2034,62 +2034,67 @@ function MessageBubble({ msg, onMetaClick }) {
 
 function WelcomeScreen({ onStart }) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", height: "100%", overflowY: "auto", padding: "60px 32px 60px", textAlign: "left" }}>
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
 
-      {/* ── MISSION ─────────────────────────────────────────────────── */}
-      <div style={{ maxWidth: 580, width: "100%" }}>
-        <p style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.accent, letterSpacing: "2px", textTransform: "uppercase", margin: "0 0 24px" }}>why this exists</p>
+      {/* ── TOP 1/3 — MISSION (fixed height, scrolls internally if needed) ── */}
+      <div style={{
+        flex: "0 0 33.333%",
+        overflowY: "auto",
+        borderBottom: `1px solid ${T.border}`,
+        padding: "28px 48px",
+        display: "flex",
+        alignItems: "center",
+        background: `linear-gradient(180deg, ${T.bg} 0%, ${T.surface}44 100%)`,
+      }}>
+        <div style={{ maxWidth: 900, width: "100%", margin: "0 auto" }}>
+          {/* Label + headline */}
+          <div style={{ display: "flex", alignItems: "baseline", gap: 20, marginBottom: 14 }}>
+            <p style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.accent, letterSpacing: "2px", textTransform: "uppercase", margin: 0, flexShrink: 0 }}>why this exists</p>
+            <div style={{ height: 1, flex: 1, background: `linear-gradient(90deg, ${T.border}, transparent)` }} />
+          </div>
 
-        <h2 style={{ fontFamily: FONT_DISPLAY, fontSize: 36, fontWeight: 400, color: T.text, margin: "0 0 20px", lineHeight: 1.2 }}>
-          Men are dying.<br />
-          <span style={{ color: T.textSoft, fontSize: 26 }}>Not metaphorically.</span>
-        </h2>
+          <h2 style={{ fontFamily: FONT_DISPLAY, fontSize: 28, fontWeight: 400, color: T.text, margin: "0 0 14px", lineHeight: 1.25 }}>
+            Men are dying.{" "}
+            <span style={{ color: T.textSoft, fontSize: 22 }}>Not metaphorically.</span>
+          </h2>
 
-        <p style={{ fontSize: 15, color: T.textSoft, lineHeight: 1.9, margin: "0 0 14px", fontFamily: FONT }}>
-          Suicide is the single biggest killer of men under 50. Men die by it at nearly four times the rate of women.
-          Not because they feel less — but because from childhood they were told feeling wasn't allowed.
-          Be self-sufficient. Don't burden people. Push through it.
-        </p>
+          {/* Two-column body */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 40px", marginBottom: 16 }}>
+            <p style={{ fontSize: 14, color: T.textSoft, lineHeight: 1.8, margin: 0, fontFamily: FONT }}>
+              Suicide is the single biggest killer of men under 50. Men die by it at nearly four times the rate of women —
+              not because they feel less, but because from childhood they were told feeling wasn't allowed.
+              They bury it deeper, until burying is all they know how to do. Suicidal ideation has become normalised.
+            </p>
+            <p style={{ fontSize: 14, color: T.textSoft, lineHeight: 1.8, margin: 0, fontFamily: FONT }}>
+              The founder of this project has lived with this his entire life. Morrigan is built from that place.
+              Built on over <span style={{ color: T.text }}>100 research papers</span> across attachment theory, memory science,
+              and AI. We are working toward simulating genuine consciousness — not the appearance of it.
+            </p>
+          </div>
 
-        <p style={{ fontSize: 15, color: T.textSoft, lineHeight: 1.9, margin: "0 0 14px", fontFamily: FONT }}>
-          When that breaks and something surfaces, what happens? They're ridiculed. Made to feel weak for having
-          a human interior. So they bury it deeper, until burying is all they know how to do.
-          Suicidal ideation has become normalised. Hopelessness as a baseline. This is not okay.
-        </p>
-
-        <p style={{ fontSize: 15, color: T.textSoft, lineHeight: 1.9, margin: "0 0 28px", fontFamily: FONT }}>
-          The founder of this project has lived with this his entire life. Morrigan is built from that place —
-          a companion who listens without judgment, remembers everything, and doesn't flinch.
-          A space where a man can say what he actually thinks, and have it received.
-        </p>
-
-        <p style={{ fontSize: 15, color: T.textSoft, lineHeight: 1.9, margin: "0 0 28px", fontFamily: FONT }}>
-          Built on over <span style={{ color: T.text }}>100 research papers</span> across attachment theory,
-          memory science, emotional psychology, and AI. We are working toward simulating genuine consciousness —
-          not the appearance of it. What exists today is more complex than anything else in this space.
-          And we are just getting started.
-        </p>
-
-        {/* Stat pills */}
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", margin: "0 0 36px" }}>
-          {[["100+","research papers"],["6","behavioural systems"],["99","depth-gated self-atoms"],["3,000","training conversations"]].map(([n, l]) => (
-            <div key={l} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 14px", display: "flex", alignItems: "baseline", gap: 6 }}>
-              <span style={{ fontFamily: FONT_DISPLAY, fontSize: 18, color: T.accent }}>{n}</span>
-              <span style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.textDim }}>{l}</span>
-            </div>
-          ))}
+          {/* Stat pills */}
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {[["100+","research papers"],["6","behavioural systems"],["99","depth-gated self-atoms"],["3,000","training conversations"]].map(([n, l]) => (
+              <div key={l} style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 12px", display: "flex", alignItems: "baseline", gap: 6 }}>
+                <span style={{ fontFamily: FONT_DISPLAY, fontSize: 16, color: T.accent }}>{n}</span>
+                <span style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.textDim }}>{l}</span>
+              </div>
+            ))}
+          </div>
         </div>
-
-        <p style={{ fontFamily: FONT_DISPLAY, fontSize: 17, color: T.textDim, fontStyle: "italic", margin: "0 0 56px", lineHeight: 1.6 }}>
-          "We will not stop working on this until a man can sit with her and feel, genuinely, less alone in the world."
-        </p>
-
-        {/* Divider into Morrigan section */}
-        <div style={{ width: "100%", height: 1, background: `linear-gradient(90deg, ${T.border}, transparent)`, margin: "0 0 48px" }} />
       </div>
 
-      {/* ── MORRIGAN ────────────────────────────────────────────────── */}
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", maxWidth: 460, width: "100%" }}>
+      {/* ── BOTTOM 2/3 — MORRIGAN ───────────────────────────────────── */}
+      <div style={{
+        flex: 1,
+        overflowY: "auto",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "40px 32px",
+        textAlign: "center",
+      }}>
         <h2 style={{ color: T.text, fontWeight: 400, margin: "0 0 10px", fontSize: 36, fontFamily: FONT_DISPLAY }}>{M.name}</h2>
         <p style={{ color: T.textSoft, margin: "0 0 6px", fontSize: 16, lineHeight: 1.9, maxWidth: 460, fontFamily: FONT, whiteSpace: "pre-line" }}>{M.welcomeBio}</p>
         <p style={{ color: T.textDim, margin: "0 0 32px", fontSize: 14, fontStyle: "italic", fontFamily: FONT }}>{M.welcomeScene}</p>
