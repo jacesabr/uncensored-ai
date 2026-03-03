@@ -2052,7 +2052,7 @@ function WelcomeScreen({ onStart }) {
           {/* Label + headline */}
           <div style={{ display: "flex", alignItems: "baseline", gap: 20, marginBottom: 14 }}>
             <p style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.accent, letterSpacing: "2px", textTransform: "uppercase", margin: 0, flexShrink: 0 }}>why this exists</p>
-            <div style={{ height: 1, flex: 1, background: `linear-gradient(90deg, ${T.border}, transparent)` }} />
+            <div style={{ height: 1, flex: 1, background: `linear-gradient(90deg, rgba(124,58,237,0.3), transparent)` }} />
           </div>
 
           <h2 style={{ fontFamily: FONT_DISPLAY, fontSize: 28, fontWeight: 400, color: T.text, margin: "0 0 14px", lineHeight: 1.25 }}>
@@ -2068,20 +2068,34 @@ function WelcomeScreen({ onStart }) {
               They bury it deeper, until burying is all they know how to do. Suicidal ideation has become normalised.
             </p>
             <p style={{ fontSize: 14, color: T.textSoft, lineHeight: 1.8, margin: 0, fontFamily: FONT }}>
-              The founder of this project has lived with this his entire life. Morrigan is built from that place.
-              Built on over <span style={{ color: T.text }}>100 research papers</span> across attachment theory, memory science,
-              and AI. We are working toward simulating genuine consciousness — not the appearance of it.
+              The founder of this project has lived with this his entire life. Morrigan is built from that place — a companion
+              who listens, remembers, and doesn't flinch. Built on over{" "}
+              <span style={{ color: T.text }}>100 research papers</span> across attachment theory, memory science, and AI.
+              Working toward simulating genuine consciousness — not the appearance of it.
             </p>
           </div>
 
-          {/* Stat pills */}
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            {[["100+","research papers"],["6","behavioural systems"],["99","depth-gated self-atoms"],["3,000","training conversations"]].map(([n, l]) => (
+          {/* Stat pills + contact */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            {[
+              ["100+", "research papers"],
+              ["atom & molecule", "memory systems"],
+              ["cosine similarity", "relevance-weighted recall"],
+              ["6", "behavioural systems"],
+              ["3,000", "training conversations"],
+            ].map(([n, l]) => (
               <div key={l} style={{ background: "rgba(255,255,255,0.7)", border: `1px solid rgba(124,58,237,0.2)`, borderRadius: 6, padding: "5px 12px", display: "flex", alignItems: "baseline", gap: 6 }}>
-                <span style={{ fontFamily: FONT_DISPLAY, fontSize: 16, color: T.accent }}>{n}</span>
+                <span style={{ fontFamily: FONT_DISPLAY, fontSize: 14, color: T.accent }}>{n}</span>
                 <span style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.textDim }}>{l}</span>
               </div>
             ))}
+
+            {/* Divider */}
+            <div style={{ width: 1, height: 24, background: `rgba(124,58,237,0.2)`, margin: "0 4px" }} />
+
+            {/* Investor contact */}
+            <span style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.textDim, letterSpacing: "1px", textTransform: "uppercase" }}>interested in investing?</span>
+            <a href="mailto:jacesabr@gmail.com" style={{ fontFamily: FONT_MONO, fontSize: 11, color: T.accent, textDecoration: "none", borderBottom: `1px solid rgba(124,58,237,0.3)`, paddingBottom: 1 }}>jacesabr@gmail.com</a>
           </div>
         </div>
       </div>
