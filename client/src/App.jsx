@@ -1196,7 +1196,7 @@ const DISCLOSURE_SECTIONS = M.DISCLOSURE_SECTIONS;
 const DEPTH_CLR = { 1: "#10b981", 2: "#0ea5e9", 3: "#9f67ff", 4: "#dc2626" };
 const DEPTH_LBL = { 1: "surface", 2: "exploratory", 3: "affective", 4: "core" };
 
-function BrainPanel({ mood, speaking, latestMeta, moodReflection, disclosedAtoms, proactiveTyping, morriganPresent, phase6Summary, morriganThinking, typingHintClass }) {
+function BrainPanel({ mood, speaking, latestMeta, moodReflection, disclosedAtoms, proactiveTyping, morriganPresent, phase6Summary, morriganThinking, typingHintClass, usage, onMonitor, onLeave, monitorUnlocked }) {
   const meta = latestMeta;
   const m = meta?.memorySummary || {};
 
@@ -1300,8 +1300,41 @@ function BrainPanel({ mood, speaking, latestMeta, moodReflection, disclosedAtoms
           <div style={{ marginTop: 4 }}>
             <MoodBadge mood={mood} dynamicLabel={moodReflection?.moodLabel} />
           </div>
+          {/* Monitor + Leave */}
+          <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+            <button onClick={onMonitor}
+              style={{ background: T.accentSoft, border: `1px solid ${T.accent}50`, borderRadius: 7, padding: "4px 12px", color: T.accent, fontFamily: FONT_MONO, fontSize: 10, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
+              onMouseEnter={e => { e.currentTarget.style.background = T.accent; e.currentTarget.style.color = "#fff"; }}
+              onMouseLeave={e => { e.currentTarget.style.background = T.accentSoft; e.currentTarget.style.color = T.accent; }}>
+              ⚙ monitor
+            </button>
+            <button onClick={onLeave}
+              style={{ background: "transparent", border: `1px solid ${T.border}`, borderRadius: 7, padding: "4px 10px", color: T.textDim, fontSize: 10, cursor: "pointer", fontFamily: FONT_MONO }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = T.red; e.currentTarget.style.color = T.red; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textDim; }}>
+              leave
+            </button>
+          </div>
         </div>
       </div>
+
+      {/* ── Daily usage bar ── */}
+      {usage && (() => {
+        const pct = usage.limit > 0 ? (usage.used / usage.limit) * 100 : 0;
+        const barColor = pct >= 90 ? T.red : pct >= 60 ? "#f59e0b" : T.green;
+        const resetTime = usage.resetAt ? new Date(usage.resetAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : null;
+        return (
+          <div style={{ height: 26, borderBottom: `1px solid ${T.border}`, background: T.surface, display: "flex", alignItems: "center", gap: 10, padding: "0 18px", flexShrink: 0 }}>
+            <span style={{ fontFamily: FONT_MONO, fontSize: 9, color: T.textDim, letterSpacing: "0.8px", flexShrink: 0 }}>DAILY</span>
+            <div style={{ flex: 1, height: 4, background: T.surface3, borderRadius: 2, overflow: "hidden" }}>
+              <div style={{ height: "100%", width: `${pct}%`, background: barColor, borderRadius: 2, transition: "width 0.5s ease" }} />
+            </div>
+            <span style={{ fontFamily: FONT_MONO, fontSize: 9, color: pct >= 90 ? T.red : T.textDim, flexShrink: 0 }}>
+              {usage.used} / {usage.limit}{pct >= 90 && resetTime ? ` — resets ${resetTime}` : ""}
+            </span>
+          </div>
+        );
+      })()}
 
       {/* ── Scrollable content ── */}
       <div style={{ position: "relative", zIndex: 1, padding: "16px 18px", display: "flex", flexDirection: "column", gap: 2 }}>
@@ -1960,7 +1993,7 @@ function MissionBanner() {
   return (
     <div style={{
       flexShrink: 0,
-      height: "25vh",
+      height: "30vh",
       background: `linear-gradient(135deg, #ede9fe 0%, #f0ecff 55%, #e9e4fb 100%)`,
       borderBottom: `1px solid rgba(124,58,237,0.15)`,
       padding: "20px 56px",
@@ -2504,52 +2537,6 @@ export default function App() {
 
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, position: "relative", zIndex: 1 }}>
 
-        {/* Header */}
-        <div style={{ padding: "12px 24px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center", background: `${T.surface}e0`, backdropFilter: "blur(10px)" }}>
-          <div style={{ width: 10 }} />
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 8, height: 8, borderRadius: "50%", background: T.accent, boxShadow: `0 0 8px ${T.accent}` }} />
-            <span style={{ color: T.text, fontWeight: 400, fontSize: 17, fontFamily: FONT_DISPLAY }}>{M.name}</span>
-            <MoodBadge mood={currentMood} dynamicLabel={moodReflection?.moodLabel} />
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <button onClick={() => {
-                if (monitorUnlocked) { setShowExplain(true); }
-                else { setMonitorError(""); setMonitorInput(""); setMonitorPrompt(true); }
-              }}
-              style={{ background: T.accentSoft, border: `1px solid ${T.accent}50`, borderRadius: 8, padding: "5px 14px", color: T.accent, fontFamily: FONT_MONO, fontSize: 10, cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}
-              onMouseEnter={e => { e.currentTarget.style.background = T.accent; e.currentTarget.style.color = "#fff"; }}
-              onMouseLeave={e => { e.currentTarget.style.background = T.accentSoft; e.currentTarget.style.color = T.accent; }}>
-              ⚙ monitor
-            </button>
-            <button onClick={handleLogout}
-              style={{ background: "transparent", border: `1px solid ${T.border}`, borderRadius: 8, padding: "4px 12px", color: T.textDim, fontSize: 11, cursor: "pointer", fontFamily: FONT_MONO }}
-              onMouseEnter={e => { e.currentTarget.style.borderColor = T.red; e.currentTarget.style.color = T.red; }}
-              onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textDim; }}>
-              leave
-            </button>
-          </div>
-        </div>
-
-        {/* Daily usage bar */}
-        {(() => {
-          const pct = usage.limit > 0 ? (usage.used / usage.limit) * 100 : 0;
-          const barColor = pct >= 90 ? T.red : pct >= 60 ? "#f59e0b" : T.green;
-          const resetTime = usage.resetAt ? new Date(usage.resetAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : null;
-          return (
-            <div style={{ height: 28, borderBottom: `1px solid ${T.border}`, background: T.surface, display: "flex", alignItems: "center", gap: 10, padding: "0 24px", flexShrink: 0 }}>
-              <span style={{ fontFamily: FONT_MONO, fontSize: 9, color: T.textDim, letterSpacing: "0.8px", flexShrink: 0 }}>DAILY</span>
-              <div style={{ flex: 1, height: 4, background: T.surface3, borderRadius: 2, overflow: "hidden" }}>
-                <div style={{ height: "100%", width: `${pct}%`, background: barColor, borderRadius: 2, transition: "width 0.5s ease" }} />
-              </div>
-              <span style={{ fontFamily: FONT_MONO, fontSize: 9, color: pct >= 90 ? T.red : T.textDim, flexShrink: 0 }}>
-                {usage.used} / {usage.limit}
-                {pct >= 90 && resetTime ? ` — resets ${resetTime}` : ""}
-              </span>
-            </div>
-          );
-        })()}
-
         {/* Messages */}
         <div style={{ flex: 1, overflowY: "auto", padding: "28px 32px" }}>
           {showWelcome ? <WelcomeScreen onStart={createConvo} /> : (
@@ -2676,7 +2663,7 @@ export default function App() {
         </div>
       </div>
 
-      <BrainPanel mood={currentMood} speaking={!!streamText} latestMeta={latestMeta} moodReflection={moodReflection} disclosedAtoms={disclosedAtoms} proactiveTyping={proactiveTyping} morriganPresent={morriganPresent} phase6Summary={phase6Summary} morriganThinking={morriganThinking} typingHintClass={typingHintClass} />
+      <BrainPanel mood={currentMood} speaking={!!streamText} latestMeta={latestMeta} moodReflection={moodReflection} disclosedAtoms={disclosedAtoms} proactiveTyping={proactiveTyping} morriganPresent={morriganPresent} phase6Summary={phase6Summary} morriganThinking={morriganThinking} typingHintClass={typingHintClass} usage={usage} onMonitor={() => { if (monitorUnlocked) { setShowExplain(true); } else { setMonitorError(""); setMonitorInput(""); setMonitorPrompt(true); } }} onLeave={handleLogout} monitorUnlocked={monitorUnlocked} />
 
       </div>{/* end main content row */}
 
