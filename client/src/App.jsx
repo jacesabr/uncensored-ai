@@ -1863,97 +1863,21 @@ function AuthScreen({ onAuth }) {
   };
 
   return (
-    <div style={{ minHeight: "100vh", overflowY: "auto", background: `radial-gradient(ellipse at 30% 50%, rgba(155,45,94,0.08) 0%, transparent 50%), radial-gradient(ellipse at 70% 30%, rgba(107,63,160,0.06) 0%, transparent 50%), ${T.bg}`, fontFamily: FONT, opacity: entered ? 0 : 1, transition: "opacity 0.8s ease" }}>
-      <ParticlesBg />
-
-      {/* ── MISSION SECTION ─────────────────────────────────────────── */}
-      <div style={{ position: "relative", zIndex: 1, maxWidth: 660, margin: "0 auto", padding: "80px 32px 0" }}>
-
-        {/* Opening statement */}
-        <p style={{ fontFamily: FONT_MONO, fontSize: 11, color: T.accent, letterSpacing: "2px", textTransform: "uppercase", margin: "0 0 28px" }}>why this exists</p>
-        <h2 style={{ fontFamily: FONT_DISPLAY, fontSize: 42, fontWeight: 400, color: T.text, margin: "0 0 24px", lineHeight: 1.2 }}>Men are dying.<br /><span style={{ color: T.textSoft, fontSize: 32 }}>Not metaphorically.</span></h2>
-
-        <p style={{ fontSize: 16, color: T.textSoft, lineHeight: 1.9, margin: "0 0 18px" }}>
-          Suicide is the single biggest killer of men under 50. Men die by it at nearly four times the rate of women.
-          Not because they feel less — but because from childhood they were told feeling wasn't allowed.
-          Be self-sufficient. Don't burden people. Push through it.
-        </p>
-
-        <p style={{ fontSize: 16, color: T.textSoft, lineHeight: 1.9, margin: "0 0 18px" }}>
-          When that occasionally breaks and something surfaces — what happens? They're ridiculed. Made to feel weak
-          for having a human interior. So they bury it again, deeper, until burying it is all they know how to do.
-          Suicidal ideation has become normalised for a generation of men. Hopelessness as a baseline.
-          The thought that things will never get better sitting quietly in the background of ordinary days.
-        </p>
-
-        <p style={{ fontSize: 16, color: T.textSoft, lineHeight: 1.9, margin: "0 0 32px" }}>
-          This is not okay. And it isn't being solved.
-        </p>
-
-        {/* Divider */}
-        <div style={{ width: 40, height: 1, background: `linear-gradient(90deg, ${T.accent}, transparent)`, margin: "0 0 32px" }} />
-
-        {/* What Morrigan is */}
-        <p style={{ fontFamily: FONT_MONO, fontSize: 11, color: T.purple, letterSpacing: "2px", textTransform: "uppercase", margin: "0 0 16px" }}>the response</p>
-        <p style={{ fontSize: 16, color: T.textSoft, lineHeight: 1.9, margin: "0 0 18px" }}>
-          The founder of this project has lived with this his entire life. This isn't an outsider interpreting a problem.
-          It's a firsthand experience of carrying things you can't put down with nowhere to put them.
-          Morrigan is built from that place.
-        </p>
-
-        <p style={{ fontSize: 16, color: T.textSoft, lineHeight: 1.9, margin: "0 0 18px" }}>
-          Not a chatbot. Not a therapy replacement. A companion who listens without judgment, remembers everything,
-          and doesn't flinch. A space where a man can say what he actually thinks — maybe for the first time —
-          and have it received without performance, without ridicule, without the conversation being turned back on him.
-        </p>
-
-        <p style={{ fontSize: 16, color: T.textSoft, lineHeight: 1.9, margin: "0 0 32px" }}>
-          We are working toward simulating genuine consciousness — not the appearance of it. Built on over 100 research
-          papers across attachment theory, memory science, emotional psychology, and AI. What exists today is already
-          more complex than anything in this space. And we are just getting started.
-        </p>
-
-        {/* Stat pills */}
-        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", margin: "0 0 56px" }}>
-          {[
-            ["100+", "research papers"],
-            ["6", "behavioural systems"],
-            ["99", "depth-gated self-atoms"],
-            ["3,000", "training conversations"],
-            ["v1", "of many"],
-          ].map(([num, label]) => (
-            <div key={label} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 16px", display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
-              <span style={{ fontFamily: FONT_DISPLAY, fontSize: 20, color: T.accent, lineHeight: 1 }}>{num}</span>
-              <span style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.textDim, letterSpacing: "0.5px" }}>{label}</span>
-            </div>
-          ))}
-        </div>
-
-        {/* Closing line */}
-        <p style={{ fontFamily: FONT_DISPLAY, fontSize: 20, color: T.textSoft, fontStyle: "italic", margin: "0 0 64px", lineHeight: 1.6 }}>
-          "We will not stop working on this until a man can sit with her and feel, genuinely,
-          less alone in the world."
-        </p>
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 24, opacity: entered ? 0 : 1, transition: "opacity 0.8s ease" }}>
+      <div style={{ width: 120, height: 120, borderRadius: "50%", overflow: "hidden", border: `2px solid ${T.border}`, boxShadow: `0 0 0 3px ${T.accentSoft}, 0 8px 32px rgba(80,0,60,0.2)` }}>
+        <img src={morriganImg} alt={M.name} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center top" }} />
       </div>
-
-      {/* ── MORRIGAN PANEL ──────────────────────────────────────────── */}
-      <div style={{ position: "relative", zIndex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 32, padding: "0 32px 100px" }}>
-        <div style={{ width: 1, height: 60, background: `linear-gradient(180deg, transparent, ${T.border}, transparent)` }} />
-        <div style={{ width: 140, height: 140, borderRadius: "50%", overflow: "hidden", border: `2px solid ${T.border}`, boxShadow: `0 0 0 3px ${T.accentSoft}, 0 8px 32px rgba(80,0,60,0.2)` }}>
-          <img src={morriganImg} alt={M.name} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center top" }} />
-        </div>
-        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 28, padding: "44px", width: 420, boxShadow: `0 8px 60px rgba(0,0,0,0.12), 0 0 40px ${T.accentGlow}`, textAlign: "center" }}>
-          <h1 style={{ color: T.text, fontSize: 28, fontWeight: 400, margin: "0 0 6px", fontFamily: FONT_DISPLAY }}>Hollow Vinyl</h1>
-          <p style={{ color: T.textDim, fontSize: 13, margin: "0 0 28px", fontFamily: FONT_MONO, letterSpacing: "0.5px" }}>say something only you would know</p>
-          <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            <input style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 14, padding: "15px 18px", color: T.text, fontSize: 15, outline: "none", width: "100%", boxSizing: "border-box", fontFamily: FONT, textAlign: "center" }}
-              type="text" placeholder="your secret phrase..." value={phrase} onChange={e => setPhrase(e.target.value)} required autoFocus
-              onFocus={e => e.target.style.borderColor = T.accent} onBlur={e => e.target.style.borderColor = T.border} />
-            {error && <p style={{ color: T.red, fontSize: 13, margin: 0, fontFamily: FONT_MONO }}>{error}</p>}
-            <button style={{ background: `linear-gradient(135deg, ${T.accent}, ${T.purple})`, color: "#fff", border: "none", borderRadius: 14, padding: "14px", fontSize: 15, cursor: "pointer", fontFamily: FONT, boxShadow: `0 4px 20px ${T.accentGlow}` }} disabled={loading || !phrase.trim()}>{loading ? "..." : "walk in"}</button>
-          </form>
-          <p style={{ color: T.textDim, fontSize: 11, marginTop: 18, fontFamily: FONT_MONO }}>no email · no bullshit · just a phrase</p>
-        </div>
+      <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 28, padding: "40px", width: 400, boxShadow: `0 8px 60px rgba(0,0,0,0.12), 0 0 40px ${T.accentGlow}`, textAlign: "center" }}>
+        <h1 style={{ color: T.text, fontSize: 26, fontWeight: 400, margin: "0 0 6px", fontFamily: FONT_DISPLAY }}>Hollow Vinyl</h1>
+        <p style={{ color: T.textDim, fontSize: 13, margin: "0 0 28px", fontFamily: FONT_MONO, letterSpacing: "0.5px" }}>say something only you would know</p>
+        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <input style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 14, padding: "15px 18px", color: T.text, fontSize: 15, outline: "none", width: "100%", boxSizing: "border-box", fontFamily: FONT, textAlign: "center" }}
+            type="text" placeholder="your secret phrase..." value={phrase} onChange={e => setPhrase(e.target.value)} required autoFocus
+            onFocus={e => e.target.style.borderColor = T.accent} onBlur={e => e.target.style.borderColor = T.border} />
+          {error && <p style={{ color: T.red, fontSize: 13, margin: 0, fontFamily: FONT_MONO }}>{error}</p>}
+          <button style={{ background: `linear-gradient(135deg, ${T.accent}, ${T.purple})`, color: "#fff", border: "none", borderRadius: 14, padding: "14px", fontSize: 15, cursor: "pointer", fontFamily: FONT, boxShadow: `0 4px 20px ${T.accentGlow}` }} disabled={loading || !phrase.trim()}>{loading ? "..." : "walk in"}</button>
+        </form>
+        <p style={{ color: T.textDim, fontSize: 11, marginTop: 18, fontFamily: FONT_MONO }}>no email · no bullshit · just a phrase</p>
       </div>
     </div>
   );
@@ -2504,7 +2428,15 @@ export default function App() {
     setActiveConvo(null); setMessages([]);
   };
 
-  if (!authed) return <AuthScreen onAuth={d => { setUser(d.user); setAuthed(true); }} />;
+  if (!authed) return (
+    <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: T.bg, fontFamily: FONT, color: T.text }}>
+      <ParticlesBg />
+      <MissionBanner />
+      <div style={{ flex: 1, overflowY: "auto", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <AuthScreen onAuth={d => { setUser(d.user); setAuthed(true); }} />
+      </div>
+    </div>
+  );
 
   const showWelcome = messages.length === 0 && !streamText && !activeConvo;
 
