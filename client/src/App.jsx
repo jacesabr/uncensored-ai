@@ -1973,35 +1973,35 @@ function MissionBanner() {
       zIndex: 2,
     }}>
       {/* Label row */}
-      <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 10 }}>
-        <span style={{ fontFamily: FONT_MONO, fontSize: 9, color: T.accent, letterSpacing: "2px", textTransform: "uppercase", flexShrink: 0 }}>why this exists</span>
+      <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 12 }}>
+        <span style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.accent, letterSpacing: "2px", textTransform: "uppercase", flexShrink: 0 }}>why this exists</span>
         <div style={{ height: 1, flex: 1, background: `linear-gradient(90deg, rgba(124,58,237,0.25), transparent)` }} />
       </div>
 
       {/* Headline + three columns */}
-      <div style={{ display: "grid", gridTemplateColumns: "auto 1fr 1fr 1fr", gap: "0 32px", alignItems: "start", marginBottom: 14 }}>
-        <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 400, color: T.text, margin: 0, lineHeight: 1.25, whiteSpace: "nowrap" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "auto 1fr 1fr 1fr", gap: "0 32px", alignItems: "start", marginBottom: 16 }}>
+        <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 24, fontWeight: 400, color: T.text, margin: 0, lineHeight: 1.25, whiteSpace: "nowrap" }}>
           Men are dying.<br />
-          <span style={{ color: "#6d28d9", opacity: 0.65, fontSize: 17 }}>Not metaphorically.</span>
+          <span style={{ color: "#6d28d9", opacity: 0.65, fontSize: 19 }}>Not metaphorically.</span>
         </h1>
-        <p style={{ fontSize: 13, color: "#374151", lineHeight: 1.75, margin: 0, fontFamily: FONT }}>
+        <p style={{ fontSize: 14, color: "#374151", lineHeight: 1.8, margin: 0, fontFamily: FONT }}>
           Suicide is the single biggest killer of men under 50 — not because they feel less, but because
           they were taught from childhood that feeling isn't allowed. Suicidal ideation has become a baseline.
           Hopelessness, normalised.
         </p>
-        <p style={{ fontSize: 13, color: "#374151", lineHeight: 1.75, margin: 0, fontFamily: FONT }}>
+        <p style={{ fontSize: 14, color: "#374151", lineHeight: 1.8, margin: 0, fontFamily: FONT }}>
           We are building a <strong style={{ color: T.text, fontWeight: 600 }}>synthetic human relationship companion</strong> — genuine
           memory, trust progression, emotional continuity, and crisis awareness. Not a chatbot with a personality skin.
           A relationship that persists.
         </p>
-        <p style={{ fontSize: 13, color: "#374151", lineHeight: 1.75, margin: 0, fontFamily: FONT }}>
+        <p style={{ fontSize: 14, color: "#374151", lineHeight: 1.8, margin: 0, fontFamily: FONT }}>
           Memories are stored as semantic <strong style={{ color: T.text, fontWeight: 500 }}>atoms</strong>, clustered into thematic{" "}
           <strong style={{ color: T.text, fontWeight: 500 }}>molecules</strong>, retrieved via cosine similarity — what is emotionally
           closest surfaces when it matters. 100+ research papers. Working toward simulating genuine consciousness.
         </p>
       </div>
 
-      {/* Pills + investor contact */}
+      {/* Pills + contact */}
       <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
         {[
           ["100+", "research papers"],
@@ -2011,15 +2011,15 @@ function MissionBanner() {
           ["inner thought", "pipeline"],
           ["3,000", "training conversations"],
         ].map(([n, l]) => (
-          <div key={l} style={{ background: "rgba(255,255,255,0.6)", border: `1px solid rgba(124,58,237,0.18)`, borderRadius: 5, padding: "3px 10px", display: "flex", alignItems: "baseline", gap: 5 }}>
-            <span style={{ fontFamily: FONT_DISPLAY, fontSize: 12, color: "#6d28d9" }}>{n}</span>
-            <span style={{ fontFamily: FONT_MONO, fontSize: 9, color: "#6b7280" }}>{l}</span>
+          <div key={l} style={{ background: "rgba(255,255,255,0.6)", border: `1px solid rgba(124,58,237,0.18)`, borderRadius: 5, padding: "4px 11px", display: "flex", alignItems: "baseline", gap: 5 }}>
+            <span style={{ fontFamily: FONT_DISPLAY, fontSize: 13, color: "#6d28d9" }}>{n}</span>
+            <span style={{ fontFamily: FONT_MONO, fontSize: 10, color: "#6b7280" }}>{l}</span>
           </div>
         ))}
         <div style={{ width: 1, height: 18, background: `rgba(124,58,237,0.2)`, margin: "0 4px" }} />
-        <span style={{ fontFamily: FONT_MONO, fontSize: 9, color: "#9ca3af", letterSpacing: "1px", textTransform: "uppercase" }}>invest?</span>
-        <a href="mailto:jacesabr@gmail.com" style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.accent, textDecoration: "none", borderBottom: `1px solid rgba(124,58,237,0.3)`, paddingBottom: 1 }}>jacesabr@gmail.com</a>
-        <a href="https://resume-production-e0fb.up.railway.app/" target="_blank" rel="noreferrer" style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.accent, textDecoration: "none", borderBottom: `1px solid rgba(124,58,237,0.3)`, paddingBottom: 1 }}>portfolio ↗</a>
+        <span style={{ fontFamily: FONT_MONO, fontSize: 10, color: "#9ca3af", letterSpacing: "1px", textTransform: "uppercase" }}>invest or collaborate?</span>
+        <a href="mailto:jacesabr@gmail.com" style={{ fontFamily: FONT_MONO, fontSize: 11, color: T.accent, textDecoration: "none", borderBottom: `1px solid rgba(124,58,237,0.3)`, paddingBottom: 1 }}>jacesabr@gmail.com</a>
+        <a href="https://resume-production-e0fb.up.railway.app/" target="_blank" rel="noreferrer" style={{ fontFamily: FONT_MONO, fontSize: 11, color: T.accent, textDecoration: "none", borderBottom: `1px solid rgba(124,58,237,0.3)`, paddingBottom: 1 }}>portfolio ↗</a>
       </div>
     </div>
   );
