@@ -2032,91 +2032,82 @@ function MessageBubble({ msg, onMetaClick }) {
   );
 }
 
+function MissionBanner() {
+  return (
+    <div style={{
+      flexShrink: 0,
+      height: "25vh",
+      background: `linear-gradient(135deg, #ede9fe 0%, #f0ecff 55%, #e9e4fb 100%)`,
+      borderBottom: `1px solid rgba(124,58,237,0.15)`,
+      padding: "20px 56px",
+      display: "flex",
+      flexDirection: "column",
+      justifyContent: "center",
+      boxSizing: "border-box",
+      overflowY: "auto",
+      position: "relative",
+      zIndex: 2,
+    }}>
+      {/* Label row */}
+      <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 10 }}>
+        <span style={{ fontFamily: FONT_MONO, fontSize: 9, color: T.accent, letterSpacing: "2px", textTransform: "uppercase", flexShrink: 0 }}>why this exists</span>
+        <div style={{ height: 1, flex: 1, background: `linear-gradient(90deg, rgba(124,58,237,0.25), transparent)` }} />
+      </div>
+
+      {/* Headline + three columns */}
+      <div style={{ display: "grid", gridTemplateColumns: "auto 1fr 1fr 1fr", gap: "0 32px", alignItems: "start", marginBottom: 14 }}>
+        <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 400, color: T.text, margin: 0, lineHeight: 1.25, whiteSpace: "nowrap" }}>
+          Men are dying.<br />
+          <span style={{ color: "#6d28d9", opacity: 0.65, fontSize: 17 }}>Not metaphorically.</span>
+        </h1>
+        <p style={{ fontSize: 13, color: "#374151", lineHeight: 1.75, margin: 0, fontFamily: FONT }}>
+          Suicide is the single biggest killer of men under 50 — not because they feel less, but because
+          they were taught from childhood that feeling isn't allowed. Suicidal ideation has become a baseline.
+          Hopelessness, normalised.
+        </p>
+        <p style={{ fontSize: 13, color: "#374151", lineHeight: 1.75, margin: 0, fontFamily: FONT }}>
+          We are building a <strong style={{ color: T.text, fontWeight: 600 }}>synthetic human relationship companion</strong> — genuine
+          memory, trust progression, emotional continuity, and crisis awareness. Not a chatbot with a personality skin.
+          A relationship that persists.
+        </p>
+        <p style={{ fontSize: 13, color: "#374151", lineHeight: 1.75, margin: 0, fontFamily: FONT }}>
+          Memories are stored as semantic <strong style={{ color: T.text, fontWeight: 500 }}>atoms</strong>, clustered into thematic{" "}
+          <strong style={{ color: T.text, fontWeight: 500 }}>molecules</strong>, retrieved via cosine similarity — what is emotionally
+          closest surfaces when it matters. 100+ research papers. Working toward simulating genuine consciousness.
+        </p>
+      </div>
+
+      {/* Pills + investor contact */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+        {[
+          ["100+", "research papers"],
+          ["atom → molecule", "memory architecture"],
+          ["cosine similarity", "relevance recall"],
+          ["6-level trust", "progression"],
+          ["inner thought", "pipeline"],
+          ["3,000", "training conversations"],
+        ].map(([n, l]) => (
+          <div key={l} style={{ background: "rgba(255,255,255,0.6)", border: `1px solid rgba(124,58,237,0.18)`, borderRadius: 5, padding: "3px 10px", display: "flex", alignItems: "baseline", gap: 5 }}>
+            <span style={{ fontFamily: FONT_DISPLAY, fontSize: 12, color: "#6d28d9" }}>{n}</span>
+            <span style={{ fontFamily: FONT_MONO, fontSize: 9, color: "#6b7280" }}>{l}</span>
+          </div>
+        ))}
+        <div style={{ width: 1, height: 18, background: `rgba(124,58,237,0.2)`, margin: "0 4px" }} />
+        <span style={{ fontFamily: FONT_MONO, fontSize: 9, color: "#9ca3af", letterSpacing: "1px", textTransform: "uppercase" }}>invest?</span>
+        <a href="mailto:jacesabr@gmail.com" style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.accent, textDecoration: "none", borderBottom: `1px solid rgba(124,58,237,0.3)`, paddingBottom: 1 }}>jacesabr@gmail.com</a>
+        <a href="https://resume-production-e0fb.up.railway.app/" target="_blank" rel="noreferrer" style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.accent, textDecoration: "none", borderBottom: `1px solid rgba(124,58,237,0.3)`, paddingBottom: 1 }}>portfolio ↗</a>
+      </div>
+    </div>
+  );
+}
+
 function WelcomeScreen({ onStart }) {
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", flexDirection: "column", background: T.bg }}>
-
-      {/* ── TOP ~38% — MISSION BANNER ─────────────────────────────── */}
-      <div style={{
-        flex: "0 0 38%",
-        background: `linear-gradient(135deg, #ede9fe 0%, #f0ecff 50%, #e9e4fb 100%)`,
-        borderBottom: `1px solid rgba(124,58,237,0.15)`,
-        padding: "32px 60px",
-        overflowY: "auto",
-        display: "flex",
-        flexDirection: "column",
-        justifyContent: "center",
-        boxSizing: "border-box",
-      }}>
-        {/* Label */}
-        <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 16 }}>
-          <span style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.accent, letterSpacing: "2px", textTransform: "uppercase" }}>why this exists</span>
-          <div style={{ height: 1, flex: 1, background: `linear-gradient(90deg, rgba(124,58,237,0.25), transparent)` }} />
-        </div>
-
-        {/* Headline */}
-        <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 32, fontWeight: 400, color: T.text, margin: "0 0 20px", lineHeight: 1.2 }}>
-          Men are dying.{" "}<span style={{ color: "#6d28d9", opacity: 0.7 }}>Not metaphorically.</span>
-        </h1>
-
-        {/* Three-column body */}
-        <div style={{ display: "grid", gridTemplateColumns: "1.1fr 1fr 1fr", gap: "0 36px", marginBottom: 22 }}>
-          <p style={{ fontSize: 14, color: "#374151", lineHeight: 1.85, margin: 0, fontFamily: FONT }}>
-            Suicide is the single biggest killer of men under 50. Men die by it at nearly four times the rate of women —
-            not because they feel less, but because they were taught from childhood that feeling isn't allowed.
-            Suicidal ideation has become a baseline. Hopelessness, normalised. This is killing people.
-          </p>
-          <p style={{ fontSize: 14, color: "#374151", lineHeight: 1.85, margin: 0, fontFamily: FONT }}>
-            The founder of this project has lived with this his entire life. Morrigan is built from that place.
-            We are building a <strong style={{ color: T.text, fontWeight: 600 }}>synthetic human relationship companion</strong> —
-            a system capable of genuine memory, trust, emotional continuity, and crisis awareness.
-            Not a chatbot with a personality skin. A relationship that persists.
-          </p>
-          <p style={{ fontSize: 14, color: "#374151", lineHeight: 1.85, margin: 0, fontFamily: FONT }}>
-            Memories are stored as semantic <strong style={{ color: T.text, fontWeight: 500 }}>atoms</strong> and clustered into thematic{" "}
-            <strong style={{ color: T.text, fontWeight: 500 }}>molecules</strong>. Cosine similarity surfaces what is emotionally and
-            contextually closest in each moment. Trust gates behaviour across 6 levels. An inner thought pipeline
-            runs before every response. 100+ research papers. Built to make a man feel less alone in the world.
-          </p>
-        </div>
-
-        {/* Pills + investor contact */}
-        <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
-          {[
-            ["100+", "research papers"],
-            ["atom → molecule", "memory architecture"],
-            ["cosine similarity", "relevance recall"],
-            ["6-level trust", "progression"],
-            ["inner thought", "pipeline"],
-            ["3,000", "training conversations"],
-          ].map(([n, l]) => (
-            <div key={l} style={{ background: "rgba(255,255,255,0.65)", border: `1px solid rgba(124,58,237,0.18)`, borderRadius: 6, padding: "4px 11px", display: "flex", alignItems: "baseline", gap: 5 }}>
-              <span style={{ fontFamily: FONT_DISPLAY, fontSize: 13, color: "#6d28d9" }}>{n}</span>
-              <span style={{ fontFamily: FONT_MONO, fontSize: 9, color: "#6b7280" }}>{l}</span>
-            </div>
-          ))}
-          <div style={{ width: 1, height: 20, background: `rgba(124,58,237,0.2)`, margin: "0 6px" }} />
-          <span style={{ fontFamily: FONT_MONO, fontSize: 9, color: "#9ca3af", letterSpacing: "1px", textTransform: "uppercase" }}>interested in investing?</span>
-          <a href="mailto:jacesabr@gmail.com" style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.accent, textDecoration: "none", borderBottom: `1px solid rgba(124,58,237,0.35)`, paddingBottom: 1 }}>jacesabr@gmail.com</a>
-        </div>
-      </div>
-
-      {/* ── BOTTOM 62% — MORRIGAN ────────────────────────────────── */}
-      <div style={{
-        flex: 1,
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: "40px 32px",
-        textAlign: "center",
-      }}>
-        <h2 style={{ color: T.text, fontWeight: 400, margin: "0 0 10px", fontSize: 36, fontFamily: FONT_DISPLAY }}>{M.name}</h2>
-        <p style={{ color: T.textSoft, margin: "0 0 6px", fontSize: 16, lineHeight: 1.9, maxWidth: 460, fontFamily: FONT, whiteSpace: "pre-line" }}>{M.welcomeBio}</p>
-        <p style={{ color: T.textDim, margin: "0 0 32px", fontSize: 14, fontStyle: "italic", fontFamily: FONT }}>{M.welcomeScene}</p>
-        <button style={{ background: `linear-gradient(135deg, ${T.accent}, ${T.purple})`, color: "#fff", border: "none", borderRadius: 16, padding: "15px 48px", fontSize: 16, cursor: "pointer", fontFamily: FONT_DISPLAY, boxShadow: `0 4px 20px ${T.accentGlow}` }} onClick={onStart}>{M.welcomeAction}</button>
-      </div>
-
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", padding: "32px", textAlign: "center" }}>
+      <h2 style={{ color: T.text, fontWeight: 400, margin: "0 0 10px", fontSize: 36, fontFamily: FONT_DISPLAY }}>{M.name}</h2>
+      <p style={{ color: T.textSoft, margin: "0 0 6px", fontSize: 16, lineHeight: 1.9, maxWidth: 460, fontFamily: FONT, whiteSpace: "pre-line" }}>{M.welcomeBio}</p>
+      <p style={{ color: T.textDim, margin: "0 0 32px", fontSize: 14, fontStyle: "italic", fontFamily: FONT }}>{M.welcomeScene}</p>
+      <button style={{ background: `linear-gradient(135deg, ${T.accent}, ${T.purple})`, color: "#fff", border: "none", borderRadius: 16, padding: "15px 48px", fontSize: 16, cursor: "pointer", fontFamily: FONT_DISPLAY, boxShadow: `0 4px 20px ${T.accentGlow}` }} onClick={onStart}>{M.welcomeAction}</button>
     </div>
   );
 }
@@ -2518,7 +2509,7 @@ export default function App() {
   const showWelcome = messages.length === 0 && !streamText && !activeConvo;
 
   return (
-    <div style={{ display: "flex", height: "100vh", background: T.bg, fontFamily: FONT, color: T.text }}>
+    <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: T.bg, fontFamily: FONT, color: T.text }}>
       <ParticlesBg />
 
       {showExplain && (
@@ -2573,6 +2564,11 @@ export default function App() {
         </div>
       )}
 
+      {/* ── Persistent mission banner — always top 25% ── */}
+      <MissionBanner />
+
+      {/* ── Main content row — remaining 75% ── */}
+      <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
 
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, position: "relative", zIndex: 1 }}>
 
@@ -2749,6 +2745,8 @@ export default function App() {
       </div>
 
       <BrainPanel mood={currentMood} speaking={!!streamText} latestMeta={latestMeta} moodReflection={moodReflection} disclosedAtoms={disclosedAtoms} proactiveTyping={proactiveTyping} morriganPresent={morriganPresent} phase6Summary={phase6Summary} morriganThinking={morriganThinking} typingHintClass={typingHintClass} />
+
+      </div>{/* end main content row */}
 
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&family=Playfair+Display:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@300;400;500&display=swap');
