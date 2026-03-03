@@ -2041,12 +2041,14 @@ function WelcomeScreen({ onStart }) {
         flex: "0 0 33.333%",
         overflowY: "auto",
         borderBottom: `1px solid ${T.border}`,
-        padding: "28px 48px",
+        padding: "28px 56px",
         display: "flex",
         alignItems: "center",
-        background: `linear-gradient(180deg, ${T.bg} 0%, ${T.surface}44 100%)`,
+        background: `linear-gradient(135deg, #ede9fe 0%, #f3f0ff 60%, #ebe5fb 100%)`,
+        width: "100%",
+        boxSizing: "border-box",
       }}>
-        <div style={{ maxWidth: 900, width: "100%", margin: "0 auto" }}>
+        <div style={{ width: "100%" }}>
           {/* Label + headline */}
           <div style={{ display: "flex", alignItems: "baseline", gap: 20, marginBottom: 14 }}>
             <p style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.accent, letterSpacing: "2px", textTransform: "uppercase", margin: 0, flexShrink: 0 }}>why this exists</p>
@@ -2075,7 +2077,7 @@ function WelcomeScreen({ onStart }) {
           {/* Stat pills */}
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             {[["100+","research papers"],["6","behavioural systems"],["99","depth-gated self-atoms"],["3,000","training conversations"]].map(([n, l]) => (
-              <div key={l} style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 12px", display: "flex", alignItems: "baseline", gap: 6 }}>
+              <div key={l} style={{ background: "rgba(255,255,255,0.7)", border: `1px solid rgba(124,58,237,0.2)`, borderRadius: 6, padding: "5px 12px", display: "flex", alignItems: "baseline", gap: 6 }}>
                 <span style={{ fontFamily: FONT_DISPLAY, fontSize: 16, color: T.accent }}>{n}</span>
                 <span style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.textDim }}>{l}</span>
               </div>
