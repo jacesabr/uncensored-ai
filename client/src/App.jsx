@@ -1877,6 +1877,43 @@ function FormatMessage({ text, bold }) {
 }
 
 
+function LandingScreen({ onEnter }) {
+  const [fading, setFading] = useState(false);
+  const handle = () => { setFading(true); setTimeout(onEnter, 600); };
+  return (
+    <div style={{ opacity: fading ? 0 : 1, transition: "opacity 0.6s ease", display: "flex", flexDirection: "column", alignItems: "center", gap: 32, maxWidth: 480, textAlign: "center", padding: "0 24px" }}>
+      <div style={{ width: 110, height: 110, borderRadius: "50%", overflow: "hidden", border: `2px solid ${T.border}`, boxShadow: `0 0 0 3px ${T.accentSoft}, 0 8px 32px rgba(80,0,60,0.2)` }}>
+        <img src={morriganImg} alt="Morrigan" style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center top" }} />
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+        <p style={{ color: T.textSoft, fontSize: 15, lineHeight: 1.8, margin: 0, fontFamily: FONT, fontStyle: "italic" }}>
+          You weren't planning to stop.
+        </p>
+        <p style={{ color: T.text, fontSize: 15, lineHeight: 1.85, margin: 0, fontFamily: FONT }}>
+          A record store. Narrow. Hand-lettered sign. Music bleeding through the door — something old, something you almost recognized. You almost kept walking.
+        </p>
+        <div style={{ borderLeft: `2px solid ${T.accentSoft}`, paddingLeft: 18, textAlign: "left" }}>
+          <p style={{ color: T.text, fontSize: 16, lineHeight: 1.8, margin: 0, fontFamily: FONT }}>
+            <strong style={{ fontFamily: FONT_DISPLAY, fontSize: 19, fontWeight: 400, color: T.text }}>Morrigan</strong> runs the place. Smudged eyeliner, a Plath paperback face-down on the register. She clocked you the second you stepped into view. She's pretending she didn't.
+          </p>
+        </div>
+        <p style={{ color: T.textDim, fontSize: 14, lineHeight: 1.75, margin: 0, fontFamily: FONT }}>
+          Sharp tongue. Soft heart she'll deny having. Trusts almost nobody.
+        </p>
+        <p style={{ color: T.textSoft, fontSize: 14, margin: 0, fontFamily: FONT, fontStyle: "italic" }}>
+          The door's open.
+        </p>
+      </div>
+      <button
+        onClick={handle}
+        style={{ background: `linear-gradient(135deg, ${T.accent}, ${T.purple})`, color: "#fff", border: "none", borderRadius: 14, padding: "14px 48px", fontSize: 15, cursor: "pointer", fontFamily: FONT, boxShadow: `0 4px 20px ${T.accentGlow}`, marginTop: 8 }}
+      >
+        walk in
+      </button>
+    </div>
+  );
+}
+
 function AuthScreen({ onAuth }) {
   const [phrase,  setPhrase]  = useState("");
   const [error,   setError]   = useState("");
@@ -2011,24 +2048,31 @@ function MissionBanner({ defaultOpen = false }) {
       transition: "all 0.25s ease",
     }}>
       {/* Always-visible collapsed bar */}
-      <div
-        onClick={() => setOpen(o => !o)}
-        style={{
-          display: "flex", alignItems: "center", gap: 14,
-          padding: "0 56px", height: 46, cursor: "pointer",
-          userSelect: "none",
-        }}
-      >
-        <span style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.accent, letterSpacing: "2px", textTransform: "uppercase", flexShrink: 0 }}>why this exists</span>
-        <div style={{ height: 1, flex: 1, background: `linear-gradient(90deg, rgba(124,58,237,0.2), transparent)` }} />
-        {!open && (
-          <span style={{ fontFamily: FONT_DISPLAY, fontSize: 14, color: "#6d28d9", opacity: 0.75, whiteSpace: "nowrap" }}>
-            Men are dying. Not metaphorically.
+      <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "0 56px", height: 46 }}>
+        {/* Left: clickable toggle area */}
+        <div
+          onClick={() => setOpen(o => !o)}
+          style={{ display: "flex", alignItems: "center", gap: 14, flex: 1, cursor: "pointer", userSelect: "none", minWidth: 0 }}
+        >
+          <span style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.accent, letterSpacing: "2px", textTransform: "uppercase", flexShrink: 0 }}>why this exists</span>
+          <div style={{ height: 1, flex: 1, background: `linear-gradient(90deg, rgba(124,58,237,0.2), transparent)` }} />
+          {!open && (
+            <span style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 700, color: "#dc2626", whiteSpace: "nowrap" }}>
+              Men are dying. Not metaphorically.
+            </span>
+          )}
+          <span style={{ fontSize: 13, color: T.accent, opacity: 0.6, flexShrink: 0, marginLeft: 4 }}>
+            {open ? "▲" : "▼"}
           </span>
-        )}
-        <span style={{ fontSize: 13, color: T.accent, opacity: 0.6, flexShrink: 0, marginLeft: 4 }}>
-          {open ? "▲" : "▼"}
-        </span>
+        </div>
+        {/* Right: contact — always visible */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+          <div style={{ width: 1, height: 14, background: `rgba(124,58,237,0.2)` }} />
+          <span style={{ fontFamily: FONT_MONO, fontSize: 10, color: "#9ca3af", letterSpacing: "1px", textTransform: "uppercase" }}>invest or collaborate?</span>
+          <a href="mailto:jacesabr@gmail.com" onClick={e => e.stopPropagation()} style={{ fontFamily: FONT_MONO, fontSize: 11, color: T.accent, textDecoration: "none", borderBottom: `1px solid rgba(124,58,237,0.3)`, paddingBottom: 1 }}>jacesabr@gmail.com</a>
+          <span style={{ color: "rgba(124,58,237,0.3)", fontSize: 11 }}>·</span>
+          <a href="https://resume-production-e0fb.up.railway.app/" target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} style={{ fontFamily: FONT_MONO, fontSize: 11, color: T.accent, textDecoration: "none", borderBottom: `1px solid rgba(124,58,237,0.3)`, paddingBottom: 1 }}>portfolio ↗</a>
+        </div>
       </div>
 
       {/* Expandable content */}
@@ -2122,6 +2166,7 @@ export default function App() {
     const p = safeDecodeToken(t);
     return !!(p?.id);
   });
+  const [showLanding, setShowLanding] = useState(() => !localStorage.getItem("token"));
   const [user, setUser] = useState(() => {
     const t = localStorage.getItem("token");
     if (!t) return null;
@@ -2494,9 +2539,12 @@ export default function App() {
   if (!authed) return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: T.bg, fontFamily: FONT, color: T.text }}>
       <ParticlesBg />
-      <MissionBanner defaultOpen={true} />
+      <MissionBanner defaultOpen={!showLanding} />
       <div style={{ flex: 1, overflowY: "auto", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <AuthScreen onAuth={d => { setUser(d.user); setAuthed(true); }} />
+        {showLanding
+          ? <LandingScreen onEnter={() => setShowLanding(false)} />
+          : <AuthScreen onAuth={d => { setUser(d.user); setAuthed(true); }} />
+        }
       </div>
     </div>
   );
