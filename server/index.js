@@ -1192,7 +1192,7 @@ setInterval(() => {
 // real brain — you don't wait until tomorrow to link what you just heard.
 // ═══════════════════════════════════════════════════════════════════
 
-async function updateBrainAfterExchange(userId, userMessage, assistantResponse) {
+async function updateBrainAfterExchange(userId, userMessage, assistantResponse, messageEmbedding = null) {
   const session = getSession(userId);
   if (!session) return;
 
@@ -4441,7 +4441,7 @@ function evaluateProactiveOpportunity(session) {
     const contradictions = (mem?.memories || []).filter(m =>
       m.contradicts && m.contradicts.some(c => {
         const cType = c.type || "contradiction";
-        return cType === "AMBIVALENCE" || cType === "GENUINE_CONTRADICTION";
+        return cType === "ambivalence" || cType === "contradiction";
       })
     );
     if (contradictions.length > 0) {
@@ -5033,7 +5033,7 @@ app.post("/api/chat", auth, async (req, res) => {
   if (!session._tomLoaded) {
     session._tomLoaded = true;
     UserModel.findOne({ userId: req.user.id }).lean().then(model => {
-      if (model?.trajectory) session.userModelTrajectory = model.trajectory;
+      if (model?.trajectoryNarrative) session.userModelTrajectory = model.trajectoryNarrative;
       if (model?.preferredResponseStyle) session.preferredResponseStyle = model.preferredResponseStyle;
       // [P77] Load persisted response type preferences from previous sessions
       if (model?.responseTypePreferences) {
