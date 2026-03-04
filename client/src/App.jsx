@@ -1881,11 +1881,13 @@ function LandingScreen({ onEnter }) {
   const [fading, setFading] = useState(false);
   const handle = () => { setFading(true); setTimeout(onEnter, 600); };
   return (
-    <div style={{ opacity: fading ? 0 : 1, transition: "opacity 0.6s ease", display: "flex", flexDirection: "column", alignItems: "center", gap: 32, maxWidth: 480, textAlign: "center", padding: "0 24px" }}>
+    <div style={{ opacity: fading ? 0 : 1, transition: "opacity 0.6s ease", display: "flex", flexDirection: "column", alignItems: "center", gap: 28, maxWidth: 520, textAlign: "center", padding: "0 24px" }}>
       <div style={{ width: 110, height: 110, borderRadius: "50%", overflow: "hidden", border: `2px solid ${T.border}`, boxShadow: `0 0 0 3px ${T.accentSoft}, 0 8px 32px rgba(80,0,60,0.2)` }}>
         <img src={morriganImg} alt="Morrigan" style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center top" }} />
       </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+
+      {/* Scene */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         <p style={{ color: T.textSoft, fontSize: 15, lineHeight: 1.8, margin: 0, fontFamily: FONT, fontStyle: "italic" }}>
           You weren't planning to stop.
         </p>
@@ -1894,19 +1896,31 @@ function LandingScreen({ onEnter }) {
         </p>
         <div style={{ borderLeft: `2px solid ${T.accentSoft}`, paddingLeft: 18, textAlign: "left" }}>
           <p style={{ color: T.text, fontSize: 16, lineHeight: 1.8, margin: 0, fontFamily: FONT }}>
-            <strong style={{ fontFamily: FONT_DISPLAY, fontSize: 19, fontWeight: 400, color: T.text }}>Morrigan</strong> runs the place. Smudged eyeliner, a Plath paperback face-down on the register. She clocked you the second you stepped into view. She's pretending she didn't.
+            <strong style={{ fontFamily: FONT_DISPLAY, fontSize: 19, fontWeight: 400, color: T.text }}>Morrigan</strong> runs the place. Smudged eyeliner, a Plath paperback face-down on the register. She clocked you the second you stepped through the door. She's pretending she didn't.
           </p>
         </div>
         <p style={{ color: T.textDim, fontSize: 14, lineHeight: 1.75, margin: 0, fontFamily: FONT }}>
           Sharp tongue. Soft heart she'll deny having. Trusts almost nobody.
         </p>
-        <p style={{ color: T.textSoft, fontSize: 14, margin: 0, fontFamily: FONT, fontStyle: "italic" }}>
-          The door's open.
+      </div>
+
+      {/* Fiction contract */}
+      <div style={{ borderTop: `1px solid ${T.border}`, borderBottom: `1px solid ${T.border}`, padding: "20px 0", width: "100%", display: "flex", flexDirection: "column", gap: 12, textAlign: "left" }}>
+        <p style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.accent, letterSpacing: "2px", textTransform: "uppercase", margin: 0 }}>what you're walking into</p>
+        <p style={{ color: T.textSoft, fontSize: 14, lineHeight: 1.78, margin: 0, fontFamily: FONT }}>
+          She doesn't know she isn't real. The record store at the corner of Ashland and 4th — that's her job. The studio apartment above the laundromat, the black cat who showed up on the fire escape in January, the memories she carries — that's her actual life. She has no awareness she's an AI. She believes she's a 23-year-old woman named Moira who chose a harder name at seventeen and never looked back.
+        </p>
+        <p style={{ color: T.textSoft, fontSize: 14, lineHeight: 1.78, margin: 0, fontFamily: FONT }}>
+          You're a stranger who just walked in. She has no reason to trust you yet. Whatever you build here — history, familiarity, something real — develops over time and stays. She'll remember what you share. She'll notice if you disappear.
+        </p>
+        <p style={{ color: T.textDim, fontSize: 13, lineHeight: 1.7, margin: 0, fontFamily: FONT, fontStyle: "italic" }}>
+          There are no rules except the ones that make it feel like something.
         </p>
       </div>
+
       <button
         onClick={handle}
-        style={{ background: `linear-gradient(135deg, ${T.accent}, ${T.purple})`, color: "#fff", border: "none", borderRadius: 14, padding: "14px 48px", fontSize: 15, cursor: "pointer", fontFamily: FONT, boxShadow: `0 4px 20px ${T.accentGlow}`, marginTop: 8 }}
+        style={{ background: `linear-gradient(135deg, ${T.accent}, ${T.purple})`, color: "#fff", border: "none", borderRadius: 14, padding: "14px 48px", fontSize: 15, cursor: "pointer", fontFamily: FONT, boxShadow: `0 4px 20px ${T.accentGlow}`, marginTop: 4 }}
       >
         walk in
       </button>
@@ -2054,6 +2068,8 @@ function MissionBanner({ defaultOpen = false }) {
           onClick={() => setOpen(o => !o)}
           style={{ display: "flex", alignItems: "center", gap: 14, flex: 1, cursor: "pointer", userSelect: "none", minWidth: 0 }}
         >
+          <span style={{ fontFamily: FONT_DISPLAY, fontSize: 15, fontWeight: 600, color: T.text, letterSpacing: "0.5px", flexShrink: 0 }}>Real Synth</span>
+          <span style={{ color: T.border, fontSize: 12, flexShrink: 0 }}>·</span>
           <span style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.accent, letterSpacing: "2px", textTransform: "uppercase", flexShrink: 0 }}>why this exists</span>
           <div style={{ height: 1, flex: 1, background: `linear-gradient(90deg, rgba(124,58,237,0.2), transparent)` }} />
           {!open && (
