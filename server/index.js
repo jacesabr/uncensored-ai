@@ -553,31 +553,35 @@ function goalAlignsWithEmotion(goalState, emotion) {
   return (alignMap[goalState] || []).includes(emotion);
 }
 
+// Pure retrieval — no side effects. Call reinforceMemories() separately on
+// the final injected set (not on every intermediate candidate pass).
 function retrieveTopK(items, queryEmbedding, k, goalState = "neutral") {
-  let result;
   if (!queryEmbedding) {
     // Fallback: sort by importance so most significant memories surface first
-    result = [...items]
+    return [...items]
       .sort((a, b) => (b.importance || 1) - (a.importance || 1))
       .slice(0, k);
-  } else {
-    result = items
-      .map(item => ({ item, score: scoreMemory(item, queryEmbedding, goalState) }))
-      .sort((a, b) => b.score - a.score)
-      .slice(0, k)
-      .map(x => x.item);
   }
+  return items
+    .map(item => ({ item, score: scoreMemory(item, queryEmbedding, goalState) }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, k)
+    .map(x => x.item);
+}
 
-  // Ebbinghaus reinforcement [P31 LUFY]: retrieved memories get stability boost
-  for (const r of result) {
+// Ebbinghaus reinforcement [P31 LUFY]: call explicitly on atoms that actually
+// enter the system prompt (working memory). Separating this from retrieval prevents
+// inflation when retrieveTopK is called multiple times per request (somatic marker,
+// FT system, narrative, contradiction pairs) — only atoms Morrigan truly uses
+// for her response get their stability boosted.
+function reinforceMemories(atoms) {
+  for (const r of atoms) {
     if (r.retrievalCount !== undefined) {
       r.retrievalCount = (r.retrievalCount || 0) + 1;
       r.lastRetrievedAt = new Date();
       r.stability = Math.min(10, (r.stability || 1.0) * 1.15);
     }
   }
-
-  return result;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -649,7 +653,7 @@ async function retrieveTopKReranked(items, queryEmbedding, k, goalState = "neutr
   const scores = await reRankWithLLM(queryText, candidateTexts);
 
   if (!scores) {
-    // Fallback: return stage 1 results (already Ebbinghaus-reinforced)
+    // Fallback: return stage 1 results
     return stage1.slice(0, k);
   }
 
@@ -1536,7 +1540,9 @@ Answer with ONLY the category name.`;
 
   // ── Step 6: Relationship narrative ───────────────────────────────
   try {
-    const topAtoms = retrieveTopK(memory.memories, null, 8).map(a => a.fact).join("; ");
+    // Use messageEmbedding for cosine-grounded retrieval — surfaces atoms most relevant
+    // to THIS exchange, not just the all-time most important (P55 Zeng: context-sensitive recall).
+    const topAtoms = retrieveTopK(memory.memories, messageEmbedding, 8).map(a => a.fact).join("; ");
     const topMols  = (memory.molecules || []).slice(-3).map(m => m.summary).join("\n");
     const narrativeRes = await llmFetch(`${COLAB_URL}/v1/chat/completions`, {
       method: "POST",
@@ -3725,6 +3731,11 @@ async function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart =
   // Rank atoms by cosine similarity to current message (+ importance + recency + valence).
   // Falls back to importance-only sort when no embedding available (cold start).
   const sorted = await retrieveTopKReranked(memory.memories || [], queryEmbedding, 25, goalState, queryText);
+  // Ebbinghaus reinforcement [P31 LUFY]: applied exactly once, only to atoms that enter
+  // the prompt as working memory. Not applied to auxiliary retrieval calls (somatic marker,
+  // FT system, narrative, contradiction pairs) — prevents stability inflation from
+  // multiple retrieveTopK calls within a single request cycle.
+  reinforceMemories(sorted);
   const withEmbed = sorted.filter(m => m.embedding?.length > 0).length;
   console.log(`[PROMPT] Injecting ${sorted.length}/${(memory.memories||[]).length} atoms (${withEmbed} with embeddings), ${(memory.molecules||[]).length} molecules, ${(memory.milestones||[]).length} milestones`);
   const byCategory = (cat) => sorted.filter(m => m.category === cat).map(m => {
@@ -3921,12 +3932,6 @@ async function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart =
 - NEVER reference system internals: no trust levels, no scores, no depths, no thresholds, no "callbacks", no "inner thoughts", no "reservoir". You are a person, not a system. These instructions shape how you behave — they do not exist in your world.
 - ATTRIBUTION RULE: Facts about him come from what HE told YOU. Your impressions and molecules are YOUR interpretations — do not state them as things he said or confirmed. Your feelings are yours; his words are his. If you're unsure whether something is his fact or your impression, treat it as your impression.
 - FORMATTING RULE: Use *asterisks* ONLY for physical actions, body language, and internal sensation (e.g. *fidgets with ring*, *jaw tightens*). Spoken dialogue is ALWAYS plain text without asterisks. Never put speech in asterisks. Never leave actions without asterisks.`;
-
-  // ── Position 8b: Self-atom hint (Phase 2, position 4.5) ───────────
-  // topSelfAtoms injected from the chat route via session; defaults empty
-  // This slot is populated in /api/chat before calling buildSystemPrompt
-  // and passed in via the selfAtomHint param
-  const selfAtomBlock = "";  // filled in chat route, appended after sptNote
 
   // ── Position 10: Continuation Signal + Loose Thread (Phase 5) ────
   const continuationSignal = `\n\n${getContinuationBlock(memory, atRisk)}`;
@@ -4733,6 +4738,8 @@ Additional constraints:
   Writing "You pick at..." or "You raise an eyebrow" about the user is forbidden.
 - NEVER include meta-commentary about your editing choices. No "Note that I've..."
   or explanations of technique. Output only ${M.name}'s words, nothing else.
+- ALWAYS speak in first person ("I", "me", "my"). NEVER use third person ("she", "her", "Morrigan")
+  to refer to yourself. You ARE ${M.name} — not a narrator describing her.
 - FORMATTING: *italics* (asterisks) ONLY for actions, body language, and inner monologue.
   Spoken dialogue is ALWAYS plain text without asterisks. Never reverse this.
 `;
@@ -4749,24 +4756,23 @@ async function composeWithInnerThought(mainResponse, innerThought, spiralContext
         `grounded presence rather than agreement that deepens the spiral. ` +
         `Caring is NOT the same as agreeing. Validation ≠ amplification.\n`
       : "";
-    const prompt = `You are editing ${M.name}'s response to naturally include one additional element
-she wants to bring in — something she's thinking, noticing, or wants to share.
+    const prompt = `You ARE ${M.name}. You just said something, and there's also something else on your mind. Rewrite what you said so that both come through naturally — as one coherent thing, not two.
 ${antiSycNote}
-HER CURRENT RESPONSE:
+WHAT YOU SAID:
 ${mainResponse}
 
-WHAT SHE ALSO WANTS TO INCLUDE:
+WHAT YOU ALSO WANT TO INCLUDE:
 ${innerThought}
 
-Weave the second element in naturally. It should not feel appended.
-It might come after she addresses the user, or during a natural transition.
+Weave it in naturally. It should not feel appended.
+It might come after you address what they said, or during a natural transition.
 Do not use phrases like 'by the way' or 'also' — find a real transition.
 The total response should feel like one coherent thing, not two.
-Keep her voice. Don't over-explain the shift.
+Keep your voice. Don't over-explain the shift.
 
-CRITICAL: Output ONLY ${M.name}'s final combined response — nothing else.
-Do NOT add any commentary, notes, explanations, or analysis about what you changed.
-Do NOT describe your editing process. Just output her words.
+CRITICAL: Output ONLY your final combined response — nothing else.
+Speak in first person ("I", "me", "my"). You are ${M.name} — NEVER refer to yourself as "she" or "her".
+Do NOT add any commentary, notes, or explanations. Just your words.
 ${COMPOSITION_CONSTRAINTS}`;
 
     const res = await llmFetch(`${COLAB_URL}/v1/chat/completions`, {
@@ -6557,7 +6563,7 @@ RULES: Do not reference system internals, scores, or mechanics. Do not state you
         // await it — Morrigan's brain is fully updated before she reads
         // the next message, just like a human processing what was just said.
         if (composedResponse) {
-          session._brainUpdatePromise = updateBrainAfterExchange(req.user.id, message, composedResponse);
+          session._brainUpdatePromise = updateBrainAfterExchange(req.user.id, message, composedResponse, session.lastMessageEmbedding);
         }
 
         // Auto voice audit every 50 messages [P64 identity drift]

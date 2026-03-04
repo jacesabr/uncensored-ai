@@ -1919,13 +1919,22 @@ function AuthScreen({ onAuth }) {
 const FT_COLORS = { chatml: "#10b981" };
 const FT_LABELS = { chatml: "Finetuned (SFT)" };
 
-function MessageBubble({ msg, onMetaClick }) {
+function MessageBubble({ msg, prevMsg, onMetaClick }) {
   const isUser = msg.role === "user";
   const hasFt = !isUser && msg.ftResponses && Object.keys(msg.ftResponses).length > 0;
   if (hasFt) {
     const ftData = msg.ftResponses.chatml || Object.values(msg.ftResponses)[0] || {};
+    const userPrompt = prevMsg?.role === "user" ? prevMsg.content : null;
     return (
       <div style={{ marginBottom: 22, animation: "fadeSlideIn 0.3s ease forwards" }}>
+        {/* User message that triggered this comparison */}
+        {userPrompt && (
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
+            <div style={{ background: `linear-gradient(135deg, ${T.userBubble}, ${T.purple})`, color: "#fff", borderRadius: "22px 22px 4px 22px", padding: "10px 18px", maxWidth: "65%", wordBreak: "break-word", fontSize: 14, fontFamily: FONT, boxShadow: `0 2px 12px ${T.accentGlow}` }}>
+              {userPrompt}
+            </div>
+          </div>
+        )}
         {/* Side-by-side: Not Finetuned | Finetuned */}
         <div style={{ display: "flex", gap: 12 }}>
           {/* Not Finetuned */}
@@ -1989,75 +1998,92 @@ function MessageBubble({ msg, onMetaClick }) {
   );
 }
 
-function MissionBanner() {
+function MissionBanner({ defaultOpen = false }) {
+  const [open, setOpen] = React.useState(defaultOpen);
   return (
     <div style={{
       flexShrink: 0,
-      height: "30vh",
       background: `linear-gradient(135deg, #ede9fe 0%, #f0ecff 55%, #e9e4fb 100%)`,
       borderBottom: `1px solid rgba(124,58,237,0.15)`,
-      padding: "20px 56px",
-      display: "flex",
-      flexDirection: "column",
-      justifyContent: "center",
       boxSizing: "border-box",
-      overflowY: "auto",
       position: "relative",
       zIndex: 2,
+      transition: "all 0.25s ease",
     }}>
-      {/* Label row */}
-      <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 14 }}>
-        <span style={{ fontFamily: FONT_MONO, fontSize: 11, color: T.accent, letterSpacing: "2px", textTransform: "uppercase", flexShrink: 0 }}>why this exists</span>
-        <div style={{ height: 1, flex: 1, background: `linear-gradient(90deg, rgba(124,58,237,0.25), transparent)` }} />
+      {/* Always-visible collapsed bar */}
+      <div
+        onClick={() => setOpen(o => !o)}
+        style={{
+          display: "flex", alignItems: "center", gap: 14,
+          padding: "0 56px", height: 46, cursor: "pointer",
+          userSelect: "none",
+        }}
+      >
+        <span style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.accent, letterSpacing: "2px", textTransform: "uppercase", flexShrink: 0 }}>why this exists</span>
+        <div style={{ height: 1, flex: 1, background: `linear-gradient(90deg, rgba(124,58,237,0.2), transparent)` }} />
+        {!open && (
+          <span style={{ fontFamily: FONT_DISPLAY, fontSize: 14, color: "#6d28d9", opacity: 0.75, whiteSpace: "nowrap" }}>
+            Men are dying. Not metaphorically.
+          </span>
+        )}
+        <span style={{ fontSize: 13, color: T.accent, opacity: 0.6, flexShrink: 0, marginLeft: 4 }}>
+          {open ? "▲" : "▼"}
+        </span>
       </div>
 
-      {/* Headline + three columns */}
-      <div style={{ display: "grid", gridTemplateColumns: "auto 1fr 1fr 1fr", gap: "0 36px", alignItems: "start", marginBottom: 18 }}>
-        <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 27, fontWeight: 400, color: T.text, margin: 0, lineHeight: 1.25, whiteSpace: "nowrap" }}>
-          Men are dying.<br />
-          <span style={{ color: "#6d28d9", opacity: 0.65, fontSize: 21 }}>Not metaphorically.</span>
-        </h1>
-        <p style={{ fontSize: 15, color: "#374151", lineHeight: 1.82, margin: 0, fontFamily: FONT }}>
-          Suicide is the single biggest killer of men under 50 — not because they feel less, but because
-          they were taught from childhood that feeling isn't allowed. Suicidal ideation has become a baseline.
-          Hopelessness, normalised.
-        </p>
-        <p style={{ fontSize: 15, color: "#374151", lineHeight: 1.82, margin: 0, fontFamily: FONT }}>
-          We are building a <strong style={{ color: T.text, fontWeight: 600 }}>synthetic human relationship companion</strong> — genuine
-          memory, trust progression, emotional continuity, and crisis awareness. Not a chatbot with a personality skin.
-          A relationship that persists.
-        </p>
-        <p style={{ fontSize: 15, color: "#374151", lineHeight: 1.82, margin: 0, fontFamily: FONT }}>
-          Memories are stored as semantic <strong style={{ color: T.text, fontWeight: 500 }}>atoms</strong>, clustered into thematic{" "}
-          <strong style={{ color: T.text, fontWeight: 500 }}>molecules</strong>, retrieved via cosine similarity — what is emotionally
-          closest surfaces when it matters. 100+ research papers. Working toward simulating genuine consciousness.
-        </p>
-      </div>
-
-      {/* Pills row */}
-      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", rowGap: 6 }}>
-        {[
-          ["100+", "research papers"],
-          ["atom → molecule", "memory architecture"],
-          ["cosine similarity", "relevance recall"],
-          ["6-level trust", "progression"],
-          ["inner thought", "pipeline"],
-          ["3,000", "training conversations"],
-        ].map(([n, l]) => (
-          <div key={l} style={{ background: "rgba(255,255,255,0.6)", border: `1px solid rgba(124,58,237,0.18)`, borderRadius: 5, padding: "4px 11px", display: "flex", alignItems: "baseline", gap: 5 }}>
-            <span style={{ fontFamily: FONT_DISPLAY, fontSize: 13, color: "#6d28d9" }}>{n}</span>
-            <span style={{ fontFamily: FONT_MONO, fontSize: 10, color: "#6b7280" }}>{l}</span>
+      {/* Expandable content */}
+      {open && (
+        <div style={{ padding: "4px 56px 20px" }}>
+          {/* Headline + three columns */}
+          <div style={{ display: "grid", gridTemplateColumns: "auto 1fr 1fr 1fr", gap: "0 36px", alignItems: "start", marginBottom: 18 }}>
+            <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 27, fontWeight: 400, color: T.text, margin: 0, lineHeight: 1.25, whiteSpace: "nowrap" }}>
+              Men are dying.<br />
+              <span style={{ color: "#6d28d9", opacity: 0.65, fontSize: 21 }}>Not metaphorically.</span>
+            </h1>
+            <p style={{ fontSize: 15, color: "#374151", lineHeight: 1.82, margin: 0, fontFamily: FONT }}>
+              Suicide is the single biggest killer of men under 50 — not because they feel less, but because
+              they were taught from childhood that feeling isn't allowed. Suicidal ideation has become a baseline.
+              Hopelessness, normalised.
+            </p>
+            <p style={{ fontSize: 15, color: "#374151", lineHeight: 1.82, margin: 0, fontFamily: FONT }}>
+              We are building a <strong style={{ color: T.text, fontWeight: 600 }}>synthetic human relationship companion</strong> — genuine
+              memory, trust progression, emotional continuity, and crisis awareness. Not a chatbot with a personality skin.
+              A relationship that persists.
+            </p>
+            <p style={{ fontSize: 15, color: "#374151", lineHeight: 1.82, margin: 0, fontFamily: FONT }}>
+              Memories are stored as semantic <strong style={{ color: T.text, fontWeight: 500 }}>atoms</strong>, clustered into thematic{" "}
+              <strong style={{ color: T.text, fontWeight: 500 }}>molecules</strong>, retrieved via cosine similarity — what is emotionally
+              closest surfaces when it matters. 100+ research papers. Working toward simulating genuine consciousness.
+            </p>
           </div>
-        ))}
-        {/* Contact — kept as single non-breaking unit */}
-        <div style={{ display: "inline-flex", alignItems: "center", gap: 8, flexShrink: 0, whiteSpace: "nowrap" }}>
-          <div style={{ width: 1, height: 18, background: `rgba(124,58,237,0.2)` }} />
-          <span style={{ fontFamily: FONT_MONO, fontSize: 10, color: "#9ca3af", letterSpacing: "1px", textTransform: "uppercase" }}>invest or collaborate?</span>
-          <a href="mailto:jacesabr@gmail.com" style={{ fontFamily: FONT_MONO, fontSize: 11, color: T.accent, textDecoration: "none", borderBottom: `1px solid rgba(124,58,237,0.3)`, paddingBottom: 1 }}>jacesabr@gmail.com</a>
-          <span style={{ color: "rgba(124,58,237,0.3)", fontSize: 11 }}>·</span>
-          <a href="https://resume-production-e0fb.up.railway.app/" target="_blank" rel="noreferrer" style={{ fontFamily: FONT_MONO, fontSize: 11, color: T.accent, textDecoration: "none", borderBottom: `1px solid rgba(124,58,237,0.3)`, paddingBottom: 1 }}>portfolio ↗</a>
+
+          {/* Pills row */}
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", rowGap: 6, marginBottom: 10 }}>
+            {[
+              ["100+", "research papers"],
+              ["atom → molecule", "memory architecture"],
+              ["cosine similarity", "relevance recall"],
+              ["6-level trust", "progression"],
+              ["inner thought", "pipeline"],
+              ["3,000", "training conversations"],
+            ].map(([n, l]) => (
+              <div key={l} style={{ background: "rgba(255,255,255,0.6)", border: `1px solid rgba(124,58,237,0.18)`, borderRadius: 5, padding: "4px 11px", display: "flex", alignItems: "baseline", gap: 5 }}>
+                <span style={{ fontFamily: FONT_DISPLAY, fontSize: 13, color: "#6d28d9" }}>{n}</span>
+                <span style={{ fontFamily: FONT_MONO, fontSize: 10, color: "#6b7280" }}>{l}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Contact row — own line so it never gets clipped */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontFamily: FONT_MONO, fontSize: 10, color: "#9ca3af", letterSpacing: "1px", textTransform: "uppercase" }}>invest or collaborate?</span>
+            <div style={{ width: 1, height: 14, background: `rgba(124,58,237,0.2)` }} />
+            <a href="mailto:jacesabr@gmail.com" style={{ fontFamily: FONT_MONO, fontSize: 11, color: T.accent, textDecoration: "none", borderBottom: `1px solid rgba(124,58,237,0.3)`, paddingBottom: 1 }}>jacesabr@gmail.com</a>
+            <span style={{ color: "rgba(124,58,237,0.3)", fontSize: 11 }}>·</span>
+            <a href="https://resume-production-e0fb.up.railway.app/" target="_blank" rel="noreferrer" style={{ fontFamily: FONT_MONO, fontSize: 11, color: T.accent, textDecoration: "none", borderBottom: `1px solid rgba(124,58,237,0.3)`, paddingBottom: 1 }}>portfolio ↗</a>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -2468,7 +2494,7 @@ export default function App() {
   if (!authed) return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: T.bg, fontFamily: FONT, color: T.text }}>
       <ParticlesBg />
-      <MissionBanner />
+      <MissionBanner defaultOpen={true} />
       <div style={{ flex: 1, overflowY: "auto", display: "flex", alignItems: "center", justifyContent: "center" }}>
         <AuthScreen onAuth={d => { setUser(d.user); setAuthed(true); }} />
       </div>
@@ -2552,7 +2578,11 @@ export default function App() {
                   <span style={{ fontFamily: FONT_DISPLAY, fontSize: 13, color: T.textDim, fontStyle: "italic" }}>{M.name} is here.</span>
                 </div>
               )}
-              {messages.map((msg, i) => <MessageBubble key={i} msg={msg} onMetaClick={setLatestMeta} />)}
+              {messages.map((msg, i) => {
+                // User messages followed by a comparison pair are rendered inside the pair — skip standalone render
+                if (msg.role === "user" && messages[i + 1]?.ftResponses) return null;
+                return <MessageBubble key={i} msg={msg} prevMsg={messages[i - 1]} onMetaClick={setLatestMeta} />;
+              })}
               {/* Backup render: show user message if it was wiped from messages[] (any race condition) */}
               {streaming && pendingUserMsg && !messages.some(m => m === pendingUserMsg) && (
                 <MessageBubble key="pending-user" msg={pendingUserMsg} onMetaClick={setLatestMeta} />
