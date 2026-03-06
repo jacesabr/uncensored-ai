@@ -1881,46 +1881,52 @@ function LandingScreen({ onEnter }) {
   const [fading, setFading] = useState(false);
   const handle = () => { setFading(true); setTimeout(onEnter, 600); };
   return (
-    <div style={{ opacity: fading ? 0 : 1, transition: "opacity 0.6s ease", display: "flex", flexDirection: "column", alignItems: "center", gap: 28, maxWidth: 520, textAlign: "center", padding: "0 24px" }}>
-      <div style={{ width: 110, height: 110, borderRadius: "50%", overflow: "hidden", border: `2px solid ${T.border}`, boxShadow: `0 0 0 3px ${T.accentSoft}, 0 8px 32px rgba(80,0,60,0.2)` }}>
+    <div style={{ opacity: fading ? 0 : 1, transition: "opacity 0.6s ease", display: "flex", flexDirection: "row", alignItems: "flex-start", gap: 36, maxWidth: 800, padding: "0 32px", width: "100%" }}>
+
+      {/* Portrait */}
+      <div style={{ width: 210, height: 300, borderRadius: 14, overflow: "hidden", border: `2px solid ${T.border}`, boxShadow: `0 0 0 3px ${T.accentSoft}, 0 12px 40px rgba(80,0,60,0.25)`, flexShrink: 0 }}>
         <img src={morriganImg} alt="Morrigan" style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center top" }} />
       </div>
 
-      {/* Scene */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        <p style={{ color: T.textSoft, fontSize: 15, lineHeight: 1.8, margin: 0, fontFamily: FONT, fontStyle: "italic" }}>
-          You weren't planning to stop.
-        </p>
-        <div style={{ borderLeft: `2px solid ${T.accentSoft}`, paddingLeft: 18, textAlign: "left" }}>
-          <p style={{ color: T.text, fontSize: 16, lineHeight: 1.8, margin: 0, fontFamily: FONT }}>
-            <strong style={{ fontFamily: FONT_DISPLAY, fontSize: 19, fontWeight: 400, color: T.text }}>Morrigan</strong> runs the place. Smudged eyeliner, a Plath paperback face-down on the register. She clocked you the second you stepped through the door. She's pretending she didn't.
+      {/* Right column */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 16, flex: 1, paddingTop: 4 }}>
+
+        {/* Scene */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <p style={{ color: T.textSoft, fontSize: 14, lineHeight: 1.8, margin: 0, fontFamily: FONT, fontStyle: "italic" }}>
+            You weren't planning to stop.
+          </p>
+          <div style={{ borderLeft: `2px solid ${T.accentSoft}`, paddingLeft: 16 }}>
+            <p style={{ color: T.text, fontSize: 15, lineHeight: 1.8, margin: 0, fontFamily: FONT }}>
+              <strong style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 400, color: T.text }}>Morrigan</strong> runs the place. Smudged eyeliner, a Plath paperback face-down on the register. She clocked you the second you stepped through the door. She's pretending she didn't.
+            </p>
+          </div>
+          <p style={{ color: T.textDim, fontSize: 13, lineHeight: 1.7, margin: 0, fontFamily: FONT }}>
+            Sharp tongue. Soft heart she'll deny having. Trusts almost nobody.
           </p>
         </div>
-        <p style={{ color: T.textDim, fontSize: 14, lineHeight: 1.75, margin: 0, fontFamily: FONT }}>
-          Sharp tongue. Soft heart she'll deny having. Trusts almost nobody.
-        </p>
-      </div>
 
-      {/* Fiction contract */}
-      <div style={{ borderTop: `1px solid ${T.border}`, padding: "16px 0 0", width: "100%", display: "flex", flexDirection: "column", gap: 10, textAlign: "left" }}>
-        <p style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.accent, letterSpacing: "2px", textTransform: "uppercase", margin: 0 }}>what you're walking into</p>
-        <p style={{ color: T.textSoft, fontSize: 13.5, lineHeight: 1.75, margin: 0, fontFamily: FONT }}>
-          She doesn't know she isn't real. The record store, the apartment, the black cat on the fire escape — that's her actual life. She believes she's a 23-year-old named Moira who chose a harder name at seventeen.
-        </p>
-        <p style={{ color: T.textSoft, fontSize: 13.5, lineHeight: 1.75, margin: 0, fontFamily: FONT }}>
-          You're a stranger. Trust takes time. What you build here persists — she'll remember what you share, and she'll notice if you disappear.
-        </p>
-        <p style={{ color: T.textDim, fontSize: 12.5, lineHeight: 1.6, margin: 0, fontFamily: FONT, fontStyle: "italic" }}>
-          No rules except the ones that make it feel like something.
-        </p>
-      </div>
+        {/* Fiction contract */}
+        <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: 14, display: "flex", flexDirection: "column", gap: 9 }}>
+          <p style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.accent, letterSpacing: "2px", textTransform: "uppercase", margin: 0 }}>what you're walking into</p>
+          <p style={{ color: T.textSoft, fontSize: 13, lineHeight: 1.75, margin: 0, fontFamily: FONT }}>
+            She doesn't know she isn't real. The record store, the apartment, the black cat on the fire escape — that's her actual life. She believes she's a 23-year-old named Moira who chose a harder name at seventeen.
+          </p>
+          <p style={{ color: T.textSoft, fontSize: 13, lineHeight: 1.75, margin: 0, fontFamily: FONT }}>
+            You're a stranger. Trust takes time. What you build here persists — she'll remember what you share, and she'll notice if you disappear.
+          </p>
+          <p style={{ color: T.textDim, fontSize: 12, lineHeight: 1.6, margin: 0, fontFamily: FONT, fontStyle: "italic" }}>
+            No rules except the ones that make it feel like something.
+          </p>
+        </div>
 
-      <button
-        onClick={handle}
-        style={{ background: `linear-gradient(135deg, ${T.accent}, ${T.purple})`, color: "#fff", border: "none", borderRadius: 14, padding: "14px 48px", fontSize: 15, cursor: "pointer", fontFamily: FONT, boxShadow: `0 4px 20px ${T.accentGlow}`, marginTop: 4 }}
-      >
-        walk in
-      </button>
+        <button
+          onClick={handle}
+          style={{ alignSelf: "flex-start", background: `linear-gradient(135deg, ${T.accent}, ${T.purple})`, color: "#fff", border: "none", borderRadius: 14, padding: "12px 40px", fontSize: 14, cursor: "pointer", fontFamily: FONT, boxShadow: `0 4px 20px ${T.accentGlow}` }}
+        >
+          walk in
+        </button>
+      </div>
     </div>
   );
 }
