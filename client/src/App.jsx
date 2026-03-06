@@ -1884,7 +1884,7 @@ function LandingScreen({ onEnter }) {
     <div style={{ opacity: fading ? 0 : 1, transition: "opacity 0.6s ease", display: "flex", flexDirection: "row", alignItems: "flex-start", gap: 36, maxWidth: 800, padding: "0 32px", width: "100%" }}>
 
       {/* Portrait */}
-      <div style={{ marginTop: 28, width: 210, height: 300, borderRadius: 14, overflow: "hidden", border: `2px solid ${T.border}`, boxShadow: `0 0 0 3px ${T.accentSoft}, 0 12px 40px rgba(80,0,60,0.25)`, flexShrink: 0 }}>
+      <div style={{ marginTop: 56, width: 210, height: 300, borderRadius: 14, overflow: "hidden", border: `2px solid ${T.border}`, boxShadow: `0 0 0 3px ${T.accentSoft}, 0 12px 40px rgba(80,0,60,0.25)`, flexShrink: 0 }}>
         <img src={morriganImg} alt="Morrigan" style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center top" }} />
       </div>
 
