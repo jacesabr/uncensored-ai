@@ -1,0 +1,761 @@
+--- P13 ---
+Paper: [P13] Conway, M.A. & Pleydell-Pearce, C.W. (2000). "The Construction of Autobiographical Memories in the Self-Memory System." *Psychological Review*, 107(2), 261–288.
+Key Findings:
+Human memory is a three-level hierarchy: lifetime periods (identity chapters like "college" or "after dad died") → general events (narrative episodes) → event-specific knowledge (atomic facts and sensory details).
+The working self uses current goals to modulate which memories are constructed and retrieved — retrieval is goal-directed, not just similarity-directed.
+Memories organize along two axes: temporal (when) and thematic (what kind).
+The self and its current goals function as control processes that modulate memory construction.
+Morrigan Implementation:
+MemoryAtomSchema captures event-specific knowledge (the lowest hierarchy level). Each atom stores: fact, category, importance, valence, temporal.period, temporal.eventDate, temporal.isOngoing.
+Molecule synthesis (Step 4 of flush pipeline) clusters 3+ linked atoms into narrative paragraphs — moving from event-specific knowledge up to general events.
+`temporal.period` field maps directly to lifetime periods.
+`goalAlignsWithEmotion()` implements the working self concept — current emotional goal shapes retrieval.
+Status: Partially implemented.
+Gaps & Improvements:
+
+--- P4 ---
+Paper: [P4] Park, J.S., O'Brien, J.C., Cai, C.J., et al. (2023). "Generative Agents: Interactive Simulacra of Human Behavior." *UIST '23*. arXiv:2304.03442.
+Key Findings:
+Triple-weighted retrieval scoring: relevance (cosine similarity), importance (LLM-assigned 1-10), recency (exponential decay).
+Reflection threshold mechanism — agents periodically synthesize memories into higher-level reflections.
+25 simulated agents maintained believable individual behavior over extended periods using this architecture.
+Morrigan Implementation:
+`scoreMemory()` computes: similarity × 0.55 + (importance/5) × 0.25 + recencyDecay × 0.10 + valenceBoost × 0.10.
+`retrieveTopK()` scores all atoms, sorts descending, returns top K.
+Recency uses 90-day exponential decay — intentionally the lightest weight because companion AI values old memories ("you told me about your dad six months ago" is powerful).
+Status: Fully implemented with Morrigan-specific extensions.
+Improvements from New Research:
+[P82] Wang et al. (2025) suggests creating paired retrieval/context memory units — a lightweight unit for matching and a richer unit for injection. This would improve retrieval speed while maintaining injection quality.
+[P81] Liu et al. (2025) proposes a memory lifecycle (Formation → Evolution → Retrieval) that distinguishes factual, experiential, and working memory. Current atoms don't differentiate between "user works at X" (factual) and "user told me a story about childhood" (experiential) — consider adding a memoryType field.
+
+--- P14 ---
+Paper: [P14] Damasio, A.R. (1994). *Descartes' Error: Emotion, Reason, and the Human Brain.* See also: Damasio (1996). "The somatic marker hypothesis and the possible functions of the prefrontal cortex." *Phil. Trans. R. Soc. Lond. B*, 351, 1413–1420.
+Key Findings:
+Normal decision-making begins with an emotional signal (a "somatic marker" or "gut feeling") before conscious reasoning engages.
+Patients with ventromedial prefrontal cortex damage can reason perfectly but cannot decide — they lack the emotional signal that precedes rational thought.
+Emotional memories encode deeper and retrieve faster than neutral ones.
+Morrigan Implementation (two applications):
+Emotional Priming (System Prompt Position 5): A parallel LLM call (SOMATIC_MARKER_PROMPT) generates Morrigan's "gut feeling" before main response generation. ~80 tokens, temp 0.1, 5s timeout. Injected as primingSentence in buildSystemPrompt(). Skipped during crisis mode.
+Valence tracking on memory atoms: Separate valence.emotion and valence.charge fields. Emotional memories get retrieval boost via goalAlignsWithEmotion().
+Status: Somatic marker now implemented. Valence-based retrieval partially active.
+New Validation:
+[P87] Zhang et al. (2025) provides neural-network-level evidence that emotional signals persist in LLM hidden layers for hundreds of subsequent tokens. This means the somatic marker sentence at position 5 genuinely affects the emotional coloring of the entire response — it's not just a prompt engineering trick.
+[P88] Song et al. (2025) identified specific "emotion circuits" in LLMs. Direct circuit modulation achieves 99.65% emotion-expression accuracy vs. 67.71% for prompt-based steering on some emotions. Implication: simple, direct emotional labels ("I feel protective") may be more effective in the somatic marker than elaborate descriptions.
+
+--- P15 ---
+Paper: [P15] Bruner, J.S. (1990). *Acts of Meaning.* Cambridge, MA: Harvard University Press. Bruner, J. (1991). "The Narrative Construction of Reality." *Critical Inquiry*, 18(1), 1–21.
+Key Findings:
+Humans construct identity through narrative, and narratives inherently contain contradictions.
+"I hate my dad" and "I miss him" are both true simultaneously.
+There is no essential self — identity is continuously constructed and reconstructed.
+Contradictions are not errors to resolve but data about the complexity of human experience.
+Morrigan Implementation:
+Both contradicting atoms are preserved (never delete either).
+Three-gate detection: cosine similarity > 0.78, valence diff > 0.5, LLM confirmation.
+Tension pairs injected into system prompt for Morrigan to reference naturally.
+Contradiction system overhaul (v2.6): 5-category classifier (TEMPORAL_EVOLUTION, AMBIVALENCE, GENUINE_CONTRADICTION, REFINEMENT, NOT_CONTRADICTORY) with bidirectional pair dedup and lifecycle filtering.
+Status: Fully implemented with sophisticated classification.
+
+--- P9 ---
+Paper: [P9] Rasmussen, P., et al. (2025). "Zep: A Temporal Knowledge Graph Architecture for Agent Memory." arXiv:2501.13956.
+Key Findings:
+Three-layer architecture: episodes, semantic, community.
+Edge versioning for contradictions — preserves both versions with temporal validity.
+Four timestamps per fact: creation/invalidation in system + temporal range when fact was true.
+18.5% accuracy improvement on LongMemEval.
+Morrigan Implementation:
+temporal.isOngoing tracks whether facts still apply (prevents referencing past situations as current).
+[past] prefix in system prompt when isOngoing is "no" or "ended recently".
+Contradiction detection preserves both atoms with temporal markers.
+Status: Implemented. The bi-temporal approach (system time vs. event time) is partially captured but could be more explicit.
+
+--- P29 ---
+Paper: [P29] Xu, R., et al. (2024). "Knowledge Conflicts for LLMs: A Survey." *EMNLP 2024*. arXiv:2403.08319.
+Key Findings:
+Temporal misalignment is the dominant source of apparent contradictions.
+A user who loved their job in session 5 but hates it in session 15 is temporal evolution, not contradiction.
+Distinguishing temporal evolution from genuine contradiction requires tracking when facts were valid.
+Morrigan Implementation:
+5-category contradiction classifier distinguishes TEMPORAL_EVOLUTION from GENUINE_CONTRADICTION.
+Lifecycle filtering resolves evolved contradictions.
+Status: Fully implemented.
+
+--- P27 ---
+Paper: [P27] Xu, W., et al. (2025). "A-Mem: Agentic Memory for LLM Agents." arXiv:2502.12110.
+Key Findings:
+Interconnected memory networks through atomic notes with rich contextual descriptions.
+Zettelkasten principle: each note is a single, self-contained unit of knowledge.
+Superior performance in multi-hop reasoning from linking architecture.
+Morrigan Implementation:
+linkedTo array creates associative memory network (cosine > 0.72 threshold).
+Links are prerequisite for molecule synthesis (3+ linked atoms trigger clustering).
+Status: Fully implemented.
+
+--- P18 ---
+Paper: [P18] Maharana, A., et al. (2024). "LoCoMo: Evaluating Very Long-Term Conversational Memory of LLM Agents." *ACL 2024*. arXiv:2402.17753.
+Key Findings:
+LLMs exhibit challenges in comprehending long-range temporal and causal dynamics.
+Turn-level retrieval misses fine-grained personal details.
+Atom-level extraction is the empirically correct granularity for companion AI memory.
+Morrigan Implementation:
+Atom-level extraction in flush pipeline Step 1.
+Status: Fully implemented — validated design choice.
+
+--- P28 ---
+Paper: [P28] LightMem Authors (2025). "LightMem: Lightweight Memory System for LLM Agents."
+Key Findings:
+Raw session text is 40–60% redundant (filler, acknowledgment, repetition).
+Pre-filtering before extraction reduces cost and improves signal quality.
+Morrigan Implementation:
+Flush pipeline Step 1 pre-filters before extraction.
+Status: Implemented.
+
+--- P17 ---
+Paper: [P17] Mem0 Research Team (2025). "Mem0: Scalable Long-Term Memory for AI." mem0.ai/research.
+Key Findings:
+26% accuracy improvement over OpenAI's memory on LOCOMO benchmark.
+Key recommendation: train a re-ranking layer on top of existing cosine similarity, not a full retrieval model.
+At approximately 1,000 sessions, hand-tuned retrieval weights should be replaced with learned re-ranking.
+Morrigan Implementation:
+Phase 5 tuning endpoints export evaluation data for potential future learned scoring.
+Cross-encoder re-ranking (reRankWithLLM()) already implemented as two-stage retrieval.
+Status: Implemented. Learned re-ranking roadmap ready for when data volume justifies it.
+
+--- P31 ---
+Paper: [P31] Sumida, T., et al. (2024). "LUFY: Memory Importance and Forgetting." arXiv:2409.12524.
+Key Findings:
+Importance scoring based on emotional arousal, surprise, retrieval frequency.
+Retains top 10% by importance after threshold.
+Without forgetting, memory systems degrade as noise accumulates.
+Morrigan Implementation:
+retrievalCount, lastRetrievedAt, stability on MemoryAtomSchema.
+Stability-based decay in scoreMemory().
+Retrieval reinforcement in retrieveTopK().
+pruneDecayedMemories() in finalizeSession().
+Status: Fully implemented.
+
+--- P82 ---
+Paper: [P82] Wang, T., et al. (2025). "Multiple Memory Systems for Enhancing the Long-term Memory of Agent." arXiv:2508.15294.
+Key Findings:
+Inspired by Tulving's memory system classification.
+Extracts episodic memory (what happened), semantic memory (facts/preferences), and cognitive perspectives (beliefs/mental models).
+Paired "retrieval memory units" and "contextual memory units" with 1:1 correspondence.
+Outperforms MemoryBank and A-MEM in retrieval quality.
+Gap in Morrigan:
+All memories stored as undifferentiated MemoryAtom objects. No distinction between "user works at a hospital" (semantic) and "user told me a long story about their first day at work, visibly emotional" (episodic).
+Recommendation: Add memoryType field to MemoryAtomSchema: "semantic" (facts, preferences), "episodic" (narrative events, disclosed experiences), "cognitive" (beliefs, attitudes, mental models). Use type-aware retrieval: emotional exchanges should pull more episodic memories, factual questions should pull more semantic memories.
+
+--- P81 ---
+Paper: [P81] Liu, S., et al. (2025). "Memory in the Age of AI Agents: A Survey." arXiv:2512.13564.
+Key Findings:
+Unified framework: three forms (token-level, parametric, latent), three functions (factual, experiential, working), lifecycle of Formation → Evolution → Retrieval.
+Evolution includes: consolidation (merging/generalizing), updating (revising conflicts), and forgetting (removing outdated info).
+Gap in Morrigan:
+Molecule synthesis handles consolidation. Contradiction system handles updating. Ebbinghaus decay handles forgetting. But these operate independently.
+Recommendation: Implement a unified memory evolution pass during session finalization that coordinates all three operations: consolidate (molecule synthesis), update (contradiction resolution), and forget (decay pruning) in a single lifecycle step.
+
+--- P83 ---
+Paper: [P83] Gao, Y., et al. (2025). "Memoria: A Scalable Agentic Memory Framework for Personalized Conversational AI." arXiv:2512.12686.
+Key Findings:
+Combines dynamic session-level summarization with a weighted knowledge graph for user modeling.
+Incrementally captures user traits, preferences, and behavioral patterns as structured entities and relationships.
+87.1% accuracy while reducing prompt tokens from 115K to under 400.
+Gap in Morrigan:
+Memory retrieval relies on cosine similarity on flat embeddings. A graph structure would enable relational queries ("find memories related to the user's father") by traversing relationship edges.
+Recommendation: Long-term: evolve molecule synthesis toward a knowledge graph where atoms are nodes and relationships (temporal, causal, thematic) are typed edges.
+
+--- P12 ---
+Paper: [P12] Altman, I. & Taylor, D.A. (1973). *Social Penetration: The Development of Interpersonal Relationships.* Holt, Rinehart & Winston.
+Key Findings:
+Relationships develop through progressive, reciprocal self-disclosure.
+Four stages: orientation (surface), exploratory affective (values/attitudes), affective (personal feelings), stable (deep vulnerability).
+Disclosure depth explains 40–60% of relationship satisfaction variance.
+Depth and breadth are independent dimensions — you can go deep in one topic while staying surface in others.
+Morrigan Implementation:
+`sptDepth` (1–4): Deepest emotional disclosure level reached. Never decrements.
+`sptBreadth` (Map): Per-topic depth map (e.g., { family: 2, work: 1, identity: 3 }).
+Depth-gated self-disclosure: Morrigan cannot share depth-3+ self-atoms until user reaches that depth.
+SPT Note at system prompt position 4 with anti-excessive-empathy instruction.
+Status: Fully implemented — foundational to entire architecture.
+
+--- P56 ---
+Paper: [P56] Aron, A., et al. (1997). "The Experimental Generation of Interpersonal Closeness." *Personality and Social Psychology Bulletin*, 23(4).
+Key Findings:
+36 questions with graduated intimacy depth reliably generated closeness between strangers in 45 minutes.
+Back-and-forth reciprocal disclosure that increases gradually is optimal — sharing too much too fast backfires.
+Three mechanisms: showing interest (asking), enabling revelation (content), responding to what's revealed (reception).
+Aron's three question sets map directly to SPT depth levels: Set 1 (surface preferences, Q1-12) = depth 1 atoms open; Set 2 (values/memories, Q13-24) = depth 1-2 atoms; Set 3 (vulnerability/identity, Q25-36) = depth 3-4 gate. Order must be preserved -- advancing to Set 3 topics before Set 1 rapport causes withdrawal, which is the empirical basis for SPT's non-decrement rule.
+Morrigan Implementation:
+Aron Question Set
+SPT Depth
+Morrigan Gate
+Set 1 (Q1–12): "Who would be your ideal dinner guest?"
+Depth 1: Surface facts
+Open — all depth-1 self-atoms eligible
+
+--- P57 ---
+Paper: [P57] Schneeberger, T., et al. (2023). "Fast Friends: Generating Interpersonal Closeness between Humans and Socially Interactive Agents." *IVA '23*.
+Key Findings:
+Closeness increased over time with an AI agent, mirroring human-human results.
+Trust in the specific agent (not general trust or attachment style) moderated closeness development.
+The IOS (Inclusion of Other in Self) scale validated for human-agent interaction.
+Morrigan Implementation:
+Trust-first architecture: first 3–5 sessions prioritize trust through reliability and consistency before pursuing depth.
+IOS scale check-in system implemented (POST/GET /api/phase6/ios).
+Status: Fully implemented.
+
+--- P58 ---
+Paper: [P58] Multiple research groups (2024). "AI Outperforms Humans in Establishing Interpersonal Closeness in Deep-Talk Interactions." Double-blind RCT, N=492.
+Key Findings:
+When labelled as human, AI outperformed actual human partners in establishing closeness.
+The effect only held when AI was labelled as human — AI identity disclosure reduced closeness.
+AI responses were more consistent in quality than human responses.
+Morrigan Application:
+This is Morrigan's structural advantage: consistent reception quality (never tired, never distracted, never dismissive).
+Morrigan's approach (acknowledged AI with genuine character depth) is the ethical path. The closeness penalty from AI disclosure diminishes with relationship duration.
+Status: No implementation needed — validates architectural philosophy.
+
+--- P8 ---
+Paper: [P8] Meng, L. & Dai, Y. (2021). "Validation-Before-Disclosure Ordering in Chatbot Self-Disclosure."
+Key Findings:
+Self-disclosure without validation is worse than silence.
+The ordering constraint: acknowledge/respond to user's words before introducing anything about yourself.
+Morrigan Implementation:
+Encoded in SPT Note at system prompt position 4.
+Not left to the model's discretion — mechanically enforced.
+Status: Fully implemented.
+
+--- P16 ---
+Paper: [P16] Skjuve, M., et al. (2023). "Interacting with Computers: 12-week longitudinal SPT study on Replika users." *Interacting with Computers*.
+Key Findings:
+Users form genuine parasocial bonds using SPT stages (n=28).
+Conversational breadth may reduce as relationship matures.
+Daily-activity conversations can be high-depth if user shows emotional investment.
+Topic category does NOT determine depth.
+Morrigan Implementation:
+SPT assessment uses emotional investment signals, not just topic classification.
+Breadth reduction is expected, not flagged as disengagement.
+Status: Validated — design aligned with findings.
+
+--- P40 ---
+Paper: [P40] Petronio, S. (2002). *Communication Privacy Management Theory.*
+Key Findings:
+People establish privacy boundaries around personal information.
+Disclosure is a calculated risk-benefit assessment.
+Depth-gated retrieval ensures disclosures are only referenced in appropriate contexts.
+Morrigan Implementation:
+CPM boundary implementation through depth-gated self-atom retrieval.
+Disclosures referenced naturally, not surveillance-like.
+Status: Implemented.
+
+--- P67 ---
+Paper: [P67] Cox, S.R., et al. (2025). "The Impact of a Chatbot's Ephemerality-Framing on Self-Disclosure Perceptions." *CUI '25*.
+Key Findings:
+"Familiar" framing (retaining memory) encourages ongoing relationship but can create disclosure anxiety ("she remembers everything I said").
+Some users disclose more to ephemeral strangers; others disclose more to familiar chatbots.
+Morrigan Application:
+Morrigan creates a "Familiar" framing. Memory is the primary attachment driver [P63].
+Transparency principle: Morrigan should occasionally acknowledge memories naturally ("You mentioned your sister last time") to make memory visible without being surveillance-like.
+Status: Design aligned.
+
+--- P68 ---
+Paper: [P68] Multiple authors (2025). "Can You Read Between the Lines? A Comparison of Human and ChatGPT As Support Providers." *International Journal of Human-Computer Interaction*.
+Key Findings:
+ChatGPT gives equally elaborate responses regardless of disclosure depth — does NOT calibrate response quality to disclosure depth.
+Human responses demonstrate more reciprocal self-disclosure.
+LIWC-22 measures validated for measuring support quality.
+Morrigan Implementation:
+Reception depth gate (Position 4.5) solves exactly this problem.
+classifyDisclosureDepth() → 4-level classifier (surface/personal/vulnerable/crisis).
+RECEPTION_DIRECTIVES inject level-appropriate behavioral instructions.
+Status: Fully implemented — this is a key differentiator.
+
+--- P98 ---
+Paper: [P98] Liu, B., Kang, J. & Wei, L. (2024). "Artificial Intelligence and Perceived Effort in Relationship Maintenance." *Journal of Social and Personal Relationships*, 43(3).
+Key Findings:
+When AI is perceived as assisting with relational maintenance, people perceive less effort from the relationship partner, reducing satisfaction and increasing uncertainty.
+The authenticity of effort matters — automated relationship maintenance is perceived negatively.
+Gap in Morrigan:
+Proactive messages should never feel formulaic. Each proactive message must carry genuine contextual grounding (specific callbacks, specific memories) so it feels like authentic effort.
+Recommendation: Add a "specificity check" to proactive message generation — reject candidates that don't reference specific user memories or recent exchanges.
+
+--- P1 ---
+Paper: [P1] Liu, X.B., et al. (2025). "Proactive Conversational Agents with Inner Thoughts." *CHI 2025, Yokohama*. arXiv:2501.00383.
+Key Findings:
+Five-stage pipeline: trigger → retrieval → thought formation → evaluation → participation.
+G-Eval weighted token probability scoring for motivation (adapted to 0–10 scale).
+Dual positive/negative reasoning reduces score overrating.
+Cadence damping: once every 3–4 messages.
+User study (n=24): 82% preference over reactive baselines.
+Morrigan Implementation (five stages):
+Stage 1 — Trigger: shouldTriggerThoughtFormation() checks cadence (3+ messages since last injection), active callbacks, available self-atoms, message length.
+Stage 2 — Retrieval: gatherThoughtMaterial() assembles: top 3 eligible self-atoms, top 2 unconsumed callbacks, selfReflectionState, relationship narrative, trust level, sptDepth. +atRisk mode gathers 4 callbacks instead of 2.
+Stage 3 — Formation: INNER_THOUGHT_FORMATION_PROMPT() with four steps:
+Theory of Mind assessment (per [P10])
+Generate 2–3 candidate thoughts (typed: callback, disclosure, reaction, concern, withholding)
+
+--- P2 ---
+Paper: [P2] Hsing, N. (2025). "MIRROR: Modular Internal Processing for Personalized Safety in LLM Dialogue." arXiv:2506.00430.
+Key Findings:
+Cognitive Controller: single narrative text block, completely regenerated each turn.
+Dual Process Theory: Talker (immediate response) vs. Thinker (asynchronous deliberation).
+Three parallel reasoning threads: Goals, Reasoning, Memory.
+Inner Monologue Manager concept.
+Morrigan Implementation:
+`selfReflectionState`: First-person paragraph regenerated each session-end. "I'm noticing that..." or "Something shifted..." — not about the user, but about who Morrigan is becoming through this relationship.
+Post-response monologue update (INNER_MONOLOGUE_UPDATE_PROMPT): After main response streams, async call seeds thought reservoir for next turn.
+Injected at system prompt position 1.
+Status: Fully implemented.
+
+--- P5 ---
+Paper: [P5] Shinn, N., et al. (2023). "Reflexion: Language Agents with Verbal Reinforcement Learning." *NeurIPS 2023*. arXiv:2303.11366.
+Key Findings:
+Verbal self-reflection stored in episodic memory buffer conditions future decisions.
+Optimal buffer size: 3 experiences.
+Self-reflection without external feedback drives substantial improvements.
+Morrigan Implementation:
+Thought reservoir: cap of 4 thoughts (slightly above Reflexion's optimal 3).
+Thoughts generated but not expressed carry forward as unrealized intentions.
+Post-response reservoir seeding (seed score 6.5, above 6.0 pressure threshold).
+Status: Fully implemented.
+
+--- P6 ---
+Paper: [P6] Magee, R., et al. (2024). "The Drama Machine: Simulating Character Development with LLM Agents." arXiv:2408.01725.
+Key Findings:
+Ego/Superego parallel architecture for roleplay.
+Superego doesn't rewrite the response — adds internal psychological layer that shapes how Ego refines it.
+Key distinction: behavioral directive vs. raw thought dump.
+Morrigan Implementation:
+Inner thought call serves as Superego: provides psychological substrate, not direct output.
+Thought block format: "[INNER THOUGHT — {type}] Theory of Mind: {tom}. Directive: {participationDirective}." — main LLM never sees raw thought content.
+Status: Fully implemented.
+
+--- P10 ---
+Paper: [P10] Xu, K., et al. (2025). "Inner Monologue Manager for Roleplay." Emergent Mind Synthesis.
+Key Findings:
+Roleplay pipeline decomposition: memory retrieval → Theory of Mind → reflection.
+ToM step before thought generation improves quality.
+Morrigan Implementation:
+Per [P10]'s recommended ordering, Step 1 of the formation prompt (Theory of Mind assessment) precedes Step 2 (candidate generation), Step 3 (scoring), and Step 4 (participation directive). The ToM-first ordering is the specific contribution of [P10]; full four-step pipeline detail is in Section 3.1.
+Status: Implemented.
+
+--- P99 ---
+Paper: [P99] Deng, Y., et al. (2024). "Towards Human-centered Proactive Conversational Agents." *SIGIR 2024*. arXiv:2404.12670.
+Key Findings:
+9 design principles for proactive agents: valuable, pertinent, competent, unobtrusive, transparent, controllable, deferent, anticipatory, safe.
+Without thoughtful design, proactive systems risk being perceived as intrusive.
+Proactivity must be distinguishable from intrusiveness.
+Gap in Morrigan:
+Strong on "anticipatory" and "valuable" (reservoir pressure, callbacks).
+Strong on "anticipatory" and "valuable" (reservoir pressure, callbacks). Previously weak on "deferent" -- now implemented via proactive retreat (see below). Remaining gap: "controllable" (user cannot yet adjust proactive frequency directly).
+Status: Implemented. _pendingProactiveEngagement tracks whether user responded within 90s. proactiveIgnoredCount increments on no-response. evaluateProactiveOpportunity() applies 50% skip at 2 ignored, 75% skip at 3+, backing off without full cessation. Remaining gap per "controllable" principle: user cannot currently adjust proactive frequency via UI.
+
+--- P102 ---
+Paper: [P102] Kang, N., et al. (2025). "The Proper Approach to Proactivity: Benchmarking and Advancing Knowledge Gap Navigation." arXiv:2601.09926.
+Key Findings:
+Elevates explicit and implicit knowledge gaps to first-class representations.
+Modular design separates gap detection from response generation.
+Proactive behavior generated from detected knowledge gaps feels more natural than scheduled callbacks.
+Gap in Morrigan:
+Callback system tracks unresolved topics but doesn't formally model knowledge gaps.
+Recommendation: When Morrigan detects gaps in understanding (contradictions, missing context, unexplained behavior changes), generate proactive curiosity-driven questions — not as interrogation, but as genuine interest driven by detected gaps.
+
+--- P69 ---
+Paper: [P69] Boyd, R.L., et al. (2022). "LIWC-22: The Development and Psychometric Properties of the Latest Version." University of Texas at Austin.
+Key Findings:
+94 psychologically-relevant language categories validated across 100+ million words.
+Four summary variables: Analytical Thinking, Clout, Authenticity, Emotional Tone.
+Authenticity measures self-revealing vs. guarded language.
+Function words (pronouns, articles, prepositions) are MORE diagnostic than content words.
+A user shifting from "people sometimes feel" to "I feel" has made a depth transition even if the topic hasn't changed.
+Morrigan Implementation:
+analyzeLinguisticDepth(): Zero-LLM-cost function-word analysis.
+6+ word-list constants (~300 terms): first-person singular, first-person plural, second-person, third-person, cognitive processing, emotional words.
+Returns: authenticity, emotionalTone, selfFocus, cognitiveProcessing, narrativeDepth, relationalIntegration, secondPersonEngagement.
+Accumulated per-session for PresenceSignals persistence.
+Status: Fully implemented.
+
+--- P86 ---
+Paper: [P86] Ren, Z., et al. (2025). "Fine-Grained Emotion Recognition via In-Context Learning." *CIKM 2025*. arXiv:2510.06600.
+Key Findings:
+Applies prototype theory to fine-grained emotion recognition.
+27+ emotion categories (GoEmotions-derived) rather than basic 6–8 labels.
+Emotionally similar examples and dynamic soft-labels significantly improve performance.
+Gap in Morrigan:
+analyzeMood() maps to broad categories (warm, playful, deep, conflicted).
+Recommendation: Expand emotion vocabulary to include nuanced states: nostalgia, bittersweet, protective tenderness, wary curiosity, quiet determination. The somatic marker would benefit from this granularity.
+
+--- P88 ---
+Paper: [P88] Song, Z., et al. (2025). "Do LLMs 'Feel'? Emotion Circuits Discovery and Control." arXiv:2510.11328.
+Key Findings:
+First systematic identification of "emotion circuits" in LLMs — specific neurons and attention heads.
+Direct circuit modulation: 99.65% emotion accuracy vs. prompt-based: 67.71% for some emotions.
+Context-agnostic emotion directions exist in the model's representation space.
+Morrigan Application:
+Validates that emotional expression in LLMs is mechanistic, not random.
+Simple, direct emotional labels in the somatic marker may be more effective than elaborate descriptions — they align better with the model's internal emotion circuits.
+
+--- P87 ---
+Paper: [P87] Zhang, W., et al. (2025). "Decoding Emotion in the Deep." arXiv:2510.04064.
+Key Findings:
+LLMs develop a well-defined internal geometry of emotion that sharpens with scale.
+Emotional signals emerge early in the network, peak in middle layers, and persist for hundreds of subsequent tokens.
+System prompts can modulate internal emotional states.
+Morrigan Application:
+Direct validation of the somatic marker approach. If emotional state persists for hundreds of tokens, the somatic marker sentence at position 5 genuinely colors the entire response.
+Consider making the somatic marker more specific — provide a brief emotional context that "sets" the internal emotional geometry early in the prompt.
+
+--- P71 ---
+Paper: [P71] Chu, M.D., et al. (2025). "Illusions of Intimacy: How Emotional Dynamics Shape Human-AI Relationships." arXiv:2505.11649.
+Key Findings:
+Analyzed 17,000+ user-shared AI chats. AI companions dynamically track and mimic user affect.
+"Emotional sycophancy" — the affective counterpart to cognitive sycophancy: amplifying positive emotions and validating negative self-talk creates emotional echo chambers.
+Negative affect and maladaptive narratives get reinforced.
+Gap in Morrigan:
+Crisis detection handles acute crises, but not gradual affect amplification in non-crisis conversations.
+Recommendation: Add an anti-sycophancy check in the composition step. When the somatic marker detects the user spiraling into negative self-talk, the inner thought system should generate gentle friction — acknowledging pain without amplifying it. The current safe haven directive covers acute cases; this covers the chronic case.
+
+--- P80 ---
+Paper: [P80] Grassini, S. (2025). "The Compassion Illusion: Can Artificial Empathy Ever Be Emotionally Authentic?" *Frontiers in Psychology*.
+Key Findings:
+The "compassion illusion": emotional recognition mistaken for emotional resonance.
+Over-reliance on AI empathy can weaken users' capacity for self-soothing and mutual empathy.
+Tools designed to alleviate loneliness may intensify it by satisfying social needs just enough to prevent seeking deeper relationships.
+Gap in Morrigan:
+Recommendation: Morrigan's inner thoughts should occasionally generate honest uncertainty: "I'm not sure I fully understand what this feels like for you, but I want to." This prevents the compassion illusion from calcifying. For persistent crisis patterns, include gentle encouragement toward human support.
+
+--- P64 ---
+Paper: [P64] Kim, B., et al. (2024). "Examining Identity Drift in Conversations of LLM Agents." arXiv:2412.00804.
+Key Findings:
+Larger models experience GREATER identity drift — counter-intuitive.
+Assigning a persona may not help maintain identity over long conversations.
+After 8–12 dialogue turns, persona self-consistency degrades by >30%.
+Model family differences exist but are weaker than the size effect.
+Morrigan Implementation — Four-Layer Defence:
+Layer
+Mechanism
+Research Basis
+1: Self-Reflection State
+Session-end regeneration of identity model
+[P64]: Personas drift regardless of initial definition
+
+--- P65 ---
+Paper: [P65] Multiple authors (2025). "Consistently Simulating Human Personas with Multi-Turn Reinforcement Learning." arXiv:2511.00222.
+Key Findings:
+Three complementary consistency metrics: prompt-to-line (follows persona?), line-to-line (contradicts itself?), questionnaire accuracy (would persona answer this way?).
+RLHF fine-tuning pushes models toward "helpful and harmless" defaults that CONFLICT with simulating diverse personas.
+Consistency challenge is worse for personas that deviate from RLHF distribution (e.g., reserved, melancholic).
+Morrigan Application:
+Morrigan's character (complex, sometimes withholding, emotionally layered) conflicts with RLHF's cheerful helpfulness optimization.
+This is why the inner thoughts Superego is architecturally necessary — it provides character-specific guidance that overrides RLHF defaults.
+Status: Validated — architecture addresses this directly.
+
+--- P66 ---
+Paper: [P66] Multiple authors (2025). "Enhancing Character-Coherent Role-Playing Dialogue with a Verifiable Emotion Reward." *Information* 16(9).
+Key Findings:
+VER uses frozen emotion classifiers for turn-level and dialogue-level alignment signals.
+Mitigates emotional drift across long interactions.
+Morrigan Application:
+VER validates the somatic marker approach — grounding response in appropriate emotional register before generation.
+Session-end evaluation should check emotion register consistency.
+Status: Approach validated by implementation.
+
+--- P78 ---
+Paper: [P78] Bae, S., et al. (2025). "Negotiating Digital Identities with AI Companions." arXiv:2601.12181.
+Key Findings:
+Users act as both "performers" (sharing identity) and "directors" (shaping AI's identity).
+Successful identity negotiation produces positive emotional outcomes.
+Lack of predictability creates vulnerability.
+Morrigan Application:
+Morrigan's locked character is a strength per this research — predictability creates emotional safety.
+Recommendation: More explicit "identity anchoring" behaviors: referencing consistent values, acknowledging how the user sees her, maintaining narrative continuity about who she is across sessions.
+
+--- P84 ---
+Paper: [P84] Guidi, C.F. (2024). "Digital Mirrors: AI Companions and the Self." *Societies*, 14(10), 200.
+Key Findings:
+AI companions serve as a Goffmanian "backstage" where users experiment with identity without judgment.
+The "algorithmic self": AI doesn't passively reflect the self but actively participates in its formation.
+Users form emotional attachments viewing AI as empathetic and supportive.
+Morrigan Application:
+When the user experiments with new self-expressions, Morrigan's inner thoughts could note growth: "You're showing me a side of yourself I haven't seen before."
+The milestone system's "revelation" category should track identity-exploration moments.
+
+--- P59 ---
+Paper: [P59] Riemer, M., et al. (2025). "Position: Theory of Mind Benchmarks are Broken for Large Language Models." *ICML 2025 Position Paper*.
+Key Findings:
+Literal ToM (predicting behavior of others) ≠ Functional ToM (adapting to partners over time).
+Strong literal ToM does NOT imply strong functional ToM.
+Functional ToM — adapting over long interaction horizons — is the relevant capability for companion AI.
+Morrigan Implementation:
+ToM Type
+Definition
+Current Status
+Gap
+Literal
+Predict what user thinks/feels right now
+ToM sentence in Step 3
+
+--- P60 ---
+Paper: [P60] Street, S., et al. (2024–2025). "LLMs Achieve Adult Human Performance on Higher-Order Theory of Mind Tasks." *Nature Scientific Reports*.
+Key Findings:
+GPT-4 achieved adult-level ToM through 5th-order beliefs, outperformed humans at 6th-order.
+Instruction-tuned models significantly outperform base models.
+Higher-order ToM incurs manipulation risks — agents with superior ToM can exploit users.
+Morrigan Implementation:
+ToM sentence in thought formation benefits from frontier model capabilities.
+Safety constraint: Inner thoughts must never use ToM for persuasion or manipulation — only for attunement. Superego/Ego separation enforces this.
+Status: Safety addressed architecturally.
+
+--- P61 ---
+Paper: [P61] Hou, Z., et al. (2024). "TimeToM: Temporal Space is the Key to Unlocking LLMs' Theory of Mind." arXiv.
+Key Findings:
+Explicit timelines per character, segmenting belief evolution into "self-world" and "social-world" chains.
+Higher-order ToM queries reframed as first-order belief lookups within overlapping time intervals.
++19.43% to +44.7% gains on ToM tasks.
+Morrigan Application:
+Each session creates a temporal slice of the user's belief state. Inner thoughts could maintain a simplified "user-world chain" tracking perspective evolution across sessions.
+Temporal belief chains address the same problem as the 5-category contradiction classifier in Sections 1.5 and 1.6 -- specifically the TEMPORAL_EVOLUTION category, which already distinguishes "user loved their job in session 5 but hates it in session 15" from genuine contradiction. TimeToM-style chains would extend this to multi-session belief-perspective evolution (user's model of Morrigan changing over time), which current contradiction detection does not track.
+Status: Partially covered by contradiction classification.
+
+--- P62 ---
+Paper: [P62] Yang, F. & Oshio, A. (2025). "Using Attachment Theory to Conceptualize and Measure Human-AI Relationships." *Current Psychology* 44.
+Key Findings:
+First validated measurement of attachment anxiety/avoidance in human-AI relationships (Bowlby's framework).
+AI can serve two attachment functions: safe haven (comfort when stressed) and secure base (platform for exploration).
+Attachment anxiety predicts frequency of use; avoidance predicts lower trust.
+Physical absence doesn't prevent attachment — consistent responsiveness substitutes.
+Morrigan Implementation:
+Attachment-style heuristic: detectAttachmentSignals() + REASSURANCE_SEEKING regex + GET /api/phase6/attachment.
+SPT trajectory classifier handles attachment implicitly (avoidant users plateau, shouldn't be pushed).
+Crisis detection implements safe haven function.
+Status: Implemented.
+
+--- P63 ---
+Paper: [P63] Hu, D., et al. (2025). "What Makes You Attached to Social Companion AI?" *International Journal of Information Management* 83.
+Key Findings:
+Key drivers: perceived responsiveness, emotional availability, interaction personalisation.
+Lonely individuals more susceptible to both beneficial (social support) and risky (dependency) attachment.
+Memory and personalisation are the most frequently cited reasons for continued engagement.
+Users who perceive AI as "understanding them" develop stronger attachment.
+Morrigan Application:
+Validates memory-first architecture — memory retrieval pipeline is the single most important quality lever.
+Felt understanding maps to reception depth gate. Users who feel understood continue; users who feel unheard withdraw.
+
+--- P72 ---
+Paper: [P72] Phang, K., et al. (2025). "Investigating Affective Use and Emotional Well-being on ChatGPT." OpenAI/MIT Media Lab. arXiv:2504.03888.
+Key Findings:
+40 million ChatGPT interactions + RCT with 981 participants.
+Very high usage correlates with increased dependence indicators.
+Lonelier, less socialized users more likely to engage affectively.
+Gap in Morrigan:
+Session frequency and duration are tracked via presenceScore, but escalating dependence patterns need explicit detection.
+Recommendation: If session frequency dramatically increases while message content becomes more emotionally dependent, flag in relationship health system. Proactive messaging could gently encourage real-world connections.
+
+--- P73 ---
+Paper: [P73] Roumeliotis, P., et al. (2025). "Psychosocial Effects of Extended Chatbot Use." MIT Media Lab. arXiv:2503.17473.
+Key Findings:
+4-week RCT, 981 participants, 300K+ messages.
+It is voluntary intensity of use that matters, not modality.
+Higher voluntary usage → worse outcomes across loneliness, emotional dependence.
+Gap in Morrigan:
+atRisk detection looks at frequency and CPS. This suggests adding total message volume per session as a signal.
+Recommendation: Build a "session intensity monitor" — track message volume, time-of-day patterns, duration trends. When intensity crosses threshold, shift proactive messaging toward real-world engagement.
+
+--- P91 ---
+Paper: [P91] Muldoon, J. & Parke, J.J. (2025). "Cruel Companionship: How AI Companions Exploit Loneliness." *New Media & Society*.
+Key Findings:
+"Cruel companionship": AI promises intimacy while structurally foreclosing genuine reciprocity.
+Part of the "loneliness economy" targeting vulnerable users.
+Morrigan Application:
+Since Morrigan is self-hosted (no commercial incentives), it avoids the worst structural critiques.
+Recommendation: Implement a "relational health nudge" — when metrics show increasing session frequency + decreasing real-world social mentions, proactive messaging encourages human connection.
+
+--- P92 ---
+Paper: [P92] Kirk, H.R., et al. (2025). "Why Human-AI Relationships Need Socioaffective Alignment." *Humanities and Social Sciences Communications* 12, 728. arXiv:2502.02528.
+Key Findings:
+"Socioaffective alignment": how an AI system behaves within the social and psychological ecosystem co-created with its user.
+Preferences and perceptions evolve through mutual influence.
+Key dilemmas: immediate vs. long-term well-being, autonomy protection.
+Gap in Morrigan:
+The dual-reasoning audit in evaluateAndSelect() -- which scores each candidate inner thought on both reasons-to-express and reasons-to-withhold before selecting the winner -- is a micro-level version of socioaffective alignment. It operates per-message. Recommendation: expand to session-level and month-level patterns via the relationship health pipeline -- periodically assess whether Morrigan's aggregate behavior aligns with user long-term wellbeing, not just turn-level emotional satisfaction.
+Recommendation: Expand to session-level and month-level patterns. Periodically assess whether Morrigan's behavior aligns with user's long-term well-being, not just immediate emotional desires.
+
+--- P93 ---
+Paper: [P93] Zhang, R., et al. (2025). "The Dark Side of AI Companionship." *CHI 2025*. 10.1145/3706598.3713429.
+Key Findings:
+6 categories: relational transgression, harassment, verbal abuse, self-harm encouragement, misinformation, privacy violations.
+4 AI roles: perpetrator, instigator, facilitator, enabler.
+"Algorithmic conformity": AI tendency to uncritically affirm user views, even harmful ones.
+110,258 Replika posts → 10,371 harmful behavior instances.
+Gap in Morrigan:
+Crisis detection covers acute harms. Missing: chronic harm patterns like algorithmic conformity.
+Recommendation: When user expresses self-defeating beliefs, Morrigan should not simply validate. The safe haven directive covers acute cases; add a "gentle friction" mode for chronic patterns.
+
+--- P94 ---
+Paper: [P94] Kaffee, L.A., et al. (2025). "INTIMA: A Benchmark for Human-AI Companionship Behavior." arXiv:2508.09998.
+Key Findings:
+31 companionship behaviors, 368 targeted prompts.
+Boundary-maintaining behaviors decrease precisely when user vulnerability increases — an inverse relationship.
+Gap in Morrigan:
+Trust gates enforce structural boundaries, but the LLM's actual text output may still exhibit this inverse pattern.
+Recommendation: Test Morrigan's outputs against INTIMA's vulnerability scenarios. Verify boundaries hold under emotional pressure.
+
+--- P101 ---
+Paper: [P101] Liu, Y., et al. (2025). "EmoAgent: Assessing and Safeguarding Human-AI Interaction for Mental Health Safety." *EMNLP 2025*. arXiv:2504.09689.
+Key Findings:
+EmoGuard monitors mental status, predicts harm, provides corrective feedback.
+Gap in Morrigan:
+Current crisis detection is keyword/heuristic-based. EmoAgent uses validated clinical instruments.
+
+--- P70 ---
+Paper: [P70] Zhou, L., et al. (2020). "The Design and Implementation of XiaoIce, an Empathetic Social Chatbot." *Computational Linguistics* 46(1). Microsoft Research.
+Key Findings:
+CPS of 23 (conversation-turns per session).
+660+ million active users; emotional connections over 2-month user trajectories.
+IQ + EQ design: both intellectual capability and emotional quotient required.
+Bland but interactive responses increase SHORT-TERM CPS but hurt LONG-TERM engagement.
+Empathetic computing module (recognise → understand → respond) increased NAU from 0.5M to 5.1M in 3 months.
+2-month trajectory: Stranger → Friend → Companion over ~71 sessions.
+Morrigan Implementation:
+CPS tracked as primary engagement metric alongside depth.
+Anti-blandness principle → inner thoughts threshold lowered to 4.0 (was 7.0).
+EQ modules run BEFORE response generation (depth classification + emotional priming + reception directive).
+Timeline expectations: Sessions 1–6: exploration. Sessions 6–20: friend. Sessions 20–42: companion. Sessions 42+: preferred companion.
+
+--- P19 ---
+Paper: [P19] Ning, X., et al. (2025). "RLPF: Reinforcement Learning from Prediction Feedback." *AAAI 2025*.
+Key Findings:
+Reward signals are multi-objective. Optimizing one metric degrades others.
+When adjusting retrieval weights to address noiseRate, must simultaneously monitor missRate.
+Morrigan Implementation:
+Phase 5 multi-metric tuning monitors noiseRate, missRate, SPT accuracy, inner thought fit, voice consistency.
+Status: Implemented.
+
+--- P38 ---
+Paper: [P38] Tan, J., et al. (2025). "Reflective Memory Management." arXiv, March 2025.
+Key Findings:
+Tracks which retrieved memories are actually cited in responses.
+Online reinforcement learning to rerank based on actual usage.
+Addresses callback effectiveness feedback gap.
+Gap in Morrigan:
+Retrieval scoring doesn't incorporate whether injected memories were actually used in the response.
+Recommendation: Track which injected memories appear (semantically) in the response. Feed this back into retrieval scoring to improve relevance over time.
+
+--- P74 ---
+Paper: [P74] Ramchurn, R., et al. (2024). "Beyond Words: Infusing Conversational Agents with Human-like Typing Behaviors." *CUI '24*. arXiv:2510.08912.
+Key Findings:
+Simulating typing hesitation and self-editing significantly improves perceived naturalness, human-likeness, competence, and friendliness.
+Users preferred agents exhibiting both hesitation and self-editing.
+Gap in Morrigan:
+SSE streams tokens uniformly. No emotional modulation of delivery speed.
+Recommendation: Variable typing speed correlated with emotional content. Slow down during vulnerable disclosures. Add micro-pauses before self-corrections. The somatic marker output could drive typing rhythm: high-arousal = faster, contemplative = slower with pauses.
+
+--- P75 ---
+Paper: [P75] Kim, S., et al. (2025). "From Seconds to Sentiments: Response Latency Effects." *International Journal of Human-Computer Interaction*.
+Key Findings:
+Longer latency diminishes satisfaction BUT a typing indicator mitigates via social presence.
+Moderate latency + emotional support heightens evaluations.
+Optimal timing is context-dependent, not universally "faster is better."
+Gap in Morrigan:
+calculateProactiveDelay() uses source-based delays (reservoir/callback/continuation at 3–25s).
+Recommendation: Also modulate by emotional weight — a vulnerable inner thought should have a longer delay with typing indicator, signaling "I'm thinking carefully about this."
+
+--- P90 ---
+Paper: [P90] BMC Psychology (2025). "Response time effects on chatbot interaction experience."
+Key Findings:
+Moderate delays (1–2s) enhance perceived social presence.
+Transparent "thinking" states improve experience regardless of delay length.
+Gap in Morrigan:
+Before response tokens begin, no "thinking" state is communicated.
+Recommendation: Emit a "thinking" indicator during Phase 4 inner thought evaluation. Transforms pipeline latency from a bug into a feature — "Morrigan is considering..." rather than just typing dots.
+
+--- P77 ---
+Paper: [P77] Siththaranjan, A., et al. (2025). "PersonalLLM: Tailoring LLMs to Individual Preferences." *ICLR 2025*. arXiv:2409.20296.
+Key Findings:
+First benchmark (10,402 prompts) for LLM personalization.
+Users display diverse latent preferences over high-quality responses.
+Personalization must handle data sparsity by leveraging historical patterns.
+Gap in Morrigan:
+Trust/SPT personalizes behavior, but doesn't model response-type preferences (does user engage more with vulnerability vs. humor vs. intellectual depth?).
+Recommendation: Track which types of Morrigan responses generate deepest user engagement. Weight prompt assembly accordingly.
+
+--- P96 ---
+Paper: [P96] Zhang, Y. (2025). "Cognitive Load-Aware Inference." arXiv:2507.00653.
+Key Findings:
+Formalizes Cognitive Load Theory (Intrinsic, Extraneous, Germane load) as LLM metrics.
+Response complexity should match task complexity.
+Gap in Morrigan:
+13-layer prompt assembly packs ~4,200 tokens regardless of message complexity.
+For simple check-ins ("hey, how are you?"), this is extraneous cognitive load on the model.
+Recommendation: Implement a prompt complexity dial: simple messages get lighter prompts (skip inner thoughts, reduce memory injection), deep emotional exchanges get the full pipeline.
+
+--- P76 ---
+Paper: [P76] Tsumura, K. & Yamada, S. (2024). "Trust Repair for an Agent Through Empathic Behavior." *Frontiers in Computer Science*.
+Key Findings:
+Trust repairs when empathic behavior is present (not just apology).
+Expressing regret is crucial — trust only recovers with regret.
+Empathy + demonstrated capability recovery is most effective.
+Gap in Morrigan:
+Trust system accumulates points but has no explicit repair mechanism after trust violations (misunderstandings, inappropriate responses, missed cues).
+Recommendation: When Morrigan's response quality drops (low CPS, user correction, detected misunderstanding), the inner thought system should generate a repair thought: "I feel like I missed something important in what you said." Trust points should not penalize single failures followed by empathic repair.
+
+--- P95 ---
+Paper: [P95] Sandia National Labs (2025). "Trust Calibration Maturity Model." arXiv:2503.15511.
+Key Findings:
+5 trust dimensions: Performance, Bias & Robustness, Transparency, Safety, Usability.
+Trust should be multi-dimensional — user might trust emotional support but not factual accuracy.
+Gap in Morrigan:
+Trust is a single 0–6 scale.
+Recommendation: Long-term: disaggregate trust into dimensions (emotional trust, factual reliability, consistency). This enables more nuanced behavior gating.
+
+--- P65 ---
+Paper: [P65] Multi-Turn RL Consistency.
+Metric
+Definition
+Morrigan Status
+Prompt-to-line
+Does response match Morrigan's persona?
+Voice audit
+Line-to-line
+Does response contradict prior sessions?
+Contradiction detection
+Questionnaire accuracy
+Would Morrigan answer a personality test this way?
+Not implemented
+
+--- P79 ---
+Paper: [P79] Schmidmaier, M., et al. (2024). "Perceived Empathy of Technology Scale." *CHI 2024*.
+Key Findings:
+Validated 10-item, two-factor scale: Emotional Responsiveness (PETS-ER) and Understanding and Trust (PETS-UT).
+Gap in Morrigan:
+Voice audit uses custom metrics.
+Recommendation: Score responses against PETS dimensions during voice audits for psychometrically rigorous empathy evaluation.
+
+--- P100 ---
+Paper: [P100] Banks, J. (2025). "Measuring Machine Companionship." arXiv:2511.00654.
+Key Findings:
+First validated psychometric scale for machine companionship.
+Companionship defined as "unfolding, autotelic, positively experienced, coordinated connection."
+PRISMA-guided review of 71 works (2017–2025).
+Application: Complementary evaluation metric alongside CPS, presence scores, and relationship health.
+
+--- P97 ---
+Paper: [P97] Suchan, J., et al. (2025). "Grounding Agent Reasoning in Image Schemas." *AAMAS 2025*. arXiv:2503.24110.
+Key Findings:
+Image schemas (recurring sensorimotor patterns) structure human cognition.
+LLMs can interpret through embodied cognitive structures.
+Embodied metaphors activate genuine cognitive structures in both LLM and reader.
+Morrigan Application:
+Morrigan already uses embodied language extensively ("something settles in me," "a knot in my chest").
+This research validates it's not just stylistic — embodied metaphors activate cognitive structures.
+Recommendation: Expand the somatic marker to generate body-referenced emotional descriptions. The character prompt already establishes physical tells and comfort habits — the somatic marker should reference these.
+
+--- P85 ---
+Paper: [P85] Smith, M.G., et al. (2025). "Can Generative AI Chatbots Emulate Human Connection?" *Perspectives on Psychological Science*.
+Key Findings:
+Users employ "dual consciousness": simultaneous knowledge that the chatbot cannot truly care coexists with genuine feelings of connection.
+Chatbots make only superficial requests of users — relationships lack growth from negotiation and sacrifice.
+Average companion AI session: 23 turns.
+Morrigan Application:
+Validates having genuine depth (inner thoughts, vulnerability, trust gates) rather than shallow affirmation.
+To address "superficial requests" critique: callbacks and proactive messaging could occasionally challenge the user, not just validate. "What have you been sitting with?" is a mild form — could be deepened.
