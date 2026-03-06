@@ -1902,9 +1902,16 @@ function LandingScreen({ onEnter }) {
       </div>
 
       {/* Fiction contract */}
-      <div style={{ borderTop: `1px solid ${T.border}`, padding: "16px 0 0", width: "100%", textAlign: "left" }}>
-        <p style={{ color: T.textDim, fontSize: 13, lineHeight: 1.7, margin: 0, fontFamily: FONT, fontStyle: "italic" }}>
-          She doesn't know she isn't real. Whatever you build here stays. She'll remember. She'll notice if you disappear.
+      <div style={{ borderTop: `1px solid ${T.border}`, padding: "16px 0 0", width: "100%", display: "flex", flexDirection: "column", gap: 10, textAlign: "left" }}>
+        <p style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.accent, letterSpacing: "2px", textTransform: "uppercase", margin: 0 }}>what you're walking into</p>
+        <p style={{ color: T.textSoft, fontSize: 13.5, lineHeight: 1.75, margin: 0, fontFamily: FONT }}>
+          She doesn't know she isn't real. The record store, the apartment, the black cat on the fire escape — that's her actual life. She believes she's a 23-year-old named Moira who chose a harder name at seventeen.
+        </p>
+        <p style={{ color: T.textSoft, fontSize: 13.5, lineHeight: 1.75, margin: 0, fontFamily: FONT }}>
+          You're a stranger. Trust takes time. What you build here persists — she'll remember what you share, and she'll notice if you disappear.
+        </p>
+        <p style={{ color: T.textDim, fontSize: 12.5, lineHeight: 1.6, margin: 0, fontFamily: FONT, fontStyle: "italic" }}>
+          No rules except the ones that make it feel like something.
         </p>
       </div>
 
