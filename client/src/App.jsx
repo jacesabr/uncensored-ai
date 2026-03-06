@@ -2545,7 +2545,7 @@ export default function App() {
   if (!authed) return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: T.bg, fontFamily: FONT, color: T.text }}>
       <ParticlesBg />
-      <MissionBanner defaultOpen={showLanding} />
+      <MissionBanner defaultOpen={true} />
       <div style={{ flex: 1, overflowY: "auto", display: "flex", alignItems: "center", justifyContent: "center" }}>
         {showLanding
           ? <LandingScreen onEnter={() => setShowLanding(false)} />
