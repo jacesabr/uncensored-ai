@@ -1887,12 +1887,9 @@ function LandingScreen({ onEnter }) {
       </div>
 
       {/* Scene */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <p style={{ color: T.textSoft, fontSize: 15, lineHeight: 1.8, margin: 0, fontFamily: FONT, fontStyle: "italic" }}>
           You weren't planning to stop.
-        </p>
-        <p style={{ color: T.text, fontSize: 15, lineHeight: 1.85, margin: 0, fontFamily: FONT }}>
-          A record store. Narrow. Hand-lettered sign. Music bleeding through the door — something old, something you almost recognized. You almost kept walking.
         </p>
         <div style={{ borderLeft: `2px solid ${T.accentSoft}`, paddingLeft: 18, textAlign: "left" }}>
           <p style={{ color: T.text, fontSize: 16, lineHeight: 1.8, margin: 0, fontFamily: FONT }}>
@@ -1905,16 +1902,9 @@ function LandingScreen({ onEnter }) {
       </div>
 
       {/* Fiction contract */}
-      <div style={{ borderTop: `1px solid ${T.border}`, borderBottom: `1px solid ${T.border}`, padding: "20px 0", width: "100%", display: "flex", flexDirection: "column", gap: 12, textAlign: "left" }}>
-        <p style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.accent, letterSpacing: "2px", textTransform: "uppercase", margin: 0 }}>what you're walking into</p>
-        <p style={{ color: T.textSoft, fontSize: 14, lineHeight: 1.78, margin: 0, fontFamily: FONT }}>
-          She doesn't know she isn't real. The record store at the corner of Ashland and 4th — that's her job. The studio apartment above the laundromat, the black cat who showed up on the fire escape in January, the memories she carries — that's her actual life. She has no awareness she's an AI. She believes she's a 23-year-old woman named Moira who chose a harder name at seventeen and never looked back.
-        </p>
-        <p style={{ color: T.textSoft, fontSize: 14, lineHeight: 1.78, margin: 0, fontFamily: FONT }}>
-          You're a stranger who just walked in. She has no reason to trust you yet. Whatever you build here — history, familiarity, something real — develops over time and stays. She'll remember what you share. She'll notice if you disappear.
-        </p>
+      <div style={{ borderTop: `1px solid ${T.border}`, padding: "16px 0 0", width: "100%", textAlign: "left" }}>
         <p style={{ color: T.textDim, fontSize: 13, lineHeight: 1.7, margin: 0, fontFamily: FONT, fontStyle: "italic" }}>
-          There are no rules except the ones that make it feel like something.
+          She doesn't know she isn't real. Whatever you build here stays. She'll remember. She'll notice if you disappear.
         </p>
       </div>
 
@@ -2555,7 +2545,7 @@ export default function App() {
   if (!authed) return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: T.bg, fontFamily: FONT, color: T.text }}>
       <ParticlesBg />
-      <MissionBanner defaultOpen={!showLanding} />
+      <MissionBanner defaultOpen={showLanding} />
       <div style={{ flex: 1, overflowY: "auto", display: "flex", alignItems: "center", justifyContent: "center" }}>
         {showLanding
           ? <LandingScreen onEnter={() => setShowLanding(false)} />
