@@ -2218,6 +2218,7 @@ export default function App() {
   // Finetuned model comparison state — all formats streamed simultaneously
   const [ftStreamTexts,   setFtStreamTexts]   = useState({}); // { chatml: "...", llama3: "...", ... }
   const [ftEnabled,       setFtEnabled]       = useState(false);
+  const [ftDisabledReason, setFtDisabledReason] = useState("");
   const [ftWaiting,       setFtWaiting]       = useState(false); // main done, FT still streaming
   // Bulletproof user message: holds exact object ref so it renders even if messages[] gets wiped
   const [pendingUserMsg,  setPendingUserMsg]  = useState(null);
@@ -2243,7 +2244,7 @@ export default function App() {
 
   useEffect(() => {
     if (!authed) return;
-    const ck = () => fetch(`${API}/api/status`).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }).then(d => { setStatus(d); if (d.ftEnabled) setFtEnabled(true); }).catch(() => {});
+    const ck = () => fetch(`${API}/api/status`).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }).then(d => { setStatus(d); if (d.ftEnabled) setFtEnabled(true); if (d.ftDisabledReason) setFtDisabledReason(d.ftDisabledReason); }).catch(() => {});
     ck(); const iv = setInterval(ck, 30000); return () => clearInterval(iv);
   }, [authed]);
 
@@ -2745,6 +2746,11 @@ export default function App() {
 
         {/* Input */}
         <div style={{ padding: "14px 32px 20px", borderTop: `1px solid ${T.border}`, background: `${T.surface}e0`, backdropFilter: "blur(10px)" }}>
+          {ftDisabledReason && !ftEnabled && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, paddingLeft: 4 }}>
+              <span style={{ fontFamily: FONT_MONO, fontSize: 9, color: "#f59e0b", opacity: 0.7 }}>{ftDisabledReason}</span>
+            </div>
+          )}
           {ftEnabled && (
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, paddingLeft: 4 }}>
               <span style={{ fontFamily: FONT_MONO, fontSize: 9, color: "#10b981", opacity: 0.7 }}>SFT comparison active</span>

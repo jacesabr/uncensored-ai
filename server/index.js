@@ -85,7 +85,7 @@ const EMBED_MODEL = process.env.EMBED_MODEL || "text-embedding-3-small";
 // ── Finetuned model comparison (llama.cpp via Modal/Colab/RunPod) ──
 const FT_URL     = process.env.FT_URL || "";
 const FT_API_KEY = process.env.FT_API_KEY || "";
-const FT_ENABLED = !!FT_URL;
+const FT_ENABLED = false; // Disabled — we cannot run the finetuned model due to lack of funding
 const FT_IS_RUNPOD = FT_URL.includes("api.runpod.ai");
 
 console.log(`[LLM] Primary: ${COLAB_URL} (model: ${CHAT_MODEL})`);
@@ -7179,6 +7179,7 @@ app.get("/api/status", async (req, res) => {
     backend: COLAB_URL,
     mongo: true,
     ftEnabled: FT_ENABLED,
+    ftDisabledReason: "We cannot run the finetuned model due to lack of funding",
     ftUrl: FT_URL || null,
     _diag: { chat: llm.status, embed: embed.status },
     provider: {
