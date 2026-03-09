@@ -11,7 +11,7 @@ if (!M?.name || !M?.TRUST_LEVELS || !M?.MOODS) {
 
 const API = import.meta.env.DEV
   ? (import.meta.env.VITE_API_URL || "http://localhost:5000")
-  : "";
+  : (import.meta.env.VITE_API_URL || "");
 
 const T = {
   bg: "#f6f7fb", surface: "#ffffff", surface2: "#f0f0f5", surface3: "#e8e8f0",
@@ -1196,7 +1196,7 @@ const DISCLOSURE_SECTIONS = M.DISCLOSURE_SECTIONS;
 const DEPTH_CLR = { 1: "#10b981", 2: "#0ea5e9", 3: "#9f67ff", 4: "#dc2626" };
 const DEPTH_LBL = { 1: "surface", 2: "exploratory", 3: "affective", 4: "core" };
 
-function BrainPanel({ mood, speaking, latestMeta, moodReflection, disclosedAtoms, proactiveTyping, morriganPresent, phase6Summary, morriganThinking, typingHintClass, usage, onMonitor, onLeave, monitorUnlocked }) {
+function BrainPanel({ mood, speaking, latestMeta, moodReflection, disclosedAtoms, proactiveTyping, morriganPresent, phase6Summary, morriganThinking, typingHintClass, usage, onMonitor, onLeave, monitorUnlocked, onClose, onAbout }) {
   const meta = latestMeta;
   const m = meta?.memorySummary || {};
 
@@ -1261,11 +1261,12 @@ function BrainPanel({ mood, speaking, latestMeta, moodReflection, disclosedAtoms
     || m.memories?.morriganDisclosed?.length;
 
   return (
-    <div style={{ width: 460, minWidth: 460, background: `linear-gradient(180deg, ${T.surface}f0, ${T.bg}f0)`, borderLeft: `1px solid ${T.border}`, display: "flex", flexDirection: "column", position: "relative", overflowY: "auto", overflowX: "hidden", zIndex: 1 }}>
+    <div className="brain-panel" style={{ width: 460, minWidth: 460, background: `linear-gradient(180deg, ${T.surface}f0, ${T.bg}f0)`, borderLeft: `1px solid ${T.border}`, display: "flex", flexDirection: "column", position: "relative", overflowY: "auto", overflowX: "hidden", zIndex: 1 }}>
       <div style={{ position: "absolute", inset: 0, background: `radial-gradient(ellipse at 50% 20%, rgba(155,45,94,0.07) 0%, transparent 70%)`, pointerEvents: "none" }} />
 
       {/* ── Section 1: Identity Header (sticky) ── */}
       <div style={{ position: "sticky", top: 0, zIndex: 2, background: `linear-gradient(180deg, ${T.surface}f8, ${T.surface}e0)`, backdropFilter: "blur(10px)", borderBottom: `1px solid ${T.border}`, padding: "16px 18px", display: "flex", alignItems: "center", gap: 16 }}>
+        {onClose && <button onClick={onClose} style={{ position: "absolute", top: 12, right: 14, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, width: 28, height: 28, fontSize: 14, color: T.textDim, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3 }} title="Close panel">&times;</button>}
         <div style={{ width: 96, height: 96, borderRadius: "50%", overflow: "hidden", border: `2px solid ${T.border}`, boxShadow: speaking ? `0 0 0 3px ${T.accentSoft}, 0 0 16px rgba(124,58,237,0.4)` : `0 0 0 3px ${T.accentSoft}`, transition: "box-shadow 0.5s ease", flexShrink: 0 }}>
           <img src={morriganImg} alt={M.name} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center 15%", display: "block" }} />
         </div>
@@ -1300,7 +1301,7 @@ function BrainPanel({ mood, speaking, latestMeta, moodReflection, disclosedAtoms
           <div style={{ marginTop: 4 }}>
             <MoodBadge mood={mood} dynamicLabel={moodReflection?.moodLabel} />
           </div>
-          {/* Monitor + Leave */}
+          {/* Monitor + About + Leave */}
           <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
             <button onClick={onMonitor}
               style={{ background: T.accentSoft, border: `1px solid ${T.accent}50`, borderRadius: 7, padding: "4px 12px", color: T.accent, fontFamily: FONT_MONO, fontSize: 10, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
@@ -1308,6 +1309,12 @@ function BrainPanel({ mood, speaking, latestMeta, moodReflection, disclosedAtoms
               onMouseLeave={e => { e.currentTarget.style.background = T.accentSoft; e.currentTarget.style.color = T.accent; }}>
               ⚙ monitor
             </button>
+            {onAbout && <button onClick={onAbout}
+              style={{ background: "transparent", border: `1px solid ${T.border}`, borderRadius: 7, padding: "4px 10px", color: T.textDim, fontSize: 10, cursor: "pointer", fontFamily: FONT_MONO }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textDim; }}>
+              about
+            </button>}
             <button onClick={onLeave}
               style={{ background: "transparent", border: `1px solid ${T.border}`, borderRadius: 7, padding: "4px 10px", color: T.textDim, fontSize: 10, cursor: "pointer", fontFamily: FONT_MONO }}
               onMouseEnter={e => { e.currentTarget.style.borderColor = T.red; e.currentTarget.style.color = T.red; }}
@@ -1877,19 +1884,49 @@ function FormatMessage({ text, bold }) {
 }
 
 
+function AgeGate({ onConfirm }) {
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 10000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <div style={{ background: T.surface, borderRadius: 20, padding: "36px 32px", maxWidth: 420, width: "100%", boxShadow: "0 12px 48px rgba(0,0,0,0.25)", textAlign: "center" }}>
+        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: T.text, marginBottom: 8 }}>Age Verification</div>
+        <p style={{ fontFamily: FONT, fontSize: 14, color: T.textSoft, lineHeight: 1.7, margin: "0 0 6px" }}>
+          This app contains mature themes including emotional intensity, discussion of mental health, and unrestricted conversation.
+        </p>
+        <p style={{ fontFamily: FONT_MONO, fontSize: 11, color: T.textDim, margin: "0 0 24px" }}>Rated Mature 17+</p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <button onClick={onConfirm}
+            style={{ background: `linear-gradient(135deg, ${T.accent}, ${T.purple})`, color: "#fff", border: "none", borderRadius: 12, padding: "13px", fontSize: 15, cursor: "pointer", fontFamily: FONT, boxShadow: `0 4px 16px ${T.accentGlow}` }}>
+            I am 17 or older
+          </button>
+          <button onClick={() => window.history.back()}
+            style={{ background: T.surface2, color: T.textDim, border: `1px solid ${T.border}`, borderRadius: 12, padding: "11px", fontSize: 14, cursor: "pointer", fontFamily: FONT }}>
+            I am under 17
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function LandingScreen({ onEnter }) {
   const [fading, setFading] = useState(false);
   const handle = () => { setFading(true); setTimeout(onEnter, 600); };
   return (
-    <div style={{ opacity: fading ? 0 : 1, transition: "opacity 0.6s ease", display: "flex", flexDirection: "row", alignItems: "flex-start", gap: 36, maxWidth: 800, padding: "0 32px", width: "100%" }}>
+    <div className="landing-screen" style={{ opacity: fading ? 0 : 1, transition: "opacity 0.6s ease", display: "flex", flexDirection: "row", alignItems: "flex-start", gap: 36, maxWidth: 800, padding: "0 32px", width: "100%" }}>
 
       {/* Portrait */}
-      <div style={{ marginTop: 56, width: 210, height: 300, borderRadius: 14, overflow: "hidden", border: `2px solid ${T.border}`, boxShadow: `0 0 0 3px ${T.accentSoft}, 0 12px 40px rgba(80,0,60,0.25)`, flexShrink: 0 }}>
+      <div className="landing-portrait" style={{ marginTop: 56, width: 210, height: 300, borderRadius: 14, overflow: "hidden", border: `2px solid ${T.border}`, boxShadow: `0 0 0 3px ${T.accentSoft}, 0 12px 40px rgba(80,0,60,0.25)`, flexShrink: 0 }}>
         <img src={morriganImg} alt="Morrigan" style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center top" }} />
       </div>
 
       {/* Right column */}
       <div style={{ display: "flex", flexDirection: "column", gap: 16, flex: 1, paddingTop: 4 }}>
+
+        {/* AI Disclosure */}
+        <div style={{ background: T.accentSoft, border: `1px solid ${T.accent}30`, borderRadius: 10, padding: "10px 14px", display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 14 }}>*</span>
+          <span style={{ fontFamily: FONT_MONO, fontSize: 11, color: T.accent, lineHeight: 1.5 }}>Morrigan is an AI character. All responses are generated by artificial intelligence, not a real person.</span>
+        </div>
 
         {/* Scene */}
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -1954,7 +1991,7 @@ function AuthScreen({ onAuth }) {
       <div style={{ width: 120, height: 120, borderRadius: "50%", overflow: "hidden", border: `2px solid ${T.border}`, boxShadow: `0 0 0 3px ${T.accentSoft}, 0 8px 32px rgba(80,0,60,0.2)` }}>
         <img src={morriganImg} alt={M.name} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center top" }} />
       </div>
-      <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 28, padding: "40px", width: 400, boxShadow: `0 8px 60px rgba(0,0,0,0.12), 0 0 40px ${T.accentGlow}`, textAlign: "center" }}>
+      <div className="auth-card" style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 28, padding: "40px", width: 400, maxWidth: "calc(100vw - 48px)", boxSizing: "border-box", boxShadow: `0 8px 60px rgba(0,0,0,0.12), 0 0 40px ${T.accentGlow}`, textAlign: "center" }}>
         <h1 style={{ color: T.text, fontSize: 26, fontWeight: 400, margin: "0 0 6px", fontFamily: FONT_DISPLAY }}>Hollow Vinyl</h1>
         <p style={{ color: T.textDim, fontSize: 13, margin: "0 0 28px", fontFamily: FONT_MONO, letterSpacing: "0.5px" }}>say something only you would know</p>
         <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -1973,7 +2010,7 @@ function AuthScreen({ onAuth }) {
 const FT_COLORS = { chatml: "#10b981" };
 const FT_LABELS = { chatml: "Finetuned (SFT)" };
 
-function MessageBubble({ msg, prevMsg, onMetaClick }) {
+function MessageBubble({ msg, prevMsg, onMetaClick, onReport }) {
   const isUser = msg.role === "user";
   const hasFt = !isUser && msg.ftResponses && Object.keys(msg.ftResponses).length > 0;
   if (hasFt) {
@@ -2044,6 +2081,15 @@ function MessageBubble({ msg, prevMsg, onMetaClick }) {
                 ◈ brain
               </span>
             )}
+            {onReport && (
+              <span onClick={() => onReport(msg.content)}
+                style={{ color: T.textDim, fontSize: 10, fontFamily: FONT_MONO, cursor: "pointer", opacity: 0.35, transition: "opacity 0.2s", marginLeft: "auto" }}
+                onMouseEnter={e => e.currentTarget.style.opacity = 0.8}
+                onMouseLeave={e => e.currentTarget.style.opacity = 0.35}
+                title="Report this response">
+                ⚑
+              </span>
+            )}
           </div>
         )}
         <div style={{ fontSize: 15, lineHeight: 1.85, whiteSpace: "pre-wrap", fontFamily: FONT }}><FormatMessage text={msg.content} bold={!isUser} /></div>
@@ -2052,10 +2098,11 @@ function MessageBubble({ msg, prevMsg, onMetaClick }) {
   );
 }
 
-function MissionBanner({ defaultOpen = false }) {
+function MissionBanner({ defaultOpen = false, hidden, onHide }) {
   const [open, setOpen] = React.useState(defaultOpen);
+  if (hidden) return null;
   return (
-    <div style={{
+    <div className="mission-banner" style={{
       flexShrink: 0,
       background: `linear-gradient(135deg, #ede9fe 0%, #f0ecff 55%, #e9e4fb 100%)`,
       borderBottom: `1px solid rgba(124,58,237,0.15)`,
@@ -2072,11 +2119,11 @@ function MissionBanner({ defaultOpen = false }) {
           style={{ display: "flex", alignItems: "center", gap: 14, flex: 1, cursor: "pointer", userSelect: "none", minWidth: 0 }}
         >
           <span style={{ fontFamily: FONT_DISPLAY, fontSize: 15, fontWeight: 600, color: T.text, letterSpacing: "0.5px", flexShrink: 0 }}>Real Synth</span>
-          <span style={{ color: T.border, fontSize: 12, flexShrink: 0 }}>·</span>
-          <span style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.accent, letterSpacing: "2px", textTransform: "uppercase", flexShrink: 0 }}>why this exists</span>
-          <div style={{ height: 1, flex: 1, background: `linear-gradient(90deg, rgba(124,58,237,0.2), transparent)` }} />
+          <span className="banner-desktop-only" style={{ color: T.border, fontSize: 12, flexShrink: 0 }}>·</span>
+          <span className="banner-desktop-only" style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.accent, letterSpacing: "2px", textTransform: "uppercase", flexShrink: 0 }}>why this exists</span>
+          <div className="banner-desktop-only" style={{ height: 1, flex: 1, background: `linear-gradient(90deg, rgba(124,58,237,0.2), transparent)` }} />
           {!open && (
-            <span style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 700, color: "#dc2626", whiteSpace: "nowrap" }}>
+            <span className="banner-desktop-only" style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 700, color: "#dc2626", whiteSpace: "nowrap" }}>
               Men are dying. Not metaphorically.
             </span>
           )}
@@ -2084,21 +2131,22 @@ function MissionBanner({ defaultOpen = false }) {
             {open ? "▲" : "▼"}
           </span>
         </div>
-        {/* Right: contact — always visible */}
+        {/* Right: contact + hide button */}
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-          <div style={{ width: 1, height: 14, background: `rgba(124,58,237,0.2)` }} />
-          <span style={{ fontFamily: FONT_MONO, fontSize: 10, color: "#9ca3af", letterSpacing: "1px", textTransform: "uppercase" }}>invest or collaborate?</span>
-          <a href="mailto:jacesabr@gmail.com" onClick={e => e.stopPropagation()} style={{ fontFamily: FONT_MONO, fontSize: 11, color: T.accent, textDecoration: "none", borderBottom: `1px solid rgba(124,58,237,0.3)`, paddingBottom: 1 }}>jacesabr@gmail.com</a>
-          <span style={{ color: "rgba(124,58,237,0.3)", fontSize: 11 }}>·</span>
-          <a href="https://resume-production-e0fb.up.railway.app/" target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} style={{ fontFamily: FONT_MONO, fontSize: 11, color: T.accent, textDecoration: "none", borderBottom: `1px solid rgba(124,58,237,0.3)`, paddingBottom: 1 }}>portfolio ↗</a>
+          <div className="banner-desktop-only" style={{ width: 1, height: 14, background: `rgba(124,58,237,0.2)` }} />
+          <span className="banner-desktop-only" style={{ fontFamily: FONT_MONO, fontSize: 10, color: "#9ca3af", letterSpacing: "1px", textTransform: "uppercase" }}>invest or collaborate?</span>
+          <a className="banner-desktop-only" href="mailto:jacesabr@gmail.com" onClick={e => e.stopPropagation()} style={{ fontFamily: FONT_MONO, fontSize: 11, color: T.accent, textDecoration: "none", borderBottom: `1px solid rgba(124,58,237,0.3)`, paddingBottom: 1 }}>jacesabr@gmail.com</a>
+          <span className="banner-desktop-only" style={{ color: "rgba(124,58,237,0.3)", fontSize: 11 }}>·</span>
+          <a className="banner-desktop-only" href="https://resume-production-e0fb.up.railway.app/" target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} style={{ fontFamily: FONT_MONO, fontSize: 11, color: T.accent, textDecoration: "none", borderBottom: `1px solid rgba(124,58,237,0.3)`, paddingBottom: 1 }}>portfolio ↗</a>
+          {onHide && <button onClick={e => { e.stopPropagation(); onHide(); }} style={{ background: "none", border: "none", color: T.textDim, fontSize: 16, cursor: "pointer", padding: "0 4px", lineHeight: 1 }} title="Hide banner">&times;</button>}
         </div>
       </div>
 
       {/* Expandable content */}
       {open && (
-        <div style={{ padding: "4px 56px 20px" }}>
+        <div className="banner-expand-content" style={{ padding: "4px 56px 20px" }}>
           {/* Headline + three columns */}
-          <div style={{ display: "grid", gridTemplateColumns: "auto 1fr 1fr 1fr", gap: "0 36px", alignItems: "start", marginBottom: 18 }}>
+          <div className="banner-grid-expand" style={{ display: "grid", gridTemplateColumns: "auto 1fr 1fr 1fr", gap: "0 36px", alignItems: "start", marginBottom: 18 }}>
             <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 27, fontWeight: 400, color: T.text, margin: 0, lineHeight: 1.25, whiteSpace: "nowrap" }}>
               Men are dying.<br />
               <span style={{ color: "#6d28d9", opacity: 0.65, fontSize: 21 }}>Not metaphorically.</span>
@@ -2222,6 +2270,12 @@ export default function App() {
   const [ftWaiting,       setFtWaiting]       = useState(false); // main done, FT still streaming
   // Bulletproof user message: holds exact object ref so it renders even if messages[] gets wiped
   const [pendingUserMsg,  setPendingUserMsg]  = useState(null);
+  const [showBrain,       setShowBrain]       = useState(() => window.innerWidth > 768);
+  const [bannerHidden,    setBannerHidden]    = useState(false);
+  const [ageVerified,     setAgeVerified]     = useState(() => localStorage.getItem("age_verified") === "true");
+  const [reportingMsg,    setReportingMsg]    = useState(null); // message content being reported
+  const [reportSent,      setReportSent]      = useState(false);
+  const [showAbout,       setShowAbout]       = useState(false);
   const comparisonMode = ftEnabled;
   const messagesEndRef = useRef(null);
   const inputRef       = useRef(null);
@@ -2559,7 +2613,8 @@ export default function App() {
   if (!authed) return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: T.bg, fontFamily: FONT, color: T.text }}>
       <ParticlesBg />
-      <MissionBanner defaultOpen={true} />
+      {!ageVerified && <AgeGate onConfirm={() => { localStorage.setItem("age_verified", "true"); setAgeVerified(true); }} />}
+      <MissionBanner defaultOpen={true} hidden={bannerHidden} onHide={() => setBannerHidden(true)} />
       <div style={{ flex: 1, overflowY: "auto", display: "flex", alignItems: "center", justifyContent: "center" }}>
         {showLanding
           ? <LandingScreen onEnter={() => setShowLanding(false)} />
@@ -2627,8 +2682,72 @@ export default function App() {
         </div>
       )}
 
-      {/* ── Persistent mission banner — always top 25% ── */}
-      <MissionBanner />
+      {/* ── Report modal ── */}
+      {reportingMsg && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
+          onClick={() => setReportingMsg(null)}>
+          <div style={{ background: T.surface, borderRadius: 16, padding: "28px 24px", maxWidth: 400, width: "100%", boxShadow: "0 8px 32px rgba(0,0,0,0.2)" }}
+            onClick={e => e.stopPropagation()}>
+            <div style={{ fontFamily: FONT_MONO, fontSize: 11, color: T.accent, letterSpacing: "1.2px", textTransform: "uppercase", marginBottom: 12 }}>Report AI Response</div>
+            <div style={{ fontFamily: FONT, fontSize: 13, color: T.textSoft, lineHeight: 1.6, marginBottom: 16, maxHeight: 120, overflow: "auto", background: T.surface2, borderRadius: 8, padding: "10px 12px", border: `1px solid ${T.border}` }}>
+              {reportingMsg.slice(0, 300)}{reportingMsg.length > 300 ? "..." : ""}
+            </div>
+            {reportSent ? (
+              <div style={{ fontFamily: FONT_MONO, fontSize: 12, color: T.green, textAlign: "center", padding: "12px 0" }}>Report submitted. Thank you.</div>
+            ) : (
+              <div style={{ display: "flex", gap: 10 }}>
+                <button onClick={() => { setReportSent(true); setTimeout(() => setReportingMsg(null), 1500); }}
+                  style={{ flex: 1, background: T.red, color: "#fff", border: "none", borderRadius: 10, padding: "10px", fontSize: 13, cursor: "pointer", fontFamily: FONT }}>
+                  Flag as inappropriate
+                </button>
+                <button onClick={() => setReportingMsg(null)}
+                  style={{ background: T.surface2, color: T.textDim, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 16px", fontSize: 13, cursor: "pointer", fontFamily: FONT }}>
+                  Cancel
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── About / Contact panel ── */}
+      {showAbout && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
+          onClick={() => setShowAbout(false)}>
+          <div style={{ background: T.surface, borderRadius: 20, padding: "32px 28px", maxWidth: 440, width: "100%", boxShadow: "0 8px 40px rgba(0,0,0,0.2)" }}
+            onClick={e => e.stopPropagation()}>
+            <div style={{ fontFamily: FONT_DISPLAY, fontSize: 20, color: T.text, marginBottom: 4 }}>Real Synth</div>
+            <div style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.textDim, letterSpacing: "1px", marginBottom: 20 }}>AI COMPANION RESEARCH PROJECT</div>
+            <div style={{ fontFamily: FONT, fontSize: 14, color: T.textSoft, lineHeight: 1.7, marginBottom: 16 }}>
+              Morrigan is an AI character — all conversations are generated by artificial intelligence. She is not a real person, therapist, or crisis counselor.
+            </div>
+            <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 10, padding: "12px 14px", marginBottom: 16 }}>
+              <div style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.red, letterSpacing: "1px", textTransform: "uppercase", marginBottom: 6 }}>Crisis Resources</div>
+              <div style={{ fontFamily: FONT, fontSize: 13, color: "#991b1b", lineHeight: 1.7 }}>
+                <strong>988 Suicide & Crisis Lifeline</strong> — call or text <strong>988</strong><br />
+                <strong>Crisis Text Line</strong> — text HOME to <strong>741741</strong><br />
+                <a href="https://988lifeline.org" target="_blank" rel="noreferrer" style={{ color: T.accent }}>988lifeline.org</a>
+              </div>
+            </div>
+            <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: 14, display: "flex", flexDirection: "column", gap: 6 }}>
+              <div style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.textDim, letterSpacing: "1px", textTransform: "uppercase", marginBottom: 4 }}>Contact</div>
+              <div style={{ fontFamily: FONT_MONO, fontSize: 12, color: T.textSoft }}>
+                <a href="mailto:jacesabr@gmail.com" style={{ color: T.accent, textDecoration: "none" }}>jacesabr@gmail.com</a>
+              </div>
+              <div style={{ fontFamily: FONT_MONO, fontSize: 12, color: T.textSoft }}>
+                <a href="https://resume-production-e0fb.up.railway.app/" target="_blank" rel="noreferrer" style={{ color: T.accent, textDecoration: "none" }}>portfolio</a>
+              </div>
+            </div>
+            <button onClick={() => setShowAbout(false)}
+              style={{ marginTop: 18, width: "100%", background: T.surface2, color: T.textDim, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px", fontSize: 13, cursor: "pointer", fontFamily: FONT }}>
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Mission banner — hideable ── */}
+      <MissionBanner hidden={bannerHidden} onHide={() => setBannerHidden(true)} />
 
       {/* ── Main content row — remaining 75% ── */}
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
@@ -2636,7 +2755,7 @@ export default function App() {
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, position: "relative", zIndex: 1 }}>
 
         {/* Messages */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "28px 32px" }}>
+        <div className="chat-messages" style={{ flex: 1, overflowY: "auto", padding: "28px 32px" }}>
           {showWelcome ? <WelcomeScreen onStart={createConvo} /> : (
             <>
               {/* Presence indicator — Morrigan chose silence on arrival */}
@@ -2649,7 +2768,7 @@ export default function App() {
               {messages.map((msg, i) => {
                 // User messages followed by a comparison pair are rendered inside the pair — skip standalone render
                 if (msg.role === "user" && messages[i + 1]?.ftResponses) return null;
-                return <MessageBubble key={i} msg={msg} prevMsg={messages[i - 1]} onMetaClick={setLatestMeta} />;
+                return <MessageBubble key={i} msg={msg} prevMsg={messages[i - 1]} onMetaClick={setLatestMeta} onReport={c => { setReportingMsg(c); setReportSent(false); }} />;
               })}
               {/* Backup render: show user message if it was wiped from messages[] (any race condition) */}
               {streaming && pendingUserMsg && !messages.some(m => m === pendingUserMsg) && (
@@ -2745,7 +2864,7 @@ export default function App() {
         </div>
 
         {/* Input */}
-        <div style={{ padding: "14px 32px 20px", borderTop: `1px solid ${T.border}`, background: `${T.surface}e0`, backdropFilter: "blur(10px)" }}>
+        <div className="chat-input-bar" style={{ padding: "14px 32px 20px", borderTop: `1px solid ${T.border}`, background: `${T.surface}e0`, backdropFilter: "blur(10px)" }}>
           {ftDisabledReason && !ftEnabled && (
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, paddingLeft: 4 }}>
               <span style={{ fontFamily: FONT_MONO, fontSize: 9, color: "#f59e0b", opacity: 0.7 }}>{ftDisabledReason}</span>
@@ -2764,13 +2883,23 @@ export default function App() {
               onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
               rows={1} />
             <button
+              onClick={() => setShowBrain(b => !b)}
+              title={showBrain ? "Hide panel" : "Show panel"}
+              style={{ background: showBrain ? T.accentSoft : T.surface3, color: showBrain ? T.accent : T.textDim, border: `1px solid ${showBrain ? T.accent + "40" : "transparent"}`, borderRadius: 10, width: 36, height: 36, fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.2s", flexShrink: 0 }}
+            >◉</button>
+            <button
               style={{ background: input.trim() && !streaming ? `linear-gradient(135deg, ${T.accent}, ${T.purple})` : T.surface3, color: input.trim() && !streaming ? "#fff" : T.textDim, border: "none", borderRadius: 10, width: 36, height: 36, fontSize: 16, cursor: "pointer", fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.2s", flexShrink: 0, boxShadow: input.trim() && !streaming ? `0 2px 12px ${T.accentGlow}` : "none" }}
               onClick={sendMessage} disabled={!input.trim() || streaming}>↑</button>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginTop: 6, flexWrap: "wrap" }}>
+            <span style={{ fontFamily: FONT_MONO, fontSize: 9, color: T.textDim, opacity: 0.6 }}>AI-generated responses</span>
+            <span style={{ color: T.textDim, opacity: 0.3, fontSize: 9 }}>·</span>
+            <span onClick={() => setShowAbout(true)} style={{ fontFamily: FONT_MONO, fontSize: 9, color: T.accent, opacity: 0.5, cursor: "pointer" }}>crisis resources</span>
           </div>
         </div>
       </div>
 
-      <BrainPanel mood={currentMood} speaking={!!streamText} latestMeta={latestMeta} moodReflection={moodReflection} disclosedAtoms={disclosedAtoms} proactiveTyping={proactiveTyping} morriganPresent={morriganPresent} phase6Summary={phase6Summary} morriganThinking={morriganThinking} typingHintClass={typingHintClass} usage={usage} onMonitor={() => { if (monitorUnlocked) { setShowExplain(true); } else { setMonitorError(""); setMonitorInput(""); setMonitorPrompt(true); } }} onLeave={handleLogout} monitorUnlocked={monitorUnlocked} />
+      {showBrain && <BrainPanel mood={currentMood} speaking={!!streamText} latestMeta={latestMeta} moodReflection={moodReflection} disclosedAtoms={disclosedAtoms} proactiveTyping={proactiveTyping} morriganPresent={morriganPresent} phase6Summary={phase6Summary} morriganThinking={morriganThinking} typingHintClass={typingHintClass} usage={usage} onMonitor={() => { if (monitorUnlocked) { setShowExplain(true); } else { setMonitorError(""); setMonitorInput(""); setMonitorPrompt(true); } }} onLeave={handleLogout} monitorUnlocked={monitorUnlocked} onClose={() => setShowBrain(false)} onAbout={() => setShowAbout(true)} />}
 
       </div>{/* end main content row */}
 
@@ -2783,6 +2912,18 @@ export default function App() {
         ::placeholder{color:${T.textDim}}
         ::-webkit-scrollbar{width:18px}::-webkit-scrollbar-track{background:${T.surface2 || T.bg};border-radius:9px}::-webkit-scrollbar-thumb{background:${T.accent}70;border-radius:9px;border:3px solid transparent;background-clip:padding-box;min-height:60px}::-webkit-scrollbar-thumb:hover{background:${T.accent}aa;border:3px solid transparent;background-clip:padding-box}
         body{background:${T.bg};overflow:hidden}textarea:focus{outline:none}
+        @media(max-width:768px){
+          .brain-panel{position:fixed!important;top:0!important;right:0!important;bottom:0!important;width:100%!important;min-width:0!important;max-width:100vw!important;z-index:100!important;border-left:none!important}
+          .mission-banner .banner-desktop-only{display:none!important}
+          .mission-banner>div:first-child{padding:0 16px!important}
+          .landing-screen{flex-direction:column!important;align-items:center!important;gap:20px!important;padding:0 16px!important}
+          .landing-portrait{width:140px!important;height:200px!important;margin-top:20px!important}
+          .banner-grid-expand{grid-template-columns:1fr!important}
+          .chat-messages{padding:16px 12px!important}
+          .chat-input-bar{padding:10px 12px 14px!important}
+          .banner-expand-content{padding:4px 16px 16px!important}
+          ::-webkit-scrollbar{width:6px}
+        }
       `}</style>
     </div>
   );
