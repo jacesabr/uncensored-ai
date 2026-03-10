@@ -2752,6 +2752,24 @@ export default function App() {
 
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, position: "relative", zIndex: 1 }}>
 
+        {/* Mobile header — portrait + name + brain toggle */}
+        <div className="mobile-chat-header" style={{ display: "none", alignItems: "center", gap: 10, padding: "10px 16px", borderBottom: `1px solid ${T.border}`, background: `${T.surface}f0`, backdropFilter: "blur(10px)", flexShrink: 0 }}>
+          <div style={{ width: 36, height: 36, borderRadius: "50%", overflow: "hidden", border: `1.5px solid ${T.border}`, flexShrink: 0 }}>
+            <img src={morriganImg} alt={M.name} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center top" }} />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontFamily: FONT_DISPLAY, fontSize: 14, color: T.text, fontWeight: 500 }}>{M.name}</div>
+            <div style={{ fontFamily: FONT_MONO, fontSize: 9, color: T.textDim, letterSpacing: "0.5px" }}>
+              {moodReflection?.moodLabel || "hollow vinyl"}
+            </div>
+          </div>
+          <button
+            onClick={() => setShowBrain(b => !b)}
+            style={{ background: showBrain ? T.accentSoft : T.surface3, color: showBrain ? T.accent : T.textDim, border: `1px solid ${showBrain ? T.accent + "40" : "transparent"}`, borderRadius: 10, width: 36, height: 36, fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
+            title="Brain panel"
+          >◉</button>
+        </div>
+
         {/* Messages */}
         <div className="chat-messages" style={{ flex: 1, overflowY: "auto", padding: "28px 32px" }}>
           {showWelcome ? <WelcomeScreen onStart={createConvo} /> : (
@@ -2917,6 +2935,7 @@ export default function App() {
         }
         .btn-interact:active{opacity:0.7!important;transition:opacity 0.05s!important}
         @media(max-width:768px){
+          .mobile-chat-header{display:flex!important}
           .brain-panel{position:fixed!important;top:0!important;right:0!important;bottom:0!important;width:100%!important;min-width:0!important;max-width:100%!important;z-index:100!important;border-left:none!important}
           .landing-screen{flex-direction:column!important;align-items:center!important;gap:16px!important;padding:0 20px!important;max-width:100%!important}
           .landing-portrait{width:120px!important;height:170px!important;margin-top:12px!important}
