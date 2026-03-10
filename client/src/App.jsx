@@ -1910,9 +1910,52 @@ function AgeGate({ onConfirm }) {
 
 function LandingScreen({ onEnter }) {
   const [fading, setFading] = useState(false);
+  const isMobile = window.innerWidth <= 768;
   const handle = () => { setFading(true); setTimeout(onEnter, 600); };
+
+  if (isMobile) {
+    return (
+      <div style={{ opacity: fading ? 0 : 1, transition: "opacity 0.6s ease", display: "flex", flexDirection: "column", alignItems: "center", padding: "24px 24px 32px", width: "100%", boxSizing: "border-box", gap: 20 }}>
+        {/* Portrait */}
+        <div style={{ width: 100, height: 140, borderRadius: 12, overflow: "hidden", border: `2px solid ${T.border}`, boxShadow: `0 0 0 3px ${T.accentSoft}, 0 8px 24px rgba(80,0,60,0.2)`, flexShrink: 0 }}>
+          <img src={morriganImg} alt="Morrigan" style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center top" }} />
+        </div>
+
+        {/* Name + tagline */}
+        <div style={{ textAlign: "center" }}>
+          <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 400, color: T.text, margin: "0 0 4px" }}>Morrigan</h1>
+          <p style={{ fontFamily: FONT, fontSize: 13, color: T.textDim, margin: 0 }}>Sharp tongue. Soft heart she'll deny having.</p>
+        </div>
+
+        {/* Scene — condensed */}
+        <div style={{ borderLeft: `2px solid ${T.accentSoft}`, paddingLeft: 14, width: "100%" }}>
+          <p style={{ color: T.text, fontSize: 14, lineHeight: 1.75, margin: 0, fontFamily: FONT }}>
+            She runs the record store. Smudged eyeliner, a Plath paperback on the register. She clocked you the second you walked in. She's pretending she didn't.
+          </p>
+        </div>
+
+        {/* Brief contract */}
+        <p style={{ color: T.textSoft, fontSize: 12, lineHeight: 1.7, margin: 0, fontFamily: FONT, textAlign: "center" }}>
+          She remembers what you share. Trust takes time. What you build here persists.
+        </p>
+
+        {/* AI disclosure — compact */}
+        <p style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.accent, margin: 0, textAlign: "center", opacity: 0.7 }}>
+          AI character · not a real person
+        </p>
+
+        <button
+          onClick={handle}
+          style={{ width: "100%", background: `linear-gradient(135deg, ${T.accent}, ${T.purple})`, color: "#fff", border: "none", borderRadius: 14, padding: "14px", fontSize: 15, cursor: "pointer", fontFamily: FONT, boxShadow: `0 4px 20px ${T.accentGlow}` }}
+        >
+          walk in
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <div className="landing-screen" style={{ opacity: fading ? 0 : 1, transition: "opacity 0.6s ease", display: "flex", flexDirection: "row", alignItems: "flex-start", gap: 36, maxWidth: 800, padding: "0 32px", width: "100%", boxSizing: "border-box", overflow: "hidden" }}>
+    <div className="landing-screen" style={{ opacity: fading ? 0 : 1, transition: "opacity 0.6s ease", display: "flex", flexDirection: "row", alignItems: "flex-start", gap: 36, maxWidth: 800, padding: "0 32px", width: "100%", boxSizing: "border-box" }}>
 
       {/* Portrait */}
       <div className="landing-portrait" style={{ marginTop: 56, width: 210, height: 300, borderRadius: 14, overflow: "hidden", border: `2px solid ${T.border}`, boxShadow: `0 0 0 3px ${T.accentSoft}, 0 12px 40px rgba(80,0,60,0.25)`, flexShrink: 0 }}>
@@ -1959,7 +2002,6 @@ function LandingScreen({ onEnter }) {
 
         <button
           onClick={handle}
-          className="landing-btn"
           style={{ alignSelf: "flex-start", background: `linear-gradient(135deg, ${T.accent}, ${T.purple})`, color: "#fff", border: "none", borderRadius: 14, padding: "12px 40px", fontSize: 14, cursor: "pointer", fontFamily: FONT, boxShadow: `0 4px 20px ${T.accentGlow}` }}
         >
           walk in
