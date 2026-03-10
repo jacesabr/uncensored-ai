@@ -2634,6 +2634,10 @@ export default function App() {
 
   const showWelcome = messages.length === 0 && !streamText && !activeConvo;
 
+
+// Comment added in line 1129
+const comment = "This is a comment I added to line 1129"
+
   return (
     <div className="app-root" style={{ display: "flex", flexDirection: "column", height: "100dvh", background: T.bg, fontFamily: FONT, color: T.text }}>
       <ParticlesBg />
