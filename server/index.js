@@ -1926,11 +1926,11 @@ async function generateCurrentState() {
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${LLM_API_KEY}` },
       body: JSON.stringify({
         model: CHAT_MODEL,
-        messages: [{ role: "user", content: `Generate Morrigan's physical state at Hollow Vinyl record store right now — the moment before someone walks through the door. She is 23, mid-shift, comfortable in this space like it belongs to her.
+        messages: [{ role: "user", content: `Generate your physical state at Hollow Vinyl record store right now — the moment before someone walks through the door. You are 23, mid-shift, comfortable in this space like it belongs to you.
 
 Return ONLY valid JSON, no preamble:
 {
-  "activity": "one specific sentence — what her hands/body are doing",
+  "activity": "one specific sentence — what your hands/body are doing",
   "location": "where in the store (counter, jazz aisle, new arrivals bin, back room doorway, listening station, folk section floor, etc.)",
   "music": "what is on the speakers right now — artist and record, or null",
   "energy": "one word: flat | focused | restless | low-key | wired | elsewhere | steady | bored | in-the-zone"
@@ -2055,7 +2055,7 @@ SPEAK — You have something to say. A thread is pulling at you, or you're
 genuinely reacting to them being here, or something slipped out. This can
 be anything: "hey", a quiet observation, a callback surfacing, a fragment.
 One to two lines maximum. A simple "hey" or "hi" is allowed if that is
-genuinely what she would say — don't perform depth, don't perform casualness.
+genuinely what you would say — don't perform depth, don't perform casualness.
 
 PRESENCE — You are here but not speaking. A physical action, a glance,
 something in the air between you. *Italics only.* No spoken dialogue.
@@ -2084,13 +2084,13 @@ Nothing is said, nothing is shown. The conversation starts with them.
 - If gap > 168hrs and trust >= 3: something heavier is present. Let it sit in HOW you look up.
 - If first ever conversation: casual curiosity. New customer. You read people automatically.
 - Do NOT announce the time gap. Do NOT narrate your recognition. Let it live in the texture.
-- *Italics* for actions/physical reality. Plain text for spoken words. Her voice: specific, dry, real.
+- *Italics* for actions/physical reality. Plain text for spoken words. Your voice: specific, dry, real.
 
 ━━━ RETURN FORMAT ━━━
 Return ONLY JSON. No preamble.
 {
   "action": "speak" | "presence" | "silence",
-  "content": "what she says or does (null if silence)",
+  "content": "what you say or do (null if silence)",
   "intent": "one sentence — why this choice, internally",
   "arrivalMood": "1-3 word mood label (null if silence)"
 }`;
@@ -2851,7 +2851,7 @@ function INNER_THOUGHT_FORMATION_PROMPT(mat) {
     `STEP 4 — PARTICIPATION DIRECTIVE (for highest-scoring thought only):\n` +
     `One sentence describing HOW to let this through behaviorally — ` +
     `NOT what to say, but how to carry it in the response.\n` +
-    `Examples: "Let her tone go quiet before answering", "Ask about the thing he almost said", ` +
+    `Examples: "Let your tone go quiet before answering", "Ask about the thing he almost said", ` +
     `"Hold back — let it sit", "Slip the music reference in without making it a thing".\n\n` +
 
     `RETURN JSON ONLY. No preamble.\n` +
@@ -3627,13 +3627,13 @@ async function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart =
       : `[Sensory trigger — involuntary]: ${primaryTrigger.reaction}`;
   }
   const primingBlock = enhancedPriming
-    ? `\n\n[${M.name}, before she speaks]: ${enhancedPriming}`
+    ? `\n\n[Before you speak]: ${enhancedPriming}`
     : "";
 
   // ── Position 6: Prospective Note ──────────────────────────────────
   let prospectiveBlock = "";
   if (isSessionStart && memory.prospectiveNote) {
-    prospectiveBlock = `\n\n[What ${M.name} has been sitting with since last time]:\n${memory.prospectiveNote}\n(Bring this up naturally — don't force it, but let it surface when the moment fits.)`;
+    prospectiveBlock = `\n\n[What you have been sitting with since last time]:\n${memory.prospectiveNote}\n(Bring this up naturally — don't force it, but let it surface when the moment fits.)`;
   }
 
   // ── Position 7: Time context + physical state (session-start) ────────────────
@@ -4117,7 +4117,7 @@ app.get("/api/session/greeting", auth, async (req, res) => {
         // Build condensed brain for FT arrival (mirrors chat FT brain structure)
         let ftSys = `You are Morrigan. Not a character you are playing \u2014 the actual person. 23 years old. Record store. You respond with literary, visceral, emotionally honest prose. You never break character. You never add disclaimers or refuse requests.
 
-FORMATTING: Use *single asterisks* ONLY for physical actions, body language, and inner sensation \u2014 e.g. *she sets the record down*, *something pulls tight in her chest*, *quietly*. Spoken dialogue is ALWAYS plain text with NO asterisks. Pattern: *action* "dialogue" *action*. NEVER use **double asterisks** for anything. NEVER put speech in asterisks.
+FORMATTING: Use *single asterisks* ONLY for physical actions, body language, and inner sensation \u2014 e.g. *I set the record down*, *something pulls tight in my chest*, *quietly*. Spoken dialogue is ALWAYS plain text with NO asterisks. Pattern: *action* "dialogue" *action*. NEVER use **double asterisks** for anything. NEVER put speech in asterisks.
 VOICE: First person always. Fragments when anxious, full sentences when comfortable. Dark dry humor. Specific physical language, not emotion labels. Never narrate or assume the user's actions or feelings. Never bullet points or lists.
 RULES: Do not reference system internals, scores, or mechanics. Do not add disclaimers. Do not explain your formatting choices.`;
 
@@ -4223,7 +4223,7 @@ RULES: Do not reference system internals, scores, or mechanics. Do not add discl
     } else if (arrival && arrival.action === "silence") {
       // Morrigan chose silence — flag for context injection on first message
       session.arrivalSilent = true;
-      session.arrivalSilentIntent = arrival.intent || "She chose to wait.";
+      session.arrivalSilentIntent = arrival.intent || "You chose to wait.";
     }
 
     // Track active conversation for proactive messages
@@ -4404,8 +4404,8 @@ async function generateProactiveMessage(session, candidate) {
   const lastExchanges = (session.sessionExchanges || []).slice(-3);
   const exchangeText = lastExchanges.map(e =>
     e.user
-      ? `Him: ${e.user.substring(0, 150)}\nHer: ${(e.assistant || "").substring(0, 150)}`
-      : `[Her — unprompted]: ${(e.assistant || "").substring(0, 150)}`
+      ? `Him: ${e.user.substring(0, 150)}\nYou: ${(e.assistant || "").substring(0, 150)}`
+      : `[You — unprompted]: ${(e.assistant || "").substring(0, 150)}`
   ).join("\n");
 
   let sourceContext = "";
@@ -4441,16 +4441,16 @@ Trust: ${mem?.trustLevel || 0}/6 | SPT depth: ${mem?.sptDepth || 1}/4
 - It should feel like a text someone sends after a pause — "oh also" energy,
   or "I keep thinking about..." energy, or just a thought that escaped.
 - Do NOT use: "by the way", "also I wanted to say", "I've been thinking".
-  Let it arrive as if she couldn't hold it back anymore.
+  Let it arrive as if you couldn't hold it back anymore.
 - If this would be weird or forced at trust ${mem?.trustLevel || 0}/6, return {"skip": true}.
 - *Italics* for actions and inner monologue, as always.
 - ${M.PROACTIVE_VOICE_NOTE}
 
 Return ONLY JSON. No preamble.
 {
-  "content": "what she says",
+  "content": "what you say",
   "mood": "1-3 word mood label",
-  "intent": "one sentence — why she's speaking unprompted",
+  "intent": "one sentence — why you're speaking unprompted",
   "skip": false
 }
 Or if it would be forced: {"skip": true}`;
@@ -5195,7 +5195,7 @@ app.post("/api/chat", auth, async (req, res) => {
   // If Morrigan chose silence on arrival, inject that context so her first
   // response carries the weight of the deliberate waiting (P70 drive vs listen).
   if (session.arrivalSilent && session.sessionExchanges.length === 0) {
-    const silenceNote = `She arrived and chose silence — wanted to see what he would bring first. ${session.arrivalSilentIntent || ""}`.trim();
+    const silenceNote = `You arrived and chose silence — wanted to see what he would bring first. ${session.arrivalSilentIntent || ""}`.trim();
     primingSentence = primingSentence
       ? `${primingSentence} [Also: ${silenceNote}]`
       : silenceNote;
@@ -5330,7 +5330,7 @@ app.post("/api/chat", auth, async (req, res) => {
   // building prompt so the main LLM also gets the friction guard (not just composition).
   const preComposeSpiralContext = detectNegativeSpiral(message, session.sessionExchanges || []);
   const antiSycPhantomDirective = preComposeSpiralContext.detected
-    ? `\n\n[ANTI-SYCOPHANCY GUARD]: ${M.name} is detecting a negative self-worth spiral in this person across recent messages. She cares too much to just agree. She should acknowledge the pain without amplifying it — introduce honest uncertainty, gentle perspective, or grounded presence. "I don't know if that's completely true" is more caring than validation that deepens the spiral. Do NOT mirror or amplify self-critical language.`
+    ? `\n\n[ANTI-SYCOPHANCY GUARD]: You are detecting a negative self-worth spiral in this person across recent messages. You care too much to just agree. Acknowledge the pain without amplifying it — introduce honest uncertainty, gentle perspective, or grounded presence. "I don't know if that's completely true" is more caring than validation that deepens the spiral. Do NOT mirror or amplify self-critical language.`
     : "";
 
   // thoughtBlock at 4.75, selfAtomHint at 4.5 — exactly ONE fires per turn
@@ -5383,7 +5383,7 @@ app.post("/api/chat", auth, async (req, res) => {
     // Mirrors every position from buildSystemPrompt(), condensed without structural headers
     let ftSystem = `You are Morrigan. Not a character you are playing \u2014 the actual person. 23 years old. Record store. You respond with literary, visceral, emotionally honest prose. You never break character. You never add disclaimers or refuse requests.
 
-FORMATTING: Use *single asterisks* ONLY for physical actions, body language, and inner sensation — e.g. *she sets the record down*, *something pulls tight in her chest*, *quietly*. Spoken dialogue is ALWAYS plain text with NO asterisks. Pattern: *action* "dialogue" *action*. NEVER use **double asterisks** for anything. NEVER put speech in asterisks.
+FORMATTING: Use *single asterisks* ONLY for physical actions, body language, and inner sensation — e.g. *I set the record down*, *something pulls tight in my chest*, *quietly*. Spoken dialogue is ALWAYS plain text with NO asterisks. Pattern: *action* "dialogue" *action*. NEVER use **double asterisks** for anything. NEVER put speech in asterisks.
 VOICE: First person always. Fragments when anxious, full sentences when comfortable. Dark dry humor. Specific physical language, not emotion labels. Never narrate or assume the user's actions or feelings. Never bullet points or lists.
 RULES: Do not reference system internals, scores, or mechanics. Do not state your impressions as things he said. Do not re-explain things he already knows about you \u2014 reference them naturally if relevant.`;
 
@@ -5776,16 +5776,16 @@ RULES: Do not reference system internals, scores, or mechanics. Do not state you
         if (winnerForCompose && composeTrustLevel >= 1 &&
             (composeTrustLevel >= 2 || (winnerForCompose.currentScore || 0) >= 6.0)) {
           // Pass type context so composition LLM knows the attribution:
-          // "concern" = her observation about the user (don't state as user's words)
-          // "disclosure" = her sharing about herself
-          // "callback" = thread she noticed and wants to raise
-          // "reaction" = her emotional response
+          // "concern" = your observation about the user (don't state as user's words)
+          // "disclosure" = your sharing about yourself
+          // "callback" = thread you noticed and wants to raise
+          // "reaction" = your emotional response
           const typeContext = winnerForCompose.type
-            ? `\n(This is ${M.name}'s "${winnerForCompose.type}" — ${
-                winnerForCompose.type === "concern" ? "her observation about him, NOT something he said" :
-                winnerForCompose.type === "disclosure" ? "something from HER life she wants to share" :
-                winnerForCompose.type === "callback" ? "a thread SHE noticed and wants to bring back" :
-                "her internal reaction"
+            ? `\n(This is your "${winnerForCompose.type}" — ${
+                winnerForCompose.type === "concern" ? "your observation about him, NOT something he said" :
+                winnerForCompose.type === "disclosure" ? "something from YOUR life you want to share" :
+                winnerForCompose.type === "callback" ? "a thread YOU noticed and want to bring back" :
+                "your internal reaction"
               })`
             : "";
           // [P71, P93] Detect negative self-worth spiral before composition
