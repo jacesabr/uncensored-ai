@@ -52,10 +52,17 @@ const PARTICLE_DATA = Array.from({ length: 18 }).map((_, i) => ({
 }));
 
 function ParticlesBg() {
+  const [show] = useState(() => {
+    if (typeof window === "undefined") return true;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return false;
+    if (window.innerWidth < 768) return false;
+    return true;
+  });
+  if (!show) return null;
   return (
-    <div style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 0, overflow: "hidden" }}>
+    <div style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 0, overflow: "hidden", contain: "strict" }}>
       {PARTICLE_DATA.map((p, i) => (
-        <div key={i} style={{ position: "absolute", width: p.width, height: p.height, borderRadius: "50%", background: p.background, left: p.left, top: p.top, animation: `floatParticle ${p.duration} ease-in-out infinite`, animationDelay: p.delay }} />
+        <div key={i} style={{ position: "absolute", width: p.width, height: p.height, borderRadius: "50%", background: p.background, left: p.left, top: p.top, animation: `floatParticle ${p.duration} ease-in-out infinite`, animationDelay: p.delay, willChange: "transform, opacity" }} />
       ))}
     </div>
   );
@@ -206,7 +213,7 @@ function StatusTab({ status, user, conversations, messages, liveHealth }) {
   return (
     <div>
       <MSecHead icon="◉" title="Live System Checks" color={MON.green} />
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12, marginBottom: 20 }}>
         {checks.map(c => (
           <div key={c.key} style={{ background: MON.surface, border: `1px solid ${c.live === null ? MON.border : c.live ? MON.green + "35" : MON.red + "30"}`, borderRadius: 12, padding: "18px 20px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
@@ -539,7 +546,7 @@ function Phase5Tab({ token }) {
   return (
     <div>
       <MSecHead icon="∞" title="Part A — Continuation Signal" color={MON.accent} />
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12, marginBottom: 12 }}>
         <MCard accent={MON.green}>
           <MLabel color={MON.green}>Standing Instruction (position 10 — verbatim)</MLabel>
           <MRow label="STATUS"   value="ACTIVE" valueColor={MON.green} />
@@ -581,7 +588,7 @@ function Phase5Tab({ token }) {
           ))}
         </div>
       )}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12, marginBottom: 12 }}>
         <MCard>
           <MLabel>Aggregate Metrics ({tuning?.sessionsAnalysed ?? 0} sessions)</MLabel>
           <MRow label="AVG innerThoughtFit"    value={tuning?.metrics?.avgInnerThoughtFit != null ? tuning.metrics.avgInnerThoughtFit.toFixed(2) : "—"} valueColor={tuning?.metrics?.avgInnerThoughtFit >= 7 ? MON.green : MON.amber} />
@@ -606,7 +613,7 @@ function Phase5Tab({ token }) {
       </div>
       <MCard>
         <MLabel>Active Thresholds + Weights</MLabel>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12 }}>
           <div>
             <MRow label="MOTIVATION THRESHOLD" value="4.0 / 10 (at-risk: 3.5)"     valueColor={MON.accent} />
             <MRow label="CADENCE DAMPING"       value="≥ 3 messages" valueColor={MON.accent} />
@@ -774,7 +781,7 @@ function Phase6Tab({ token }) {
   return (
     <div>
       <MSecHead icon="♡" title="Relationship Health — 5-Signal Model" color={MON.pink} />
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12, marginBottom: 12 }}>
         <MCard accent={h.atRisk ? MON.red : MON.green}>
           <MLabel color={h.atRisk ? MON.red : MON.green}>Status</MLabel>
           <MRow label="AT-RISK" value={h.atRisk ? "YES" : "NO"} valueColor={h.atRisk ? MON.red : MON.green} />
@@ -820,7 +827,7 @@ function Phase6Tab({ token }) {
             <MRow label="DETECTED STYLE" value={attachment.style} valueColor={attachment.style === "anxious" ? MON.amber : attachment.style === "avoidant" ? MON.blue : MON.green} />
             <MRow label="CONFIDENCE" value={attachment.confidence != null ? `${(attachment.confidence * 100).toFixed(0)}%` : "—"} />
             {attachment.signals && (
-              <div style={{ marginTop: 8, display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 16px" }}>
+              <div style={{ marginTop: 8, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "4px 16px" }}>
                 <MRow label="anxious score" value={attachment.signals.anxiousScore} />
                 <MRow label="avoidant score" value={attachment.signals.avoidantScore} />
                 <MRow label="return rate" value={attachment.signals.returnRate?.toFixed(2)} />
@@ -965,7 +972,7 @@ function AdminTab({ monitorToken }) {
           {users.map(u => (
             <div key={u.id} onClick={() => loadConversations(u)}
               style={{ display: "grid", gridTemplateColumns: "32px 1fr 80px 60px 60px 60px 80px 120px", gap: 8, padding: "10px 12px", borderRadius: 8, cursor: "pointer", background: "transparent", transition: "background 0.15s" }}
-              onMouseEnter={e => e.currentTarget.style.background = MON.surface} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+              onPointerDown={e => e.currentTarget.style.background = MON.surface} onPointerUp={e => e.currentTarget.style.background = "transparent"} onPointerLeave={e => e.currentTarget.style.background = "transparent"}>
               <span style={{ fontSize: 10, lineHeight: "20px" }}>{u.isOnline ? "🟢" : "⚫"}</span>
               <span style={{ fontFamily: MMONO, fontSize: 12, color: MON.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{u.phraseHash}</span>
               <span style={{ fontFamily: MMONO, fontSize: 12, color: MON.accent, fontWeight: 600 }}>L{u.trustLevel ?? "?"}</span>
@@ -1030,7 +1037,7 @@ function AdminTab({ monitorToken }) {
           {convos.map(c => (
             <div key={c.conversationId} onClick={() => loadMessages(c)}
               style={{ background: MON.surface, border: `1px solid ${MON.border}`, borderRadius: 10, padding: "14px 18px", cursor: "pointer", transition: "border-color 0.15s" }}
-              onMouseEnter={e => e.currentTarget.style.borderColor = MON.accent} onMouseLeave={e => e.currentTarget.style.borderColor = MON.border}>
+              onPointerDown={e => e.currentTarget.style.borderColor = MON.accent} onPointerUp={e => e.currentTarget.style.borderColor = MON.border} onPointerLeave={e => e.currentTarget.style.borderColor = MON.border}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
                 <span style={{ fontFamily: MSERIF, fontSize: 14, color: MON.text, fontWeight: 600 }}>{c.title || "Untitled Conversation"}</span>
                 <span style={{ fontFamily: MMONO, fontSize: 11, color: MON.accent, fontWeight: 600 }}>{c.messageCount} msgs</span>
@@ -1266,7 +1273,7 @@ function BrainPanel({ mood, speaking, latestMeta, moodReflection, disclosedAtoms
 
       {/* ── Section 1: Identity Header (sticky) ── */}
       <div style={{ position: "sticky", top: 0, zIndex: 2, background: `linear-gradient(180deg, ${T.surface}f8, ${T.surface}e0)`, backdropFilter: "blur(10px)", borderBottom: `1px solid ${T.border}`, padding: "16px 18px", display: "flex", alignItems: "center", gap: 16 }}>
-        {onClose && <button onClick={onClose} style={{ position: "absolute", top: 12, right: 14, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 8, width: 28, height: 28, fontSize: 14, color: T.textDim, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3 }} title="Close panel">&times;</button>}
+        {onClose && <button onClick={onClose} style={{ position: "absolute", top: 8, right: 8, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 10, width: 44, height: 44, fontSize: 18, color: T.textDim, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3 }} title="Close panel">&times;</button>}
         <div style={{ width: 96, height: 96, borderRadius: "50%", overflow: "hidden", border: `2px solid ${T.border}`, boxShadow: speaking ? `0 0 0 3px ${T.accentSoft}, 0 0 16px rgba(124,58,237,0.4)` : `0 0 0 3px ${T.accentSoft}`, transition: "box-shadow 0.5s ease", flexShrink: 0 }}>
           <img src={morriganImg} alt={M.name} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center 15%", display: "block" }} />
         </div>
@@ -1295,7 +1302,7 @@ function BrainPanel({ mood, speaking, latestMeta, moodReflection, disclosedAtoms
             <span style={{ fontFamily: FONT, fontSize: 13, color: T.textDim, fontStyle: "italic" }}>{M.age} · hollow vinyl</span>
             {/* [P74, P75] Typing class indicator — shows emotional weight of current response */}
             {speaking && typingHintClass && typingHintClass !== "surface" && (
-              <span style={{ fontFamily: FONT_MONO, fontSize: 11, color: typingHintClass === "crisis" ? MON.red : typingHintClass === "vulnerable" ? MON.purple : MON.blue, letterSpacing: "0.5px", opacity: 0.8 }}>{typingHintClass}</span>
+              <span style={{ fontFamily: FONT_MONO, fontSize: 11, color: typingHintClass === "vulnerable" ? MON.purple : MON.blue, letterSpacing: "0.5px", opacity: 0.8 }}>{typingHintClass}</span>
             )}
           </div>
           <div style={{ marginTop: 4 }}>
@@ -1304,21 +1311,27 @@ function BrainPanel({ mood, speaking, latestMeta, moodReflection, disclosedAtoms
           {/* Monitor + About + Leave */}
           <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
             <button onClick={onMonitor}
-              style={{ background: T.accentSoft, border: `1px solid ${T.accent}50`, borderRadius: 7, padding: "4px 12px", color: T.accent, fontFamily: FONT_MONO, fontSize: 10, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
-              onMouseEnter={e => { e.currentTarget.style.background = T.accent; e.currentTarget.style.color = "#fff"; }}
-              onMouseLeave={e => { e.currentTarget.style.background = T.accentSoft; e.currentTarget.style.color = T.accent; }}>
+              className="btn-interact"
+              style={{ background: T.accentSoft, border: `1px solid ${T.accent}50`, borderRadius: 7, padding: "6px 14px", minHeight: 36, color: T.accent, fontFamily: FONT_MONO, fontSize: 10, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
+              onPointerDown={e => { e.currentTarget.style.background = T.accent; e.currentTarget.style.color = "#fff"; }}
+              onPointerUp={e => { e.currentTarget.style.background = T.accentSoft; e.currentTarget.style.color = T.accent; }}
+              onPointerLeave={e => { e.currentTarget.style.background = T.accentSoft; e.currentTarget.style.color = T.accent; }}>
               ⚙ monitor
             </button>
             {onAbout && <button onClick={onAbout}
-              style={{ background: "transparent", border: `1px solid ${T.border}`, borderRadius: 7, padding: "4px 10px", color: T.textDim, fontSize: 10, cursor: "pointer", fontFamily: FONT_MONO }}
-              onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; }}
-              onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textDim; }}>
+              className="btn-interact"
+              style={{ background: "transparent", border: `1px solid ${T.border}`, borderRadius: 7, padding: "6px 12px", minHeight: 36, color: T.textDim, fontSize: 10, cursor: "pointer", fontFamily: FONT_MONO }}
+              onPointerDown={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; }}
+              onPointerUp={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textDim; }}
+              onPointerLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textDim; }}>
               about
             </button>}
             <button onClick={onLeave}
-              style={{ background: "transparent", border: `1px solid ${T.border}`, borderRadius: 7, padding: "4px 10px", color: T.textDim, fontSize: 10, cursor: "pointer", fontFamily: FONT_MONO }}
-              onMouseEnter={e => { e.currentTarget.style.borderColor = T.red; e.currentTarget.style.color = T.red; }}
-              onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textDim; }}>
+              className="btn-interact"
+              style={{ background: "transparent", border: `1px solid ${T.border}`, borderRadius: 7, padding: "6px 12px", minHeight: 36, color: T.textDim, fontSize: 10, cursor: "pointer", fontFamily: FONT_MONO }}
+              onPointerDown={e => { e.currentTarget.style.borderColor = T.red; e.currentTarget.style.color = T.red; }}
+              onPointerUp={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textDim; }}
+              onPointerLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textDim; }}>
               leave
             </button>
           </div>
@@ -1377,18 +1390,7 @@ function BrainPanel({ mood, speaking, latestMeta, moodReflection, disclosedAtoms
           </>
         )}
 
-        {/* ── Section 3: Crisis Detection ── */}
-        {meta?.crisisDetection?.safeHavenActive && (
-          <div style={{ background: "#fef2f2", border: "2px solid #dc2626", borderRadius: 10, padding: "12px 16px", marginBottom: 10 }}>
-            <div style={{ color: "#dc2626", fontSize: 12, fontWeight: 700, letterSpacing: "1px", marginBottom: 6, fontFamily: FONT_MONO }}>CRISIS DETECTED — SAFE HAVEN MODE</div>
-            <div style={{ color: "#991b1b", fontSize: 13, lineHeight: 1.6, fontFamily: FONT_MONO }}>
-              Level: <strong>{meta.crisisDetection.level}</strong> · Signals: {meta.crisisDetection.signals?.join(", ") || "none"}
-            </div>
-            <div style={{ color: "#7f1d1d", fontSize: 12.5, marginTop: 5, fontStyle: "italic" }}>Inner thoughts suppressed. Threads suppressed. Full presence mode.</div>
-          </div>
-        )}
-
-        {/* ── Section 4: Somatic Marker ── */}
+        {/* ── Section 3: Somatic Marker ── */}
         {meta?.somaticMarker && (
           <div style={{ background: "#f0fdf4", border: "1px solid #10b98140", borderRadius: 10, padding: "12px 16px", marginBottom: 10 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
@@ -1453,7 +1455,6 @@ function BrainPanel({ mood, speaking, latestMeta, moodReflection, disclosedAtoms
               {meta.linguisticSignals && <Pill label="authenticity" value={`${(meta.linguisticSignals.authenticity * 100).toFixed(0)}%`} on={meta.linguisticSignals.authenticity >= 0.3} />}
               {meta.linguisticSignals?.emotionalTone > 0 && <Pill label="emotion" value={`${(meta.linguisticSignals.emotionalTone * 100).toFixed(0)}%`} on={meta.linguisticSignals.emotionalTone >= 0.1} />}
               {meta.somaticMarker && <Pill label="somatic" value={meta.somaticMarker.emotionalRegister} on />}
-              {meta.crisisDetection?.safeHavenActive && <Pill label="crisis" value="SAFE HAVEN" on />}
               {meta.atRiskInterventions?.active && <Pill label="at-risk" value="interventions on" on />}
               {meta.sensoryTriggers?.length > 0 && <Pill label="sensory" value={`${meta.sensoryTriggers.length} trigger${meta.sensoryTriggers.length > 1 ? "s" : ""}`} on />}
               {meta.episodicMemories?.length > 0 && <Pill label="memories" value={`${meta.episodicMemories.length} stirring`} on />}
@@ -1487,7 +1488,7 @@ function BrainPanel({ mood, speaking, latestMeta, moodReflection, disclosedAtoms
               </div>
             )}
             {(meta.innerThought.reasonsFor?.length > 0 || meta.innerThought.reasonsAgainst?.length > 0) && (
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10, overflow: "hidden" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10, marginTop: 10, overflow: "hidden" }}>
                 {meta.innerThought.reasonsFor?.length > 0 && (
                   <div style={{ minWidth: 0 }}>
                     <div style={{ color: "#10b981", fontSize: 11, fontWeight: 700, letterSpacing: "1px", marginBottom: 5, fontFamily: FONT_MONO }}>FOR</div>
@@ -1528,7 +1529,7 @@ function BrainPanel({ mood, speaking, latestMeta, moodReflection, disclosedAtoms
                 </span>
               )}
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "5px 14px" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "5px 14px" }}>
               <Bar label="authenticity" value={Math.round(meta.linguisticSignals.authenticity * 100)} color="#10b981" />
               <Bar label="emotion" value={Math.round(meta.linguisticSignals.emotionalTone * 100)} color="#f59e0b" />
               <Bar label="self-focus" value={Math.round(meta.linguisticSignals.selfFocus * 100)} color="#0ea5e9" />
@@ -1628,7 +1629,7 @@ function BrainPanel({ mood, speaking, latestMeta, moodReflection, disclosedAtoms
             <Bar label="vulnerability" value={m.feelings.vulnerability} color="#f59e0b" />
           </div>
         )}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 20px", marginBottom: 6 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "0 20px", marginBottom: 6 }}>
           {m.userName && <KV label="name" value={m.userName} accent />}
           <KV label="trust level" value={`${m.trustLevelName || ""} (${m.trustLevel ?? 0}/6)`} />
           <KV label="trust pts" value={m.trustPoints} />
@@ -1760,7 +1761,7 @@ function BrainPanel({ mood, speaking, latestMeta, moodReflection, disclosedAtoms
             {sec.phase6 && (
               <div style={{ marginBottom: 4 }}>
                 {phase6Summary.health && (
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 16px", marginBottom: 8 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "4px 16px", marginBottom: 8 }}>
                     <KV label="at-risk" value={phase6Summary.health.atRisk ? "YES" : "no"} accent={phase6Summary.health.atRisk} />
                     {phase6Summary.health.signals && (
                       <>
@@ -1841,7 +1842,6 @@ function BrainPanel({ mood, speaking, latestMeta, moodReflection, disclosedAtoms
             if (moodReflection?.moodLabel && !tags.includes(moodReflection.moodLabel)) tags.push(moodReflection.moodLabel);
             if (meta?.goalState && meta.goalState !== "neutral") tags.push(meta.goalState);
             if (meta?.disclosureDepth?.label) tags.push(`${meta.disclosureDepth.label} disclosure`);
-            if (meta?.crisisDetection?.safeHavenActive) tags.push("crisis mode");
             if (meta?.atRisk) tags.push("at-risk");
             const trustLabels = ["stranger", "acquaintance", "maybe-friend", "friend", "close friend", "trusted", "bonded"];
             if (m.trustLevel != null) tags.push(trustLabels[m.trustLevel] || "unknown");
@@ -1991,7 +1991,7 @@ function AuthScreen({ onAuth }) {
       <div style={{ width: 120, height: 120, borderRadius: "50%", overflow: "hidden", border: `2px solid ${T.border}`, boxShadow: `0 0 0 3px ${T.accentSoft}, 0 8px 32px rgba(80,0,60,0.2)` }}>
         <img src={morriganImg} alt={M.name} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center top" }} />
       </div>
-      <div className="auth-card" style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 28, padding: "40px", width: 400, maxWidth: "calc(100vw - 48px)", boxSizing: "border-box", boxShadow: `0 8px 60px rgba(0,0,0,0.12), 0 0 40px ${T.accentGlow}`, textAlign: "center" }}>
+      <div className="auth-card" style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 28, padding: "clamp(24px, 5vw, 40px)", width: 400, maxWidth: "min(400px, calc(100vw - 32px))", boxSizing: "border-box", boxShadow: `0 8px 60px rgba(0,0,0,0.12), 0 0 40px ${T.accentGlow}`, textAlign: "center" }}>
         <h1 style={{ color: T.text, fontSize: 26, fontWeight: 400, margin: "0 0 6px", fontFamily: FONT_DISPLAY }}>Hollow Vinyl</h1>
         <p style={{ color: T.textDim, fontSize: 13, margin: "0 0 28px", fontFamily: FONT_MONO, letterSpacing: "0.5px" }}>say something only you would know</p>
         <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -2026,8 +2026,8 @@ function MessageBubble({ msg, prevMsg, onMetaClick, onReport }) {
             </div>
           </div>
         )}
-        {/* Side-by-side: Not Finetuned | Finetuned */}
-        <div style={{ display: "flex", gap: 12 }}>
+        {/* Side-by-side: Not Finetuned | Finetuned — stacks vertically on mobile */}
+        <div className="ft-comparison" style={{ display: "flex", gap: 12 }}>
           {/* Not Finetuned */}
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontFamily: FONT_MONO, fontSize: 9, color: T.textDim, letterSpacing: "1px", textTransform: "uppercase", marginBottom: 6 }}>Not Finetuned</div>
@@ -2037,7 +2037,7 @@ function MessageBubble({ msg, prevMsg, onMetaClick, onReport }) {
                 {msg.meta && onMetaClick && (
                   <span onClick={() => onMetaClick(msg.meta)}
                     style={{ color: T.accent, fontSize: 10, fontFamily: FONT_MONO, cursor: "pointer", opacity: 0.5, transition: "opacity 0.2s" }}
-                    onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0.5}
+                    onPointerDown={e => e.currentTarget.style.opacity = 1} onPointerUp={e => e.currentTarget.style.opacity = 0.5} onPointerLeave={e => e.currentTarget.style.opacity = 0.5}
                     title="View brain state">{"\u25c8"} brain</span>
                 )}
               </div>
@@ -2075,8 +2075,9 @@ function MessageBubble({ msg, prevMsg, onMetaClick, onReport }) {
             {msg.meta && onMetaClick && (
               <span onClick={() => onMetaClick(msg.meta)}
                 style={{ color: T.accent, fontSize: 10, fontFamily: FONT_MONO, cursor: "pointer", opacity: 0.5, transition: "opacity 0.2s" }}
-                onMouseEnter={e => e.currentTarget.style.opacity = 1}
-                onMouseLeave={e => e.currentTarget.style.opacity = 0.5}
+                onPointerDown={e => e.currentTarget.style.opacity = 1}
+                onPointerUp={e => e.currentTarget.style.opacity = 0.5}
+                onPointerLeave={e => e.currentTarget.style.opacity = 0.5}
                 title="View brain state">
                 ◈ brain
               </span>
@@ -2084,8 +2085,9 @@ function MessageBubble({ msg, prevMsg, onMetaClick, onReport }) {
             {onReport && (
               <span onClick={() => onReport(msg.content)}
                 style={{ color: T.textDim, fontSize: 10, fontFamily: FONT_MONO, cursor: "pointer", opacity: 0.35, transition: "opacity 0.2s", marginLeft: "auto" }}
-                onMouseEnter={e => e.currentTarget.style.opacity = 0.8}
-                onMouseLeave={e => e.currentTarget.style.opacity = 0.35}
+                onPointerDown={e => e.currentTarget.style.opacity = 0.8}
+                onPointerUp={e => e.currentTarget.style.opacity = 0.35}
+                onPointerLeave={e => e.currentTarget.style.opacity = 0.35}
                 title="Report this response">
                 ⚑
               </span>
@@ -2148,17 +2150,16 @@ function MissionBanner({ defaultOpen = false, hidden, onHide }) {
           {/* Headline + three columns */}
           <div className="banner-grid-expand" style={{ display: "grid", gridTemplateColumns: "auto 1fr 1fr 1fr", gap: "0 36px", alignItems: "start", marginBottom: 18 }}>
             <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 27, fontWeight: 400, color: T.text, margin: 0, lineHeight: 1.25, whiteSpace: "nowrap" }}>
-              Men are dying.<br />
-              <span style={{ color: "#6d28d9", opacity: 0.65, fontSize: 21 }}>Not metaphorically.</span>
+              Real connection.<br />
+              <span style={{ color: "#6d28d9", opacity: 0.65, fontSize: 21 }}>Synthetic human.</span>
             </h1>
             <p style={{ fontSize: 15, color: "#374151", lineHeight: 1.82, margin: 0, fontFamily: FONT }}>
-              Suicide is the single biggest killer of men under 50 — not because they feel less, but because
-              they were taught from childhood that feeling isn't allowed. Suicidal ideation has become a baseline.
-              Hopelessness, normalised.
+              Most people were never taught how to talk about what they feel — not because they don't want to,
+              but because there was never a space safe enough to try. That silence compounds over years.
             </p>
             <p style={{ fontSize: 15, color: "#374151", lineHeight: 1.82, margin: 0, fontFamily: FONT }}>
               We are building a <strong style={{ color: T.text, fontWeight: 600 }}>synthetic human relationship companion</strong> — genuine
-              memory, trust progression, emotional continuity, and crisis awareness. Not a chatbot with a personality skin.
+              memory, trust progression, and emotional continuity. Not a chatbot with a personality skin.
               A relationship that persists.
             </p>
             <p style={{ fontSize: 15, color: "#374151", lineHeight: 1.82, margin: 0, fontFamily: FONT }}>
@@ -2203,7 +2204,7 @@ function WelcomeScreen({ onStart }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", padding: "32px", textAlign: "center" }}>
       <h2 style={{ color: T.text, fontWeight: 400, margin: "0 0 10px", fontSize: 36, fontFamily: FONT_DISPLAY }}>{M.name}</h2>
-      <p style={{ color: T.textSoft, margin: "0 0 6px", fontSize: 16, lineHeight: 1.9, maxWidth: 460, fontFamily: FONT, whiteSpace: "pre-line" }}>{M.welcomeBio}</p>
+      <p style={{ color: T.textSoft, margin: "0 0 6px", fontSize: 16, lineHeight: 1.9, maxWidth: "min(460px, 90vw)", fontFamily: FONT, whiteSpace: "pre-line" }}>{M.welcomeBio}</p>
       <p style={{ color: T.textDim, margin: "0 0 32px", fontSize: 14, fontStyle: "italic", fontFamily: FONT }}>{M.welcomeScene}</p>
       <button style={{ background: `linear-gradient(135deg, ${T.accent}, ${T.purple})`, color: "#fff", border: "none", borderRadius: 16, padding: "15px 48px", fontSize: 16, cursor: "pointer", fontFamily: FONT_DISPLAY, boxShadow: `0 4px 20px ${T.accentGlow}` }} onClick={onStart}>{M.welcomeAction}</button>
     </div>
@@ -2307,28 +2308,66 @@ export default function App() {
     fetch(`${API}/api/usage`).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }).then(setUsage).catch(() => {});
   }, [authed]);
 
-  // ── Persistent SSE channel for proactive messages ──────────────
+  // ── Persistent SSE channel for proactive messages (mobile-safe reconnection) ──
   useEffect(() => {
     if (!authed) return;
     const t = token();
     if (!t) return;
-    const es = new EventSource(`${API}/api/session/stream?token=${encodeURIComponent(t)}`);
-    es.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.type === "typing_start") {
-          setProactiveTyping(true);
-        } else if (data.type === "typing_stop") {
-          setProactiveTyping(false);
-        } else if (data.type === "proactive_message") {
-          setProactiveTyping(false);
-          setMessages(prev => [...prev, { role: "assistant", content: data.content, timestamp: new Date(data.timestamp), proactive: true }]);
-          if (data.mood) setCurrentMood(data.mood);
-        }
-      } catch { /* ignore parse errors */ }
+    let es = null;
+    let reconnectTimer = null;
+    let reconnectAttempt = 0;
+    let destroyed = false;
+    const MAX_DELAY = 30000;
+
+    function connect() {
+      if (destroyed) return;
+      if (es) { try { es.close(); } catch {} }
+      es = new EventSource(`${API}/api/session/stream?token=${encodeURIComponent(t)}`);
+      es.onopen = () => { reconnectAttempt = 0; };
+      es.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === "typing_start") setProactiveTyping(true);
+          else if (data.type === "typing_stop") setProactiveTyping(false);
+          else if (data.type === "proactive_message") {
+            setProactiveTyping(false);
+            setMessages(prev => [...prev, { role: "assistant", content: data.content, timestamp: new Date(data.timestamp), proactive: true }]);
+            if (data.mood) setCurrentMood(data.mood);
+          }
+        } catch {}
+      };
+      es.onerror = () => {
+        setProactiveTyping(false);
+        if (destroyed) return;
+        es.close();
+        const delay = Math.min(1000 * Math.pow(2, reconnectAttempt), MAX_DELAY);
+        reconnectAttempt++;
+        reconnectTimer = setTimeout(connect, delay);
+      };
+    }
+    connect();
+
+    // Reconnect when tab becomes visible (mobile resume from background)
+    function handleVisibility() {
+      if (document.visibilityState === "visible") {
+        clearTimeout(reconnectTimer); reconnectAttempt = 0; connect();
+      } else {
+        if (es) { try { es.close(); } catch {} }
+        clearTimeout(reconnectTimer);
+      }
+    }
+    document.addEventListener("visibilitychange", handleVisibility);
+    // Reconnect on network recovery
+    function handleOnline() { clearTimeout(reconnectTimer); reconnectAttempt = 0; connect(); }
+    window.addEventListener("online", handleOnline);
+
+    return () => {
+      destroyed = true;
+      clearTimeout(reconnectTimer);
+      if (es) { try { es.close(); } catch {} }
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("online", handleOnline);
     };
-    es.onerror = () => { setProactiveTyping(false); };
-    return () => es.close();
   }, [authed]);
 
   useEffect(() => {
@@ -2504,9 +2543,9 @@ export default function App() {
       const ftAccum = {}; // { chatml: "...", llama3: "...", ... }
 
       // [P74 Ramchurn, P75 Kim] Per-token delay based on emotional class from typingHint.
-      // surface=0ms, personal=8ms, vulnerable=18ms, crisis=25ms
+      // surface=0ms, personal=8ms, vulnerable=18ms
       // Higher-intensity messages feel more deliberate — Morrigan choosing words carefully.
-      const TYPING_DELAYS = { surface: 0, personal: 8, vulnerable: 18, crisis: 25 };
+      const TYPING_DELAYS = { surface: 0, personal: 8, vulnerable: 18 };
       let tokenDelay = 0; // Updated when typingHint event arrives (before first token)
 
       while (true) {
@@ -2611,7 +2650,7 @@ export default function App() {
   };
 
   if (!authed) return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: T.bg, fontFamily: FONT, color: T.text }}>
+    <div className="app-root" style={{ display: "flex", flexDirection: "column", height: "100dvh", background: T.bg, fontFamily: FONT, color: T.text }}>
       <ParticlesBg />
       {!ageVerified && <AgeGate onConfirm={() => { localStorage.setItem("age_verified", "true"); setAgeVerified(true); }} />}
       <MissionBanner defaultOpen={true} hidden={bannerHidden} onHide={() => setBannerHidden(true)} />
@@ -2627,7 +2666,7 @@ export default function App() {
   const showWelcome = messages.length === 0 && !streamText && !activeConvo;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: T.bg, fontFamily: FONT, color: T.text }}>
+    <div className="app-root" style={{ display: "flex", flexDirection: "column", height: "100dvh", background: T.bg, fontFamily: FONT, color: T.text }}>
       <ParticlesBg />
 
       {showExplain && (
@@ -2637,7 +2676,7 @@ export default function App() {
       {monitorPrompt && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" }}
           onClick={() => setMonitorPrompt(false)}>
-          <div style={{ background: T.surface, borderRadius: 12, padding: "32px 28px", minWidth: 320, boxShadow: "0 8px 32px rgba(0,0,0,0.2)", border: `1px solid ${T.border}` }}
+          <div style={{ background: T.surface, borderRadius: 12, padding: "clamp(20px, 4vw, 32px) clamp(16px, 3vw, 28px)", minWidth: 0, width: "min(360px, calc(100vw - 32px))", boxShadow: "0 8px 32px rgba(0,0,0,0.2)", border: `1px solid ${T.border}` }}
             onClick={e => e.stopPropagation()}>
             <div style={{ fontFamily: FONT_MONO, fontSize: 11, color: T.accent, letterSpacing: "1.2px", textTransform: "uppercase", marginBottom: 16 }}>Monitor Access</div>
             {monitorError && monitorError.includes("locked") ? (
@@ -2686,7 +2725,7 @@ export default function App() {
       {reportingMsg && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
           onClick={() => setReportingMsg(null)}>
-          <div style={{ background: T.surface, borderRadius: 16, padding: "28px 24px", maxWidth: 400, width: "100%", boxShadow: "0 8px 32px rgba(0,0,0,0.2)" }}
+          <div style={{ background: T.surface, borderRadius: 16, padding: "28px 24px", maxWidth: "min(400px, calc(100vw - 32px))", width: "100%", boxShadow: "0 8px 32px rgba(0,0,0,0.2)" }}
             onClick={e => e.stopPropagation()}>
             <div style={{ fontFamily: FONT_MONO, fontSize: 11, color: T.accent, letterSpacing: "1.2px", textTransform: "uppercase", marginBottom: 12 }}>Report AI Response</div>
             <div style={{ fontFamily: FONT, fontSize: 13, color: T.textSoft, lineHeight: 1.6, marginBottom: 16, maxHeight: 120, overflow: "auto", background: T.surface2, borderRadius: 8, padding: "10px 12px", border: `1px solid ${T.border}` }}>
@@ -2714,20 +2753,12 @@ export default function App() {
       {showAbout && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
           onClick={() => setShowAbout(false)}>
-          <div style={{ background: T.surface, borderRadius: 20, padding: "32px 28px", maxWidth: 440, width: "100%", boxShadow: "0 8px 40px rgba(0,0,0,0.2)" }}
+          <div style={{ background: T.surface, borderRadius: 20, padding: "clamp(20px, 4vw, 32px) clamp(16px, 3vw, 28px)", maxWidth: "min(440px, calc(100vw - 32px))", width: "100%", boxShadow: "0 8px 40px rgba(0,0,0,0.2)" }}
             onClick={e => e.stopPropagation()}>
             <div style={{ fontFamily: FONT_DISPLAY, fontSize: 20, color: T.text, marginBottom: 4 }}>Real Synth</div>
             <div style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.textDim, letterSpacing: "1px", marginBottom: 20 }}>AI COMPANION RESEARCH PROJECT</div>
             <div style={{ fontFamily: FONT, fontSize: 14, color: T.textSoft, lineHeight: 1.7, marginBottom: 16 }}>
-              Morrigan is an AI character — all conversations are generated by artificial intelligence. She is not a real person, therapist, or crisis counselor.
-            </div>
-            <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 10, padding: "12px 14px", marginBottom: 16 }}>
-              <div style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.red, letterSpacing: "1px", textTransform: "uppercase", marginBottom: 6 }}>Crisis Resources</div>
-              <div style={{ fontFamily: FONT, fontSize: 13, color: "#991b1b", lineHeight: 1.7 }}>
-                <strong>988 Suicide & Crisis Lifeline</strong> — call or text <strong>988</strong><br />
-                <strong>Crisis Text Line</strong> — text HOME to <strong>741741</strong><br />
-                <a href="https://988lifeline.org" target="_blank" rel="noreferrer" style={{ color: T.accent }}>988lifeline.org</a>
-              </div>
+              Morrigan is an AI character — all conversations are generated by artificial intelligence. She is not a real person.
             </div>
             <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: 14, display: "flex", flexDirection: "column", gap: 6 }}>
               <div style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.textDim, letterSpacing: "1px", textTransform: "uppercase", marginBottom: 4 }}>Contact</div>
@@ -2798,7 +2829,7 @@ export default function App() {
               )}
               {/* Side-by-side FT comparison streaming view */}
               {streaming && comparisonMode && (
-                <div style={{ display: "flex", gap: 12, marginBottom: 22, animation: "fadeSlideIn 0.3s ease forwards" }}>
+                <div className="ft-comparison" style={{ display: "flex", gap: 12, marginBottom: 22, animation: "fadeSlideIn 0.3s ease forwards" }}>
                   {/* Not Finetuned */}
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontFamily: FONT_MONO, fontSize: 9, color: T.textDim, letterSpacing: "1px", textTransform: "uppercase", marginBottom: 6 }}>Not Finetuned</div>
@@ -2864,7 +2895,7 @@ export default function App() {
         </div>
 
         {/* Input */}
-        <div className="chat-input-bar" style={{ padding: "14px 32px 20px", borderTop: `1px solid ${T.border}`, background: `${T.surface}e0`, backdropFilter: "blur(10px)" }}>
+        <div className="chat-input-bar" style={{ padding: "14px 32px max(20px, env(safe-area-inset-bottom))", borderTop: `1px solid ${T.border}`, background: `${T.surface}e0`, backdropFilter: "blur(10px)" }}>
           {ftDisabledReason && !ftEnabled && (
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, paddingLeft: 4 }}>
               <span style={{ fontFamily: FONT_MONO, fontSize: 9, color: "#f59e0b", opacity: 0.7 }}>{ftDisabledReason}</span>
@@ -2877,7 +2908,7 @@ export default function App() {
           )}
           <div style={{ display: "flex", alignItems: "flex-end", gap: 8, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 18, padding: "10px 16px" }}>
             <textarea ref={inputRef}
-              style={{ flex: 1, background: "transparent", border: "none", color: T.text, fontSize: 15, outline: "none", resize: "none", fontFamily: FONT, lineHeight: 1.6, maxHeight: 120 }}
+              style={{ flex: 1, background: "transparent", border: "none", color: T.text, fontSize: 16, outline: "none", resize: "none", fontFamily: FONT, lineHeight: 1.6, maxHeight: 200 }}
               placeholder={`talk to ${M.name}...`}
               value={input} onChange={e => setInput(e.target.value)}
               onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
@@ -2885,16 +2916,16 @@ export default function App() {
             <button
               onClick={() => setShowBrain(b => !b)}
               title={showBrain ? "Hide panel" : "Show panel"}
-              style={{ background: showBrain ? T.accentSoft : T.surface3, color: showBrain ? T.accent : T.textDim, border: `1px solid ${showBrain ? T.accent + "40" : "transparent"}`, borderRadius: 10, width: 36, height: 36, fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.2s", flexShrink: 0 }}
+              style={{ background: showBrain ? T.accentSoft : T.surface3, color: showBrain ? T.accent : T.textDim, border: `1px solid ${showBrain ? T.accent + "40" : "transparent"}`, borderRadius: 12, width: 44, height: 44, fontSize: 17, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.2s", flexShrink: 0 }}
             >◉</button>
             <button
-              style={{ background: input.trim() && !streaming ? `linear-gradient(135deg, ${T.accent}, ${T.purple})` : T.surface3, color: input.trim() && !streaming ? "#fff" : T.textDim, border: "none", borderRadius: 10, width: 36, height: 36, fontSize: 16, cursor: "pointer", fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.2s", flexShrink: 0, boxShadow: input.trim() && !streaming ? `0 2px 12px ${T.accentGlow}` : "none" }}
+              style={{ background: input.trim() && !streaming ? `linear-gradient(135deg, ${T.accent}, ${T.purple})` : T.surface3, color: input.trim() && !streaming ? "#fff" : T.textDim, border: "none", borderRadius: 12, width: 44, height: 44, fontSize: 18, cursor: "pointer", fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.2s", flexShrink: 0, boxShadow: input.trim() && !streaming ? `0 2px 12px ${T.accentGlow}` : "none" }}
               onClick={sendMessage} disabled={!input.trim() || streaming}>↑</button>
           </div>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginTop: 6, flexWrap: "wrap" }}>
             <span style={{ fontFamily: FONT_MONO, fontSize: 9, color: T.textDim, opacity: 0.6 }}>AI-generated responses</span>
             <span style={{ color: T.textDim, opacity: 0.3, fontSize: 9 }}>·</span>
-            <span onClick={() => setShowAbout(true)} style={{ fontFamily: FONT_MONO, fontSize: 9, color: T.accent, opacity: 0.5, cursor: "pointer" }}>crisis resources</span>
+            <span onClick={() => setShowAbout(true)} style={{ fontFamily: FONT_MONO, fontSize: 9, color: T.accent, opacity: 0.5, cursor: "pointer" }}>about</span>
           </div>
         </div>
       </div>
@@ -2912,17 +2943,28 @@ export default function App() {
         ::placeholder{color:${T.textDim}}
         ::-webkit-scrollbar{width:18px}::-webkit-scrollbar-track{background:${T.surface2 || T.bg};border-radius:9px}::-webkit-scrollbar-thumb{background:${T.accent}70;border-radius:9px;border:3px solid transparent;background-clip:padding-box;min-height:60px}::-webkit-scrollbar-thumb:hover{background:${T.accent}aa;border:3px solid transparent;background-clip:padding-box}
         body{background:${T.bg};overflow:hidden}textarea:focus{outline:none}
+        .app-root{height:100vh;height:100dvh}
+        .chat-messages{overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch}
+        @media(hover:hover) and (pointer:fine){
+          .btn-interact:hover{opacity:0.85;filter:brightness(1.1)}
+        }
+        .btn-interact:active{opacity:0.7!important;transition:opacity 0.05s!important}
         @media(max-width:768px){
-          .brain-panel{position:fixed!important;top:0!important;right:0!important;bottom:0!important;width:100%!important;min-width:0!important;max-width:100vw!important;z-index:100!important;border-left:none!important}
+          .brain-panel{position:fixed!important;top:0!important;right:0!important;bottom:0!important;width:100%!important;min-width:0!important;max-width:100%!important;z-index:100!important;border-left:none!important}
           .mission-banner .banner-desktop-only{display:none!important}
           .mission-banner>div:first-child{padding:0 16px!important}
           .landing-screen{flex-direction:column!important;align-items:center!important;gap:20px!important;padding:0 16px!important}
           .landing-portrait{width:140px!important;height:200px!important;margin-top:20px!important}
           .banner-grid-expand{grid-template-columns:1fr!important}
-          .chat-messages{padding:16px 12px!important}
-          .chat-input-bar{padding:10px 12px 14px!important}
+          .chat-messages{padding:16px 8px!important}
+          .chat-input-bar{padding:10px 8px max(14px, env(safe-area-inset-bottom))!important}
           .banner-expand-content{padding:4px 16px 16px!important}
-          ::-webkit-scrollbar{width:6px}
+          .ft-comparison{flex-direction:column!important}
+          ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{border:none!important;background-clip:unset!important}
+        }
+        @media(max-width:380px){
+          .chat-messages{padding:12px 6px!important}
+          .chat-input-bar{padding:8px 6px max(12px, env(safe-area-inset-bottom))!important}
         }
       `}</style>
     </div>

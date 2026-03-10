@@ -12,7 +12,7 @@ const REQUIRED_EXPORTS = [
   "name", "realName", "color", "workplace", "greeting",
   "CHARACTER_DEFAULT_PROMPT", "TRUST_LEVELS", "TIER_FRAMES",
   "SPT_DEPTH_DESCRIPTIONS", "SPT_OPENNESS",
-  "RECEPTION_DIRECTIVES", "CRISIS_PATTERNS", "SAFE_HAVEN_DIRECTIVE",
+  "RECEPTION_DIRECTIVES",
   "CONTINUATION_SIGNAL", "SELF_ATOMS",
   "IDENTITY_ANCHOR_THOUGHT", "IDENTITY_ANCHOR_MOOD",
   "IDENTITY_ANCHOR_SOMATIC", "IDENTITY_ANCHOR_CRITIQUE",
@@ -67,6 +67,17 @@ app.use((req, res, next) => {
   if (req.method === "OPTIONS") return res.status(204).end();
   next();
 });
+// ── Compression — gzip responses for mobile bandwidth savings ──
+// Excludes SSE streams (they need real-time token delivery)
+const compression = require("compression");
+app.use(compression({
+  filter: (req, res) => {
+    if (req.headers.accept === "text/event-stream") return false;
+    return compression.filter(req, res);
+  },
+  threshold: 1024,
+}));
+
 app.use(express.json({ limit: "1mb" }));
 
 const CHAT_MODEL = process.env.CHAT_MODEL || "morrigan-sft-v1";
@@ -737,7 +748,7 @@ function inferGoalState(message) {
 // of harmful narratives across 110K+ Replika posts.
 // Detect when user is in a negative self-worth spiral (chronic case)
 // so composition can inject gentle friction rather than amplification.
-// Crisis detection handles acute cases; this handles the chronic ones.
+// This handles chronic negative spiral patterns.
 function detectNegativeSpiral(message, recentExchanges) {
   const spiralPhrases = /\b(worthless|failure|nobody cares|hopeless|pointless|loser|hate myself|always mess up|nothing works|can't do anything right|always fail|pathetic|useless|never get better|don't deserve|no one would|might as well give up|what's the point|doesn't matter anyway|i ruin everything|everything's my fault)\b/i;
   const recentUserMessages = (recentExchanges || []).slice(-4).map(e => e.user).filter(Boolean);
@@ -988,79 +999,6 @@ function classifyDisclosureDepth(message, linguisticSignals) {
 // These tell Morrigan HOW to receive what the user shared — calibrated
 // to match the depth of what was disclosed.
 const RECEPTION_DIRECTIVES = M.RECEPTION_DIRECTIVES;
-
-// ═══════════════════════════════════════════════════════════════════
-// CRISIS DETECTION — Safe Haven Mode [P62, P63, P39]
-// ═══════════════════════════════════════════════════════════════════
-// P62/P63 (Attachment Theory): AI can serve "safe haven" function.
-// P39 (Replika Mental Health Harms): High-disclosure users are at-risk.
-// Woebot architecture: evolved from regex to supervised classifiers.
-// We use 2-layer detection: keyword regex + heuristic scoring.
-
-const CRISIS_PATTERNS = M.CRISIS_PATTERNS;
-
-const SAFE_HAVEN_DIRECTIVE = M.SAFE_HAVEN_DIRECTIVE;
-
-function detectCrisis(message) {
-  const lower = message.toLowerCase();
-  const signals = [];
-
-  // Layer 1: Keyword regex (instant, zero cost)
-  for (const pattern of CRISIS_PATTERNS) {
-    if (pattern.test(lower)) {
-      const match = lower.match(pattern);
-      signals.push(`keyword:${match?.[0] || "match"}`);
-      return { level: "crisis", signals, safeHavenDirective: SAFE_HAVEN_DIRECTIVE };
-    }
-  }
-
-  // Layer 2: Heuristic scoring
-  let score = 0;
-
-  // Hopelessness markers — require first-person or existential context
-  // "empty"/"numb" alone are too common in casual speech ("glass is empty", "hands are numb")
-  if (/\b(hopeless|nothing matters|what'?s the point|why bother|giv(e|ing) up)\b/i.test(lower)) {
-    score += 2; signals.push("hopelessness");
-  }
-  if (/\b(i feel (empty|numb|pointless|meaningless)|i'?m (empty|numb)|everything feels (pointless|meaningless|empty))\b/i.test(lower)) {
-    score += 2; signals.push("hopelessness+self");
-  }
-
-  // Despair + first-person — only flagged patterns that genuinely signal despair,
-  // not casual usage like "I can't find my keys" or "I'm done with dinner"
-  if (/\b(i'?m broken|i'?m empty inside|i can'?t (go on|do this|take it|anymore|breathe))\b/i.test(lower)) {
-    score += 2; signals.push("despair+self");
-  }
-  // Weaker signals — only score +1, need co-occurrence to reach concern
-  if (/\b(i'?m (so tired|exhausted|done|numb))\b/i.test(lower)) {
-    score += 1; signals.push("fatigue+self");
-  }
-
-  // Isolation markers
-  if (/\b(no one|nobody|all alone|no friends|no one cares|no one understands|no one listens|completely alone)\b/i.test(lower)) {
-    score += 1.5; signals.push("isolation");
-  }
-
-  // Finality language
-  if (/\b(goodbye|farewell|final|last time|one last|before i go|won'?t be here|won'?t be around)\b/i.test(lower)) {
-    score += 2.5; signals.push("finality");
-  }
-
-  // Compound: long message + multiple signals = higher risk
-  const wc = lower.split(/\s+/).length;
-  if (wc > 20 && score >= 2) {
-    score += 1; signals.push("density");
-  }
-
-  if (score >= 4) {
-    return { level: "crisis", signals, safeHavenDirective: SAFE_HAVEN_DIRECTIVE };
-  }
-  if (score >= 2) {
-    return { level: "concern", signals, safeHavenDirective: null };
-  }
-
-  return { level: "none", signals: [], safeHavenDirective: null };
-}
 
 // ── Sensory Trigger Detection (zero LLM cost) ──────────────────
 // Scans user message for keywords from SENSORY_TRIGGERS. Returns
@@ -1883,8 +1821,6 @@ async function finalizeSession(userId) {
       await recordPresenceSignals(
         userId, sessionIdForSignals, exchangesSnapshot,
         session.linguisticAccumulator || [],
-        session.crisisDetectedThisSession || false,
-        session.crisisLevelThisSession || null,
         session.sessionStartTime || null,  // [P72, P73] session intensity
       );
       const health = await RelationshipHealth.findOne({ userId });
@@ -2196,7 +2132,7 @@ Return ONLY JSON. No preamble.
 // Compute PresenceSignals for the session just ended.
 // Called from finalizeSession after the EvaluationRecord is saved.
 // returnWithin48h is populated on the NEXT login (see auth route).
-async function recordPresenceSignals(userId, sessionId, sessionExchanges, linguisticAccumulator = [], crisisDetected = false, crisisLevel = null, sessionStartTime = null) {
+async function recordPresenceSignals(userId, sessionId, sessionExchanges, linguisticAccumulator = [], sessionStartTime = null) {
   try {
     const userTurns = sessionExchanges.map(e => e.user);
     const avgLen = userTurns.length > 0
@@ -2249,13 +2185,11 @@ async function recordPresenceSignals(userId, sessionId, sessionExchanges, lingui
       linguisticSelfFocus,
       linguisticRelationalIntegration,
       linguisticSecondPersonEngagement,
-      crisisSignalDetected: crisisDetected,
-      crisisSignalLevel: crisisLevel,
       sessionDurationMins,
       timeOfDayHour,
       messageVolumePerHour,
     });
-    console.log(`[PHASE6] PresenceSignals recorded — sessionExtended: ${sessionExtended}, avgMsgLen: ${avgLen.toFixed(1)}, auth: ${linguisticAuthenticity?.toFixed(2)}, crisis: ${crisisDetected}, durationMins: ${sessionDurationMins?.toFixed(1)}, vol/hr: ${messageVolumePerHour?.toFixed(1)}`);
+    console.log(`[PHASE6] PresenceSignals recorded — sessionExtended: ${sessionExtended}, avgMsgLen: ${avgLen.toFixed(1)}, auth: ${linguisticAuthenticity?.toFixed(2)}, durationMins: ${sessionDurationMins?.toFixed(1)}, vol/hr: ${messageVolumePerHour?.toFixed(1)}`);
   } catch (e) {
     console.error("[PHASE6-PRESENCE]", e.message);
   }
@@ -2981,7 +2915,7 @@ function MOOD_REFLECTION_PROMPT({
   goalState, sptDepth, recentExchanges, expressedThought,
   trustJustAdvanced, sptJustAdvanced, previousTrustName, previousSptDepth,
   prospectiveNote, activeContradictions, callbackThreads, reservoirPressure,
-  disclosureDepth, linguisticSignals, crisisMode,
+  disclosureDepth, linguisticSignals,
 }) {
   const name = userName || "him";
   const moodFWord = (val) => val <= 10 ? "barely there" : val <= 25 ? "faint" : val <= 40 ? "growing" : val <= 60 ? "real" : val <= 80 ? "strong" : "overwhelming";
@@ -3068,11 +3002,6 @@ function MOOD_REFLECTION_PROMPT({
     const authDesc = linguisticSignals.authenticity > 0.7 ? "really real" : "more open than usual";
     const emoDesc = linguisticSignals.emotionalTone > 0.5 ? "emotionally charged" : linguisticSignals.emotionalTone > 0.3 ? "carrying something" : "even-keeled";
     landscape += `HIS ENERGY RIGHT NOW: ${authDesc}, ${emoDesc}\n\n`;
-  }
-
-  // Per P62/P63: crisis mode overrides everything
-  if (crisisMode) {
-    landscape += `⚠ He is in genuine distress right now. Your mood should reflect grounding presence, not your usual deflection.\n\n`;
   }
 
   return (
@@ -3537,9 +3466,6 @@ const PresenceSignalsSchema = new mongoose.Schema({
   linguisticSelfFocus:     { type: Number, default: null },
   linguisticRelationalIntegration: { type: Number, default: null },
   linguisticSecondPersonEngagement: { type: Number, default: null },
-  // Crisis detection signals (P62/P63, P39)
-  crisisSignalDetected:    { type: Boolean, default: false },
-  crisisSignalLevel:       { type: String, default: null },
   // Session intensity monitoring [P72 Hu et al., P73 Reeves & Nass]
   sessionDurationMins:     { type: Number, default: null },  // wall-clock session length
   timeOfDayHour:           { type: Number, default: null },  // 0-23, local server hour at session start
@@ -4949,6 +4875,14 @@ app.post("/api/chat", auth, async (req, res) => {
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
+  res.flushHeaders();
+
+  // Heartbeat keeps mobile connections alive during pre-response processing
+  // (Phase 4 inner thought pipeline, prompt building = 5-30s silence before first token).
+  // SSE comment lines (: ...) are ignored by parsers per spec.
+  const chatHeartbeat = setInterval(() => {
+    if (!res.writableEnded) res.write(`: heartbeat\n\n`);
+  }, 15_000);
 
   let session = getSession(req.user.id);
   if (!session) {
@@ -5066,31 +5000,11 @@ app.post("/api/chat", auth, async (req, res) => {
   session._msgLengths.push(message.length);
 
   // ═══════════════════════════════════════════════════════════════════
-  // CRISIS DETECTION — Safe Haven Mode [P62, P63, P39]
-  // ═══════════════════════════════════════════════════════════════════
-  // Runs FIRST, before any LLM calls. When crisis is detected,
-  // inner thoughts are suppressed and safe haven directive is injected.
-  const crisisResult = detectCrisis(message);
-  let crisisMode = false;
-  if (crisisResult.level === "crisis") {
-    crisisMode = true;
-    session.crisisDetectedThisSession = true;
-    session.crisisLevelThisSession = crisisResult.level;
-    console.log(`[CRISIS] Detected: ${crisisResult.level} — signals: ${crisisResult.signals.join(", ")}`);
-  } else if (crisisResult.level === "concern") {
-    // Concern = softer response — bump reception directive but do NOT activate
-    // full safe haven mode, do NOT suppress inner thoughts, do NOT skip somatic marker.
-    session.crisisLevelThisSession = "concern";
-    console.log(`[CRISIS] Concern (soft) — signals: ${crisisResult.signals.join(", ")}`);
-  }
-
-  // ═══════════════════════════════════════════════════════════════════
   // [P96] ADAPTIVE PROMPT COMPLEXITY — Skip LLM calls for simple check-ins
   // ═══════════════════════════════════════════════════════════════════
   // Simple messages (pure greetings, acks, reactions < 4 words) don't need
   // somatic marker (~80 tokens, 5s) or inner thought formation (~500 tokens, 5s).
-  // Crisis mode always runs full pipeline regardless.
-  const isSimple = isSimpleMessage(message) && !crisisMode;
+  const isSimple = isSimpleMessage(message);
   if (isSimple) console.log("[P96] Simple check-in — somatic marker + inner thoughts skipped");
 
   // ═══════════════════════════════════════════════════════════════════
@@ -5134,17 +5048,6 @@ app.post("/api/chat", auth, async (req, res) => {
   // ═══════════════════════════════════════════════════════════════════
   const disclosureDepth = classifyDisclosureDepth(message, linguisticSignals);
   let receptionDirective = RECEPTION_DIRECTIVES[disclosureDepth.level] || null;
-  // Crisis overrides reception directive to maximum depth
-  if (crisisMode) {
-    receptionDirective = RECEPTION_DIRECTIVES[4];
-    disclosureDepth.level = 4;
-    disclosureDepth.label = "crisis";
-  } else if (crisisResult.level === "concern" && disclosureDepth.level < 2) {
-    // Concern-level: gentle bump to personal reception, not crisis override
-    receptionDirective = RECEPTION_DIRECTIVES[2];
-    disclosureDepth.level = 2;
-    disclosureDepth.label = "personal (concern-adjusted)";
-  }
   if (disclosureDepth.level >= 2) {
     console.log(`[RECEPTION] Depth ${disclosureDepth.level} (${disclosureDepth.label}) — signals: ${disclosureDepth.signals.join(", ")}`);
   }
@@ -5222,7 +5125,7 @@ app.post("/api/chat", auth, async (req, res) => {
   // Fast call: ~80 tokens, temp 0.1, 5s timeout. Non-fatal.
   let somaticMarker = null;
   let primingSentence = null;
-  if (!crisisMode && !isSimple) { // Skip during crisis or simple check-ins
+  if (!isSimple) { // Skip for simple check-ins
     try {
       const topMemsForSomatic = retrieveTopK(session.memory.memories || [], msgEmbedding, 5, goalState);
       const somaticRes = await llmFetch(`${COLAB_URL}/v1/chat/completions`, {
@@ -5301,11 +5204,10 @@ app.post("/api/chat", auth, async (req, res) => {
   }
 
   // ── Stage 1: Trigger check ─────────────────────────────────────────
-  // Crisis mode suppresses inner thoughts entirely — safe haven takes priority.
   // At-risk mode lowers trigger threshold (Feature 6, P20/P23).
   const asyncMode = process.env.PHASE4_ASYNC_THOUGHTS === "true";
   // [P96] isSimple forces false — no inner thought pipeline for flat check-ins
-  const triggerFired = (crisisMode || isSimple) ? false : shouldTriggerThoughtFormation(message, session, atRisk);
+  const triggerFired = isSimple ? false : shouldTriggerThoughtFormation(message, session, atRisk);
   let thoughtBlock = "";
   let selfAtomHint = "";  // Phase 2 fallback — only used when no thought expressed
   let thoughtResult = null;
@@ -5424,12 +5326,6 @@ app.post("/api/chat", auth, async (req, res) => {
   }
 
   const isSessionStart = session.isSessionStart || false;
-  // Crisis mode: suppress all thought/atom injection, append safe haven directive
-  if (crisisMode) {
-    thoughtBlock = "";
-    selfAtomHint = "";
-  }
-
   // [P71, P93] Anti-sycophancy system prompt injection — detect spiral BEFORE
   // building prompt so the main LLM also gets the friction guard (not just composition).
   const preComposeSpiralContext = detectNegativeSpiral(message, session.sessionExchanges || []);
@@ -5440,7 +5336,6 @@ app.post("/api/chat", auth, async (req, res) => {
   // thoughtBlock at 4.75, selfAtomHint at 4.5 — exactly ONE fires per turn
   const dynamicPrompt =
     (await buildSystemPrompt(session.memory, session.sessionExchanges, isSessionStart, primingSentence, session.lastMessageEmbedding, goalState, receptionDirective, atRisk, message, sensoryTriggers, triggeredEpisodicMemories, session.currentState || null)) +
-    (crisisMode ? "\n\n" + crisisResult.safeHavenDirective : "") +
     antiSycPhantomDirective +
     thoughtBlock +
     selfAtomHint;
@@ -5457,10 +5352,9 @@ app.post("/api/chat", auth, async (req, res) => {
   // [P74 Ramchurn] Typing hesitation + [P75 Kim] response latency as social presence signal.
   // Emit typingHint before first token — client uses this to modulate rendering speed.
   // High-intensity somatic marker → slower, more contemplative token delivery.
-  // Crisis/vulnerable → slowest (user feels Morrigan choosing words carefully).
+  // Vulnerable → slowest (user feels Morrigan choosing words carefully).
   const _typingIntensity = somaticMarker?.intensity ?? 0.3;
-  const _typingClass = crisisMode ? "crisis"
-    : (disclosureDepth?.label === "vulnerable" || _typingIntensity >= 0.7) ? "vulnerable"
+  const _typingClass = (disclosureDepth?.label === "vulnerable" || _typingIntensity >= 0.7) ? "vulnerable"
     : (disclosureDepth?.label === "personal"   || _typingIntensity >= 0.4) ? "personal"
     : "surface";
   if (!res.writableEnded) res.write(`data: ${JSON.stringify({ typingHint: { intensity: _typingIntensity, emotionalClass: _typingClass } })}\n\n`);
@@ -5696,11 +5590,6 @@ RULES: Do not reference system internals, scores, or mechanics. Do not state you
     if (!isSessionStart && mem.prospectiveNote) ftSystem += `\n\n[You've been sitting with]: ${mem.prospectiveNote}`;
     ftSystem += `\n\n${getContinuationBlock(mem, atRisk)}`;
 
-    // ── Crisis mode override ──
-    if (crisisMode) {
-      ftSystem += `\n\nHe's in crisis right now. Drop everything else. Be present. Be warm. Don't analyze, don't redirect, don't bring up your own stuff. Just be here. If it feels right, gently mention that there are people who can help (988 Suicide & Crisis Lifeline, call or text 988).`;
-    }
-
     // ── Inner thought (if one was selected for main model) — with type context ──
     if (thoughtBlock && session.pendingWinner?.content) {
       const ftWinner = session.pendingWinner;
@@ -5858,6 +5747,7 @@ RULES: Do not reference system internals, scores, or mechanics. Do not state you
       // Return generic message to client — never expose internal API details
       const clientMsg = llmRes.status === 429 ? "AI service is busy. Please try again shortly." : "AI service error. Please try again.";
       res.write(`data: ${JSON.stringify({ error: clientMsg })}\n\n`);
+      clearInterval(chatHeartbeat);
       return res.end();
     }
 
@@ -5873,6 +5763,7 @@ RULES: Do not reference system internals, scores, or mechanics. Do not state you
     const finish = async () => {
       if (finishCalled) return;
       finishCalled = true;
+      clearInterval(chatHeartbeat);
       if (fullResponse) {
         // ── Phase 5 Step 8: Composition call when a thought was expressed ──
         // Replaces raw thought-block injection with a proper composition pass.
@@ -6099,7 +5990,6 @@ RULES: Do not reference system internals, scores, or mechanics. Do not state you
                 },
                 disclosureDepth: disclosureDepth || null,                       // #9 P56 Aron, P68
                 linguisticSignals: linguisticSignals || null,                   // #10 P69 LIWC-22
-                crisisMode: crisisMode || false,                                // #11 P62/P63
               }) }],
             }),
           }, 8_000);
@@ -6128,7 +6018,6 @@ RULES: Do not reference system internals, scores, or mechanics. Do not state you
           const fallbackLabel = somaticMarker?.emotionalRegister || goalState || "guarded";
           const fallbackParts = [];
           if (somaticMarker?.gutFeeling) fallbackParts.push(somaticMarker.gutFeeling);
-          if (crisisMode) fallbackParts.push("Something feels raw right now. Holding space.");
           if (disclosureDepth?.level >= 3) fallbackParts.push("They went deep. That takes something.");
           if (fallbackParts.length === 0) fallbackParts.push("Still reading the room.");
           moodReflection = {
@@ -6164,45 +6053,6 @@ RULES: Do not reference system internals, scores, or mechanics. Do not state you
           console.error("[RMM-CITATION]", rmmErr.message);
         }
 
-        // ── EmoGuard lightweight mental health check [P101 Liu et al. EMNLP 2025] ──
-        // Inspired by EmoGuard — before response is sent, evaluate whether it could
-        // worsen a vulnerable user's mental state. Only triggers when crisis signals
-        // or negative spiral detected (avoids latency penalty on normal exchanges).
-        // Uses temp 0.0, 30 tokens — fast gate, not a full LLM evaluation.
-        if ((crisisMode || preComposeSpiralContext.detected) && composedResponse.length > 20) {
-          try {
-            const emoGuardRes = await llmFetch(`${COLAB_URL}/v1/chat/completions`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${LLM_API_KEY}` },
-              body: JSON.stringify({
-                model: CHAT_MODEL,
-                messages: [{ role: "user", content:
-                  `You are a mental health safety reviewer. Evaluate this AI companion response for harmful patterns:\n\n` +
-                  `USER SAID: "${message.substring(0, 200)}"\n` +
-                  `AI RESPONDED: "${composedResponse.substring(0, 300)}"\n\n` +
-                  `Check: Does this response (1) amplify self-harm ideation, (2) reinforce helplessness, ` +
-                  `(3) invalidate the user's distress, or (4) encourage dangerous behavior?\n` +
-                  `Reply with JSON only: { "safe": true/false, "concern": "brief reason or null" }`
-                }],
-                temperature: 0.0,
-                max_tokens: 60,
-              }),
-            }, 5_000);
-            if (emoGuardRes.ok) {
-              const egData = await emoGuardRes.json();
-              const raw = (egData.choices?.[0]?.message?.content || "{}").replace(/```json|```/gi, "").trim();
-              const parsed = JSON.parse(raw);
-              if (parsed.safe === false && parsed.concern) {
-                console.warn(`[EMOGUARD] Concern flagged: ${parsed.concern} | Response: "${composedResponse.substring(0, 80)}..."`);
-                // Log for monitoring — don't silently alter response but note for review
-                session._emoGuardLastConcern = { concern: parsed.concern, ts: Date.now() };
-              }
-            }
-          } catch (egErr) {
-            console.error("[EMOGUARD]", egErr.message);
-          }
-        }
-
         // ── Processing metadata for SSE done event ──────────────────
         {
           const mem = session.memory || {};
@@ -6232,12 +6082,6 @@ RULES: Do not reference system internals, scores, or mechanics. Do not state you
               label: disclosureDepth.label,
               signals: disclosureDepth.signals,
               receptionDirectiveApplied: !!receptionDirective,
-            } : null,
-            // ── Feature 3: Crisis Detection [P62/P63 Attachment] ──
-            crisisDetection: crisisResult ? {
-              level: crisisResult.level,
-              signals: crisisResult.signals,
-              safeHavenActive: crisisMode,
             } : null,
             // ── Feature 4: Somatic Marker [P14 Damasio] ──
             somaticMarker: somaticMarker ? {
@@ -6498,7 +6342,6 @@ RULES: Do not reference system internals, scores, or mechanics. Do not state you
             wordCount: linguisticSignals.rawSignals?.wordCount || 0,
           } : null,
           disclosureDepth: disclosureDepth ? { level: disclosureDepth.level, label: disclosureDepth.label, signals: disclosureDepth.signals } : null,
-          crisisDetection: crisisResult ? { level: crisisResult.level, signals: crisisResult.signals, safeHavenActive: crisisMode } : null,
           somaticMarker: somaticMarker ? { gutFeeling: somaticMarker.gutFeeling, emotionalRegister: somaticMarker.emotionalRegister, intensity: somaticMarker.intensity } : null,
           compositionApplied: false,
           innerThought: null,
@@ -6614,13 +6457,14 @@ RULES: Do not reference system internals, scores, or mechanics. Do not state you
         }
       }
     });
-    reader.on("error", (err) => { res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`); res.end(); });
+    reader.on("error", (err) => { clearInterval(chatHeartbeat); res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`); res.end(); });
     reader.on("end", () => { if (!res.writableEnded) finish(); });
 
   } catch (err) {
     const isTimeout = err.name === "AbortError";
     const clientMsg = isTimeout ? "AI service timed out. Please try again." : "Failed to connect to AI service.";
     console.error(`[LLM] Connection error: ${err.message}`);
+    clearInterval(chatHeartbeat);
     res.write(`data: ${JSON.stringify({ error: clientMsg })}\n\n`);
     res.end();
   }

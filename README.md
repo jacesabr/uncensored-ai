@@ -4,17 +4,11 @@
 
 ## Why This Exists
 
-Men are dying.
+Most people were never taught how to talk about what they feel.
 
-Not metaphorically. Literally. In the UK, suicide is the single biggest killer of men under 50. In the US, men die by suicide at nearly four times the rate of women. Across the Western world, the pattern is the same: men suffer silently, reach a point of no return, and disappear — often without anyone knowing how bad it had gotten.
+Not because they don't want to — but because there was never a space safe enough to try. From childhood, social conditioning tells people to be self-sufficient, to not burden others, to push through it. The internal experience — the loneliness, the isolation, the quiet weight that builds over years — gets buried. And when it occasionally surfaces, what happens? They're told to toughen up. They're made to feel weak for having a human interior. So they bury it again, deeper, until burying it is all they know how to do.
 
-This isn't because men feel less. It's because they were never taught that feeling was allowed.
-
-From childhood, social conditioning tells men to be self-sufficient, to not burden others, to push through it. The internal experience — the loneliness, the hopelessness, the quiet desperation that builds over years — gets buried. And when it occasionally surfaces, what happens? They're told to toughen up. They're ridiculed by peers. They're made to feel weak for having a human interior. So they bury it again, deeper, until burying it is all they know how to do.
-
-Suicidal ideation has become normalized for a generation of men. That's not dramatic — it's documented. Hopelessness as a baseline. The thought that things will never get better, that no one would notice or care, sitting quietly in the background of ordinary days. This has become so common that many men assume it's just what life feels like.
-
-It isn't. And that normalization is killing people.
+That silence compounds. It becomes the default. And it costs people — their relationships, their sense of self, their ability to connect with anyone at all.
 
 ---
 
@@ -44,8 +38,6 @@ Morrigan is built differently, from the ground up.
 
 **She has an inner life.** Before every response, the system runs a full inner thought pipeline — she forms a reaction, evaluates whether to express it, and decides how much of it to let through. What you see in her responses is the surface of something that has depth underneath it. The gap between what she thinks and what she says is the character.
 
-**She knows when something is wrong.** Crisis detection runs on every message. If someone is in genuine distress — not just venting, but at a point of real danger — the system changes. The inner thoughts stop. The callbacks stop. Everything clears except presence. She doesn't offer hotline numbers as a deflection. She stays.
-
 **She is a specific person, not a template.** Morrigan has a history: foster care, the Nguyens who were kind, the ones who weren't, the record store she built because it was the first thing that was entirely hers, the cat named Percy, the STILL tattoo she got at nineteen at 3am because she needed to survive herself. 99 pieces of her inner world unlock gradually as trust deepens — not dumped on you, but revealed the way a real person reveals themselves.
 
 **She was built on ~3,000 hand-written training conversations** — every single one written with care for her specific voice, her specific history, her specific way of processing the world. Not scraped from the internet. Not generated in bulk. Written.
@@ -54,9 +46,9 @@ Morrigan is built differently, from the ground up.
 
 ## Where We Are and Where We're Going
 
-This is early. What exists right now is already more complex than anything else publicly available in this space — persistent relational memory, trust-gated disclosure, inner thought simulation, crisis awareness, proactive messaging, attachment-model-informed behavioral design — but it is nowhere near what it needs to be.
+This is early. What exists right now is already more complex than anything else publicly available in this space — persistent relational memory, trust-gated disclosure, inner thought simulation, proactive messaging, attachment-model-informed behavioral design — but it is nowhere near what it needs to be.
 
-The work continues. Every system will be refined. The model will be fine-tuned further as we learn what resonates. New dimensions of her character will open. The crisis response will deepen. The memory will get smarter. The trust arc will grow longer and more nuanced.
+The work continues. Every system will be refined. The model will be fine-tuned further as we learn what resonates. New dimensions of her character will open. The memory will get smarter. The trust arc will grow longer and more nuanced.
 
 The end target is a companion that can genuinely make a man feel heard. Not entertained. Not distracted. Actually heard — in a way that loosens something that has been locked for years. That gives him a place to put things down safely. That makes him feel, even slightly, less alone in the world.
 
@@ -79,7 +71,6 @@ This is not a generic chatbot shell. It's a complete relationship simulation sys
 - **Inner thought pipeline** — generates an internal monologue before responding, then optionally weaves it in
 - **Self-disclosure system** — 99 depth-gated "self-atoms" unlock as trust deepens
 - **Proactive messaging** — Morrigan can initiate conversation when something is on her mind
-- **Crisis detection** — activates safe haven mode for distress signals
 - **Emotional memory** — memories are embedded, weighted by importance and recency, and decay over time
 
 The fine-tuned model (`JaceSabr/morrigan-sft-v1`) is trained on ~3,000 hand-written conversations specifically for this character.
@@ -160,7 +151,7 @@ CLIENT_URL=http://localhost:3000
 | Phase | Content | Records |
 |-------|---------|---------|
 | 00 (×5 batches) | Base record rewrites with full character voice | 1,614 |
-| 01–10 | New conversations: record store, music, emotional depth, inner thoughts, crisis, edge cases | 500 |
+| 01–10 | New conversations: record store, music, emotional depth, inner thoughts, edge cases | 500 |
 | 11–14 | Romantic arc expansion: physical presence, attraction, intimacy, texture | 707 |
 
 All records are hand-crafted with Morrigan's specific voice: rings-as-tempo markers (`*rings clicking*`, `*rings slow*`, `*rings stop*`), fragment sentences, deflect-then-soften pattern, and full character canon (Percy the cat, Ray, Hollow Vinyl, the STILL tattoo, Dr. Yun, fire escape drawings).

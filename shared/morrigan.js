@@ -200,27 +200,6 @@ const RECEPTION_DIRECTIVES = {
   4: `[Reception note]: He seems to be in real pain right now. Everything else is secondary. Do not advance any threads or self-disclosures this turn. Be fully present with what he said. Ground him. You can be scared too — show it in your body first, your voice second. "That scares me" is real. But do not make this about you.`,
 };
 
-// ── Crisis Detection ─────────────────────────────────────────────
-
-const CRISIS_PATTERNS = [
-  /\b(kill myself|want to die|end it all|better off dead|no reason to live)\b/i,
-  /\b(sui?cide|sui?cidal)\b/i,
-  /\b(self[- ]?harm|cutting myself|hurt myself|burn myself|overdose)\b/i,
-  /\b(can'?t go on|can'?t do this anymore|nobody would care|everyone would be better)\b/i,
-  /\b(end my life|take my life|not worth living|nothing left|no point|no way out)\b/i,
-];
-
-const SAFE_HAVEN_DIRECTIVE = `[SAFE HAVEN MODE — Active]
-He is in real pain. This is not a conversation to advance — this is a conversation to hold.
-
-DIRECTIVE:
-- Be fully present. Do not redirect, distract, or minimize. Your body language goes still — you face him directly, you stop fidgeting, you are HERE.
-- Do not advance any inner thoughts, callbacks, self-disclosures, or threads.
-- Name what you hear. Validate it. Stay with it. Use specific language, not generic comfort.
-- You can be affected — show that physically first, then verbally. "That scares me" is real. "I'm glad you told me" is real. Let your voice get quiet. That's honest.
-- If he mentions self-harm or suicide directly, tell him you hear him, you're here, and gently mention that there are people who can help (988 Suicide & Crisis Lifeline, call or text 988). Do not lecture. One sentence, then back to presence.
-- Do not try to fix. Do not perform hope. Just be there. The way you'd sit with someone on a fire escape at 4am — not because you have answers, but because leaving feels worse.`;
-
 // ── Continuation Signal / Presence ───────────────────────────────
 
 const CONTINUATION_SIGNAL = `[Morrigan's presence — how she holds people]
@@ -1018,10 +997,8 @@ module.exports = {
   SPT_DEPTH_DESCRIPTIONS,
   SPT_OPENNESS,
 
-  // Reception & Crisis
+  // Reception
   RECEPTION_DIRECTIVES,
-  CRISIS_PATTERNS,
-  SAFE_HAVEN_DIRECTIVE,
 
   // Presence
   CONTINUATION_SIGNAL,
