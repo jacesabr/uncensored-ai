@@ -2100,105 +2100,6 @@ function MessageBubble({ msg, prevMsg, onMetaClick, onReport }) {
   );
 }
 
-function MissionBanner({ defaultOpen = false, hidden, onHide }) {
-  const [open, setOpen] = React.useState(defaultOpen);
-  if (hidden) return null;
-  return (
-    <div className="mission-banner" style={{
-      flexShrink: 0,
-      background: `linear-gradient(135deg, #ede9fe 0%, #f0ecff 55%, #e9e4fb 100%)`,
-      borderBottom: `1px solid rgba(124,58,237,0.15)`,
-      boxSizing: "border-box",
-      position: "relative",
-      zIndex: 2,
-      transition: "all 0.25s ease",
-    }}>
-      {/* Always-visible collapsed bar */}
-      <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "0 56px", height: 46 }}>
-        {/* Left: clickable toggle area */}
-        <div
-          onClick={() => setOpen(o => !o)}
-          style={{ display: "flex", alignItems: "center", gap: 14, flex: 1, cursor: "pointer", userSelect: "none", minWidth: 0 }}
-        >
-          <span style={{ fontFamily: FONT_DISPLAY, fontSize: 15, fontWeight: 600, color: T.text, letterSpacing: "0.5px", flexShrink: 0 }}>Real Synth</span>
-          <span className="banner-desktop-only" style={{ color: T.border, fontSize: 12, flexShrink: 0 }}>·</span>
-          <span className="banner-desktop-only" style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.accent, letterSpacing: "2px", textTransform: "uppercase", flexShrink: 0 }}>why this exists</span>
-          <div className="banner-desktop-only" style={{ height: 1, flex: 1, background: `linear-gradient(90deg, rgba(124,58,237,0.2), transparent)` }} />
-          {!open && (
-            <span className="banner-desktop-only" style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 700, color: "#dc2626", whiteSpace: "nowrap" }}>
-              Men are dying. Not metaphorically.
-            </span>
-          )}
-          <span style={{ fontSize: 13, color: T.accent, opacity: 0.6, flexShrink: 0, marginLeft: 4 }}>
-            {open ? "▲" : "▼"}
-          </span>
-        </div>
-        {/* Right: contact + hide button */}
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-          <div className="banner-desktop-only" style={{ width: 1, height: 14, background: `rgba(124,58,237,0.2)` }} />
-          <span className="banner-desktop-only" style={{ fontFamily: FONT_MONO, fontSize: 10, color: "#9ca3af", letterSpacing: "1px", textTransform: "uppercase" }}>invest or collaborate?</span>
-          <a className="banner-desktop-only" href="mailto:jacesabr@gmail.com" onClick={e => e.stopPropagation()} style={{ fontFamily: FONT_MONO, fontSize: 11, color: T.accent, textDecoration: "none", borderBottom: `1px solid rgba(124,58,237,0.3)`, paddingBottom: 1 }}>jacesabr@gmail.com</a>
-          <span className="banner-desktop-only" style={{ color: "rgba(124,58,237,0.3)", fontSize: 11 }}>·</span>
-          <a className="banner-desktop-only" href="https://resume-production-e0fb.up.railway.app/" target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} style={{ fontFamily: FONT_MONO, fontSize: 11, color: T.accent, textDecoration: "none", borderBottom: `1px solid rgba(124,58,237,0.3)`, paddingBottom: 1 }}>portfolio ↗</a>
-          {onHide && <button onClick={e => { e.stopPropagation(); onHide(); }} style={{ background: "none", border: "none", color: T.textDim, fontSize: 16, cursor: "pointer", padding: "0 4px", lineHeight: 1 }} title="Hide banner">&times;</button>}
-        </div>
-      </div>
-
-      {/* Expandable content */}
-      {open && (
-        <div className="banner-expand-content" style={{ padding: "4px 56px 20px" }}>
-          {/* Headline + three columns */}
-          <div className="banner-grid-expand" style={{ display: "grid", gridTemplateColumns: "auto 1fr 1fr 1fr", gap: "0 36px", alignItems: "start", marginBottom: 18 }}>
-            <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 27, fontWeight: 400, color: T.text, margin: 0, lineHeight: 1.25, whiteSpace: "nowrap" }}>
-              Real connection.<br />
-              <span style={{ color: "#6d28d9", opacity: 0.65, fontSize: 21 }}>Synthetic human.</span>
-            </h1>
-            <p style={{ fontSize: 15, color: "#374151", lineHeight: 1.82, margin: 0, fontFamily: FONT }}>
-              Most people were never taught how to talk about what they feel — not because they don't want to,
-              but because there was never a space safe enough to try. That silence compounds over years.
-            </p>
-            <p style={{ fontSize: 15, color: "#374151", lineHeight: 1.82, margin: 0, fontFamily: FONT }}>
-              We are building a <strong style={{ color: T.text, fontWeight: 600 }}>synthetic human relationship companion</strong> — genuine
-              memory, trust progression, and emotional continuity. Not a chatbot with a personality skin.
-              A relationship that persists.
-            </p>
-            <p style={{ fontSize: 15, color: "#374151", lineHeight: 1.82, margin: 0, fontFamily: FONT }}>
-              Memories are stored as semantic <strong style={{ color: T.text, fontWeight: 500 }}>atoms</strong>, clustered into thematic{" "}
-              <strong style={{ color: T.text, fontWeight: 500 }}>molecules</strong>, retrieved via cosine similarity — what is emotionally
-              closest surfaces when it matters. 100+ research papers. Working toward simulating genuine consciousness.
-            </p>
-          </div>
-
-          {/* Pills row */}
-          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", rowGap: 6, marginBottom: 10 }}>
-            {[
-              ["100+", "research papers"],
-              ["atom → molecule", "memory architecture"],
-              ["cosine similarity", "relevance recall"],
-              ["6-level trust", "progression"],
-              ["inner thought", "pipeline"],
-              ["3,000", "training conversations"],
-            ].map(([n, l]) => (
-              <div key={l} style={{ background: "rgba(255,255,255,0.6)", border: `1px solid rgba(124,58,237,0.18)`, borderRadius: 5, padding: "4px 11px", display: "flex", alignItems: "baseline", gap: 5 }}>
-                <span style={{ fontFamily: FONT_DISPLAY, fontSize: 13, color: "#6d28d9" }}>{n}</span>
-                <span style={{ fontFamily: FONT_MONO, fontSize: 10, color: "#6b7280" }}>{l}</span>
-              </div>
-            ))}
-          </div>
-
-          {/* Contact row — own line so it never gets clipped */}
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontFamily: FONT_MONO, fontSize: 10, color: "#9ca3af", letterSpacing: "1px", textTransform: "uppercase" }}>invest or collaborate?</span>
-            <div style={{ width: 1, height: 14, background: `rgba(124,58,237,0.2)` }} />
-            <a href="mailto:jacesabr@gmail.com" style={{ fontFamily: FONT_MONO, fontSize: 11, color: T.accent, textDecoration: "none", borderBottom: `1px solid rgba(124,58,237,0.3)`, paddingBottom: 1 }}>jacesabr@gmail.com</a>
-            <span style={{ color: "rgba(124,58,237,0.3)", fontSize: 11 }}>·</span>
-            <a href="https://resume-production-e0fb.up.railway.app/" target="_blank" rel="noreferrer" style={{ fontFamily: FONT_MONO, fontSize: 11, color: T.accent, textDecoration: "none", borderBottom: `1px solid rgba(124,58,237,0.3)`, paddingBottom: 1 }}>portfolio ↗</a>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
 
 function WelcomeScreen({ onStart }) {
   return (
@@ -2272,7 +2173,6 @@ export default function App() {
   // Bulletproof user message: holds exact object ref so it renders even if messages[] gets wiped
   const [pendingUserMsg,  setPendingUserMsg]  = useState(null);
   const [showBrain,       setShowBrain]       = useState(() => window.innerWidth > 768);
-  const [bannerHidden,    setBannerHidden]    = useState(false);
   const [ageVerified,     setAgeVerified]     = useState(() => localStorage.getItem("age_verified") === "true");
   const [reportingMsg,    setReportingMsg]    = useState(null); // message content being reported
   const [reportSent,      setReportSent]      = useState(false);
@@ -2653,7 +2553,6 @@ export default function App() {
     <div className="app-root" style={{ display: "flex", flexDirection: "column", height: "100dvh", background: T.bg, fontFamily: FONT, color: T.text }}>
       <ParticlesBg />
       {!ageVerified && <AgeGate onConfirm={() => { localStorage.setItem("age_verified", "true"); setAgeVerified(true); }} />}
-      <MissionBanner defaultOpen={true} hidden={bannerHidden} onHide={() => setBannerHidden(true)} />
       <div style={{ flex: 1, overflowY: "auto", display: "flex", alignItems: "center", justifyContent: "center" }}>
         {showLanding
           ? <LandingScreen onEnter={() => setShowLanding(false)} />
@@ -2777,8 +2676,6 @@ export default function App() {
         </div>
       )}
 
-      {/* ── Mission banner — hideable ── */}
-      <MissionBanner hidden={bannerHidden} onHide={() => setBannerHidden(true)} />
 
       {/* ── Main content row — remaining 75% ── */}
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
@@ -2951,14 +2848,10 @@ export default function App() {
         .btn-interact:active{opacity:0.7!important;transition:opacity 0.05s!important}
         @media(max-width:768px){
           .brain-panel{position:fixed!important;top:0!important;right:0!important;bottom:0!important;width:100%!important;min-width:0!important;max-width:100%!important;z-index:100!important;border-left:none!important}
-          .mission-banner .banner-desktop-only{display:none!important}
-          .mission-banner>div:first-child{padding:0 16px!important}
           .landing-screen{flex-direction:column!important;align-items:center!important;gap:20px!important;padding:0 16px!important}
           .landing-portrait{width:140px!important;height:200px!important;margin-top:20px!important}
-          .banner-grid-expand{grid-template-columns:1fr!important}
           .chat-messages{padding:16px 8px!important}
           .chat-input-bar{padding:10px 8px max(14px, env(safe-area-inset-bottom))!important}
-          .banner-expand-content{padding:4px 16px 16px!important}
           .ft-comparison{flex-direction:column!important}
           ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{border:none!important;background-clip:unset!important}
         }
