@@ -1912,7 +1912,7 @@ function LandingScreen({ onEnter }) {
   const [fading, setFading] = useState(false);
   const handle = () => { setFading(true); setTimeout(onEnter, 600); };
   return (
-    <div className="landing-screen" style={{ opacity: fading ? 0 : 1, transition: "opacity 0.6s ease", display: "flex", flexDirection: "row", alignItems: "flex-start", gap: 36, maxWidth: 800, padding: "0 32px", width: "100%" }}>
+    <div className="landing-screen" style={{ opacity: fading ? 0 : 1, transition: "opacity 0.6s ease", display: "flex", flexDirection: "row", alignItems: "flex-start", gap: 36, maxWidth: 800, padding: "0 32px", width: "100%", boxSizing: "border-box", overflow: "hidden" }}>
 
       {/* Portrait */}
       <div className="landing-portrait" style={{ marginTop: 56, width: 210, height: 300, borderRadius: 14, overflow: "hidden", border: `2px solid ${T.border}`, boxShadow: `0 0 0 3px ${T.accentSoft}, 0 12px 40px rgba(80,0,60,0.25)`, flexShrink: 0 }}>
@@ -1920,7 +1920,7 @@ function LandingScreen({ onEnter }) {
       </div>
 
       {/* Right column */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 16, flex: 1, paddingTop: 4 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 16, flex: 1, minWidth: 0, paddingTop: 4 }}>
 
         {/* AI Disclosure */}
         <div style={{ background: T.accentSoft, border: `1px solid ${T.accent}30`, borderRadius: 10, padding: "10px 14px", display: "flex", alignItems: "center", gap: 8 }}>
@@ -1959,6 +1959,7 @@ function LandingScreen({ onEnter }) {
 
         <button
           onClick={handle}
+          className="landing-btn"
           style={{ alignSelf: "flex-start", background: `linear-gradient(135deg, ${T.accent}, ${T.purple})`, color: "#fff", border: "none", borderRadius: 14, padding: "12px 40px", fontSize: 14, cursor: "pointer", fontFamily: FONT, boxShadow: `0 4px 20px ${T.accentGlow}` }}
         >
           walk in
@@ -2848,8 +2849,9 @@ export default function App() {
         .btn-interact:active{opacity:0.7!important;transition:opacity 0.05s!important}
         @media(max-width:768px){
           .brain-panel{position:fixed!important;top:0!important;right:0!important;bottom:0!important;width:100%!important;min-width:0!important;max-width:100%!important;z-index:100!important;border-left:none!important}
-          .landing-screen{flex-direction:column!important;align-items:center!important;gap:20px!important;padding:0 16px!important}
-          .landing-portrait{width:140px!important;height:200px!important;margin-top:20px!important}
+          .landing-screen{flex-direction:column!important;align-items:center!important;gap:16px!important;padding:0 20px!important;max-width:100%!important}
+          .landing-portrait{width:120px!important;height:170px!important;margin-top:12px!important}
+          .landing-btn{align-self:center!important;width:100%!important;padding:14px!important}
           .chat-messages{padding:16px 8px!important}
           .chat-input-bar{padding:10px 8px max(14px, env(safe-area-inset-bottom))!important}
           .ft-comparison{flex-direction:column!important}
