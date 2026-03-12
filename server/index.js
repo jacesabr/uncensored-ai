@@ -5377,9 +5377,10 @@ app.post("/api/chat", auth, async (req, res) => {
     // ── Somatic fallback: synthesize minimal priming from available signals ──
     // Without emotional priming, Position 5 is empty and responses lack
     // emotional grounding. Use feelings + disclosure depth as fallback.
-    if (!primingSentence) {
+    if (!somaticMarker) {
       const f = session.memory.feelings || {};
       const topFeeling = Object.entries(f).filter(([, v]) => v > 30).sort((a, b) => b[1] - a[1])[0];
+      let fallbackGut = null;
       if (topFeeling) {
         const feelMap = {
           affection: "Something warm underneath the deflection.",
@@ -5388,13 +5389,21 @@ app.post("/api/chat", auth, async (req, res) => {
           protectiveness: "The urge to shield. Familiar and dangerous.",
           vulnerability: "Exposed. Trying not to flinch.",
         };
-        primingSentence = feelMap[topFeeling[0]] || null;
+        fallbackGut = feelMap[topFeeling[0]] || null;
       } else if (disclosureDepth?.level >= 3) {
-        primingSentence = "They went somewhere real. My chest tightened.";
+        fallbackGut = "They went somewhere real. My chest tightened.";
       }
       // No fallback "something stirring" — if nothing specific, leave priming empty.
       // Neutral is a valid state. Not every message needs emotional priming.
-      if (primingSentence) console.log(`[SOMATIC] Using feeling-based fallback: "${primingSentence}"`);
+      if (fallbackGut) {
+        somaticMarker = {
+          gutFeeling: fallbackGut,
+          emotionalRegister: topFeeling?.[0] || "present",
+          intensity: 0.4,
+        };
+        primingSentence = fallbackGut;
+        console.log(`[SOMATIC] Using feeling-based fallback: "${fallbackGut}"`);
+      }
     }
   }
 
@@ -5403,6 +5412,15 @@ app.post("/api/chat", auth, async (req, res) => {
   // response carries the weight of the deliberate waiting (P70 drive vs listen).
   if (session.arrivalSilent && session.sessionExchanges.length === 0) {
     const silenceNote = `You arrived and chose silence — wanted to see what he would bring first. ${session.arrivalSilentIntent || ""}`.trim();
+    if (somaticMarker) {
+      somaticMarker.gutFeeling = `${somaticMarker.gutFeeling} [${silenceNote}]`;
+    } else {
+      somaticMarker = {
+        gutFeeling: silenceNote,
+        emotionalRegister: "still",
+        intensity: 0.3,
+      };
+    }
     primingSentence = primingSentence
       ? `${primingSentence} [Also: ${silenceNote}]`
       : silenceNote;
