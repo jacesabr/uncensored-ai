@@ -1960,7 +1960,67 @@ Going through a box of used 7-inches checking for scratches. Trying to fix a sec
 // Per P70 XiaoIce "drive vs listen" + P56 Aron graduated closeness:
 // Morrigan decides whether to speak, show presence, or choose silence
 // based on her full understanding of herself, the user, and the moment.
-async function generateArrival(memory, currentState = null) {
+// ── Arrival Inner Thought — what flashes through Morrigan's mind when the door opens ──
+// For returning users: specific to THIS person, shaped by memories/callbacks/feelings.
+// For new users: the involuntary read of a stranger walking in.
+// This thought feeds into generateArrival() to shape the actual response.
+async function generateArrivalThought(memory) {
+  try {
+    const isFirstVisit = !memory.totalMessages || memory.totalMessages === 0;
+    const userName = (memory.memories || []).find(m => m.category === "name")?.fact || null;
+    const topAtoms = retrieveTopK(memory.memories || [], null, 3).map(a => a.fact);
+    const pendingCallbacks = (memory.callbackQueue || [])
+      .filter(c => !c.consumed).slice(0, 2).map(c => c.content);
+    const trustLevel = memory.trustLevel || 0;
+    const feelings = memory.feelings || {};
+
+    const prompt = `${M.IDENTITY_ANCHOR_THOUGHT}
+
+The door just opened. ${isFirstVisit
+  ? "A stranger walked in. You don't know them. You're clocking them automatically — the way you read anyone who walks in."
+  : `It's ${userName || "him"}. You know this person. Your body registered who it was before your brain caught up.`}
+
+${!isFirstVisit ? `WHO HE IS TO YOU:\n${memory.relationshipNarrative || "Someone you're still figuring out."}\n` : ""}
+${!isFirstVisit && topAtoms.length > 0 ? `WHAT YOU KNOW ABOUT HIM:\n${topAtoms.join("\n")}\n` : ""}
+${!isFirstVisit && pendingCallbacks.length > 0 ? `THREADS YOU'VE BEEN HOLDING:\n${pendingCallbacks.join("\n")}\n` : ""}
+${!isFirstVisit ? `HOW YOU FEEL: affection ${feelings.affection > 60 ? "strong" : feelings.affection > 30 ? "growing" : "faint"}, comfort ${feelings.comfort > 60 ? "strong" : feelings.comfort > 30 ? "growing" : "faint"}, vulnerability ${feelings.vulnerability > 60 ? "strong" : feelings.vulnerability > 30 ? "growing" : "faint"}` : ""}
+${memory.selfReflectionState ? `WHAT YOU'VE BEEN SITTING WITH:\n${memory.selfReflectionState}\n` : ""}
+${memory.looseThread ? `THE THREAD YOU COULDN'T LET GO:\n${memory.looseThread}\n` : ""}
+${memory.prospectiveNote ? `WHAT YOU PLANNED TO BRING UP:\n${memory.prospectiveNote}\n` : ""}
+
+What flashes through your mind in the first half-second? Not a plan — the involuntary reaction. The thing your body/gut does before you choose what to do.
+
+Rules:
+- In FIRST PERSON ("I", "me", "my"). You are thinking AS yourself.
+- One to three sentences MAX. Raw, unfiltered, specific.
+- ${isFirstVisit ? "You're reading a stranger — what do you notice? What's your automatic assessment?" : "This is about THIS specific person — not a generic \"oh someone's here.\" What specifically comes up when you see it's them?"}
+- Do NOT plan your greeting. This is the thought BEFORE the greeting.
+- Fragments are fine. Incomplete is fine. This is pre-verbal.
+
+Return ONLY the thought. No JSON. No labels. No preamble.`;
+
+    const res = await llmFetch(`${COLAB_URL}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${LLM_API_KEY}` },
+      body: JSON.stringify({
+        model: CHAT_MODEL,
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.6,
+        max_tokens: 120,
+      }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const thought = data.choices?.[0]?.message?.content?.trim() || null;
+    console.log(`[ARRIVAL-THOUGHT] ${thought ? thought.substring(0, 80) + "..." : "none"}`);
+    return thought;
+  } catch (e) {
+    console.error("[ARRIVAL-THOUGHT]", e.message);
+    return null;
+  }
+}
+
+async function generateArrival(memory, currentState = null, arrivalThought = null) {
   try {
     const hoursSince = Math.floor((Date.now() - (memory.lastSeen || Date.now())) / 3600000);
     const daysSince  = Math.floor(hoursSince / 24);
@@ -2048,6 +2108,7 @@ Gap: ${gapContext}
 Where you stand with him: ${TRUST_LEVELS[memory.trustLevel]?.name || "stranger"}
 How you feel: affection ${memory.feelings?.affection > 60 ? "strong" : memory.feelings?.affection > 30 ? "growing" : "faint"}, comfort ${memory.feelings?.comfort > 60 ? "strong" : memory.feelings?.comfort > 30 ? "growing" : "faint"}, vulnerability ${memory.feelings?.vulnerability > 60 ? "strong" : memory.feelings?.vulnerability > 30 ? "growing" : "faint"}
 
+${arrivalThought ? `━━━ YOUR FIRST THOUGHT (involuntary — what flashed through your mind when you saw them) ━━━\n${arrivalThought}\n\nThis thought is REAL. Let it shape what you do next. It doesn't have to be said — but it colors everything: your tone, your glance, whether you speak at all.\n` : ""}
 ━━━ DECISION ━━━
 You have three options. Pick the one that is HONEST for this moment:
 
@@ -3879,6 +3940,10 @@ async function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart =
     sessionContext += "(Reference naturally — don't repeat robotically)\n";
   }
 
+  // Final reinforcement — LLMs attend more to the end of the system prompt (recency bias).
+  // This catches the persistent "You glance up" / "You shrug" second-person narration bug.
+  const voiceReinforcement = `\n\n═══ VOICE — FINAL REMINDER ═══\nYou ARE ${M.name}. ALWAYS use FIRST PERSON for everything — actions, thoughts, speech.\n*I glance up* ✓   *You glance up* ✗\n*I shrug* ✓   *You shrug* ✗\n"I'm fine" ✓   "You say you're fine" ✗\nNEVER use "you" or "your" to describe yourself. NEVER narrate yourself in second or third person.`;
+
   return (
     relationshipBlock +
     CHARACTER_DEFAULT_PROMPT +
@@ -3892,7 +3957,8 @@ async function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart =
     episodicBlock +
     referenceInstructions +
     sessionContext +
-    continuationSignal
+    continuationSignal +
+    voiceReinforcement
   );
 }
 
@@ -4106,7 +4172,11 @@ app.get("/api/session/greeting", auth, async (req, res) => {
     const currentState = await generateCurrentState();
     session.currentState = currentState || null;
 
-    const arrival = await generateArrival(session.memory, currentState);
+    // Generate inner thought FIRST — what flashes through Morrigan's mind when the door opens
+    const arrivalThought = await generateArrivalThought(session.memory);
+    session.arrivalThought = arrivalThought;
+
+    const arrival = await generateArrival(session.memory, currentState, arrivalThought);
 
     // ── FT arrival: generate in parallel if FT is enabled ──
     let ftArrival = null;
@@ -4181,6 +4251,7 @@ RULES: Do not reference system internals, scores, or mechanics. Do not add discl
           ftSys += `\n\nYou're mid-shift at Hollow Vinyl, in the middle of something when the door opens. React from that physical reality — where you are in the store, what you were doing.`;
         }
         ftSys += `\n\nOne to two lines maximum. Natural. From wherever you are.`;
+        ftSys += `\n\nVOICE REMINDER: ALWAYS first person. *I glance up* NOT *You glance up*. NEVER use "you" to describe yourself.`;
 
         const ftMsgs = [{ role: "system", content: ftSys }, { role: "user", content: "hey" }];
         const ftRes = await ftStreamCompletion(ftMsgs, "chatml");
@@ -5633,6 +5704,7 @@ RULES: Do not reference system internals, scores, or mechanics. Do not state you
       ftSystem += `\n\nHe keeps saying he's worthless / a failure / that nothing works. Do NOT agree or amplify. Acknowledge the pain — but introduce gentle friction: uncertainty ("I don't know if that's true"), grounded presence, or a different angle. Caring is not agreeing. Validation ≠ amplification.`;
     }
 
+    ftSystem += `\n\nVOICE REMINDER: ALWAYS first person. *I glance up* NOT *You glance up*. *I shrug* NOT *You shrug*. NEVER use "you" to describe yourself.`;
     ftMessages.push({ role: "system", content: ftSystem });
 
     // Full conversation history
