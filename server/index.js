@@ -303,6 +303,19 @@ setInterval(() => {
   _llmStats.startedAt = Date.now();
 }, 24 * 60 * 60_000);
 
+// Inject venice_parameters into request body when targeting Venice AI API.
+// Venice prepends its own system prompt by default ("You are Dolphin Mistral 24B Venice Edition...")
+// which overrides our Morrigan character prompt. Setting include_venice_system_prompt: false
+// gives our system prompt full control over the model's identity.
+function _injectVeniceParams(options, targetUrl) {
+  if (!targetUrl || !targetUrl.includes("venice.ai")) return options;
+  try {
+    const body = options.body ? JSON.parse(options.body) : {};
+    body.venice_parameters = { include_venice_system_prompt: false };
+    return { ...options, body: JSON.stringify(body) };
+  } catch { return options; }
+}
+
 async function llmFetch(url, options, timeoutMs = LLM_TIMEOUT_MS) {
   if (_fallbackActive && Date.now() < _fallbackUntil) {
     return _doFallbackFetch(url, options, timeoutMs);
@@ -315,7 +328,7 @@ async function llmFetch(url, options, timeoutMs = LLM_TIMEOUT_MS) {
   _llmStats.primary.calls++;
   _llmStats.primary.lastCallAt = t0;
   try {
-    const res = await fetchWithTimeout(url, options, timeoutMs);
+    const res = await fetchWithTimeout(url, _injectVeniceParams(options, url), timeoutMs);
     _llmStats.primary.totalLatencyMs += Date.now() - t0;
     if (res.ok || res.status < 500) {
       if (res.ok) _llmStats.primary.successes++;
@@ -359,6 +372,8 @@ async function _doFallbackFetch(url, options, timeoutMs) {
   const fallbackUrl = url.replace(COLAB_URL, FALLBACK_LLM_URL);
   let body = options.body ? JSON.parse(options.body) : {};
   if (body.model === CHAT_MODEL) body.model = FALLBACK_CHAT_MODEL;
+  // Always disable Venice's default system prompt on fallback (Venice is the fallback provider)
+  if (fallbackUrl.includes("venice.ai")) body.venice_parameters = { include_venice_system_prompt: false };
   const fallbackOpts = {
     ...options,
     body: JSON.stringify(body),
@@ -2693,11 +2708,11 @@ function shouldTriggerThoughtFormation(message, session, atRisk = false) {
   const words = message.trim().split(/\s+/).length;
   const trustLevel = session.memory?.trustLevel || 0;
 
-  // Hard gate: minimum message count before inner thoughts fire
-  // P57 Fast Friends: "first 3-5 sessions should prioritise building trust"
-  // P1 Liu cadence damping: "once every 3-4 messages"
-  if (trustLevel <= 1 && session.msgCount < 5) return false;
-  if (trustLevel >= 2 && session.msgCount < 3) return false;
+  // Minimum warmup: let at least 2 exchanges happen so there's conversational context
+  // for thought formation to work with. Morrigan thinks from the start — she's guarded
+  // in what she shares, not in whether she thinks. The behavioral tier + SPT depth
+  // handle disclosure gating; the thought pipeline should always be active.
+  if (session.msgCount < 2) return false;
 
   // Removed: empty-reservoir auto-trigger was firing thoughts on casual messages
   // just because the reservoir was empty. Let message content determine triggers.
@@ -2787,7 +2802,7 @@ function gatherThoughtMaterial(message, session, atRisk = false) {
     // Don't penalize the whole session — detect per-exchange.
     trustRepairContext: (() => {
       const exchanges = session.sessionExchanges || [];
-      if (exchanges.length < 1 || session.msgCount < 3) return null;
+      if (exchanges.length < 1 || session.msgCount < 2) return null;
       const last = exchanges[exchanges.length - 1];
       if (!last) return null;
       const userWordCount = (last.user || "").trim().split(/\s+/).length;
@@ -2849,12 +2864,16 @@ function INNER_THOUGHT_FORMATION_PROMPT(mat) {
   return (
     M.IDENTITY_ANCHOR_THOUGHT + `\n\n` +
 
-    // P57/P56: at low trust, explicitly instruct withholding as default
+    // At low trust, Morrigan still THINKS — she just shares differently.
+    // Reactions, observations, curiosity, dry humor — all fair game.
+    // Deep personal disclosures are held back (SPT depth gates those anyway).
     (mat.trustLevel <= 1
-      ? `YOU BARELY KNOW THIS PERSON. Trust is low. Your default is withholding. ` +
-        `You do NOT share about yourself with strangers. A greeting does not earn a disclosure. ` +
-        `The only thoughts that should score high are reactions or concerns — not disclosures. ` +
-        `Score disclosure thoughts below 3.0 unless something genuinely extraordinary happened.\n\n`
+      ? `You don't know this person well yet. You're observant, curious in your dry way, reactive. ` +
+        `You notice things about people. You have opinions. You might share a surface-level fact ` +
+        `about yourself if it comes up naturally (music taste, a wry observation about work). ` +
+        `But you don't volunteer your wounds to strangers. ` +
+        `Favor reaction, concern, curiosity, and observation thoughts. ` +
+        `Score deep personal disclosure thoughts below 3.0 unless something genuinely struck you.\n\n`
       : "") +
 
     `HE JUST SENT:\n"${mat.message}"\n\n` +
@@ -4378,9 +4397,11 @@ function evaluateProactiveOpportunity(session) {
   const msgCount = session.msgCount || session.sessionExchanges.length;
 
   // ── Hard gates ───────────────────────────────────────────────
-  // Trust gate: graduated closeness (Aron P56)
-  if (trustLevel <= 1 && Math.random() > 0.05) return null;
-  if (trustLevel === 2 && Math.random() > 0.20) return null;
+  // Trust gate: graduated closeness (Aron P56) — but even strangers sometimes
+  // get a follow-up thought. A real person in a record store might say "oh actually..."
+  // The proactive content generation handles tone (guarded at low trust).
+  if (trustLevel <= 1 && Math.random() > 0.15) return null;
+  if (trustLevel === 2 && Math.random() > 0.30) return null;
 
   // Frequency cap: max 1 proactive per 3 user messages (P1 cadence damping)
   if ((session.proactiveCount || 0) > 0 &&
@@ -5167,10 +5188,12 @@ app.post("/api/chat", auth, async (req, res) => {
   // ═══════════════════════════════════════════════════════════════════
   // XiaoIce [P70]: blandness hurts long-term engagement MORE than mild
   // Trust-scaled motivation threshold (P57: first 3-5 sessions are trust-building)
-  // At low trust, almost nothing gets through — guarded persona.
-  // At high trust, lowered threshold allows natural self-expression.
+  // Motivation threshold: how compelling a thought must be before Morrigan expresses it.
+  // Lower = more inner life visible. The behavioral tier and SPT depth already gate
+  // what TYPE of thought she shares (reactions only at low trust, disclosures at high trust).
+  // The threshold here just filters noise — don't set it so high that she never thinks.
   const trustForThreshold = session.memory?.trustLevel || 0;
-  const baseThreshold = trustForThreshold <= 0 ? 7.5 : trustForThreshold === 1 ? 6.0 : trustForThreshold === 2 ? 5.0 : 4.0;
+  const baseThreshold = trustForThreshold <= 0 ? 5.0 : trustForThreshold === 1 ? 4.5 : trustForThreshold === 2 ? 4.0 : 4.0;
   session.effectiveMotivationThreshold = atRisk ? Math.min(baseThreshold, 3.5) : baseThreshold;
   // Force prospectiveNote injection at session start if at-risk
   if (atRisk && session.isSessionStart && session.memory && !session.memory.prospectiveNote) {
@@ -5415,11 +5438,13 @@ app.post("/api/chat", auth, async (req, res) => {
     selfAtomHint = "";
   } else {
     // No thought expressed — Phase 2 self-atom hint as fallback (position 4.5)
-    // P57: suppress at low trust — strangers don't get disclosure hints
+    // Self-atom hints are Morrigan's self — her neurons, her personality, her identity.
+    // These are ALWAYS available. SPT depth-gating already controls WHICH atoms are
+    // eligible (depth 1 = surface opinions/music taste, depth 4 = core trauma).
+    // Suppressing these at low trust was lobotomizing her — she had no self to draw from.
     session.thoughtCooldown++;
-    const hintTrustLevel = session.memory?.trustLevel || 0;
     const hintAtoms = (session.topSelfAtoms || []).slice(0, 2);
-    if (hintAtoms.length > 0 && (hintTrustLevel >= 2 || session.msgCount >= 5)) {
+    if (hintAtoms.length > 0) {
       selfAtomHint =
         `\n\n[Things you could share, if the moment earns it]:\n` +
         hintAtoms.map(a => a.content).join("\n");
@@ -5873,10 +5898,12 @@ RULES: Do not reference system internals, scores, or mechanics. Do not state you
         composedResponse = fullResponse;
         const winnerForCompose = session.pendingWinner;
         const composeTrustLevel = session.memory?.trustLevel || 0;
-        // Trust gate: skip composition at trust 0 entirely; at trust 1, only high-scoring thoughts
-        // P57: premature depth causes withdrawal — the behavior guide says "guard up" and composition overrides it
-        if (winnerForCompose && composeTrustLevel >= 1 &&
-            (composeTrustLevel >= 2 || (winnerForCompose.currentScore || 0) >= 6.0)) {
+        // Composition weaves inner thoughts into the response naturally.
+        // Active at all trust levels — the thought formation prompt already gates what
+        // TYPE of thought fires (reactions/concerns at low trust, disclosures at high trust).
+        // Composition makes the response feel alive, not robotic. Skipping it at low trust
+        // was making Morrigan feel like a bare character prompt instead of a thinking person.
+        if (winnerForCompose && (winnerForCompose.currentScore || 0) >= (session.effectiveMotivationThreshold ?? 5.0)) {
           // Pass type context so composition LLM knows the attribution:
           // "concern" = your observation about the user (don't state as user's words)
           // "disclosure" = your sharing about yourself
@@ -5900,8 +5927,8 @@ RULES: Do not reference system internals, scores, or mechanics. Do not state you
             spiralContext
           );
           console.log(`[COMPOSE] Applied composition call (${winnerForCompose.type}) at trust ${composeTrustLevel}`);
-        } else if (winnerForCompose && composeTrustLevel < 1) {
-          console.log(`[COMPOSE] Skipped — trust ${composeTrustLevel} too low for composition`);
+        } else if (winnerForCompose && (winnerForCompose.currentScore || 0) < (session.effectiveMotivationThreshold ?? 5.0)) {
+          console.log(`[COMPOSE] Skipped — thought score ${winnerForCompose.currentScore} below threshold ${session.effectiveMotivationThreshold}`);
         }
 
         await Message.create({ conversationId, role: "assistant", content: composedResponse, provider: _chatProvider, modelUsed: _chatModel });
