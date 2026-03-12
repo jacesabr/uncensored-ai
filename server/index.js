@@ -2828,6 +2828,7 @@ function INNER_THOUGHT_FORMATION_PROMPT(mat) {
 
     `STEP 2 — FORM THOUGHTS (generate 2-3 candidates):\n` +
     `What is going through your mind RIGHT NOW? These are INTERNAL — things you might or might not say. They must be:\n` +
+    `• In FIRST PERSON ("I", "me", "my") — you are thinking AS yourself, not being described. Write "I feel something tighten" NOT "you feel something tighten".\n` +
     `• In your actual voice (specific, sometimes fragments, not resolved or clinical)\n` +
     `• Rooted in something real — a memory, something he triggered, a thread you've been holding, an atom you're considering sharing\n` +
     `• At the right depth. sptDepth is ${mat.sptDepth}/4. Nothing above this depth.\n\n` +
@@ -2859,7 +2860,7 @@ function INNER_THOUGHT_FORMATION_PROMPT(mat) {
     `  "theoryOfMind": "one sentence — your read of what he is feeling",\n` +
     `  "thoughts": [\n` +
     `    {\n` +
-    `      "content": "the thought in your internal voice",\n` +
+    `      "content": "the thought in first person (I/me/my) — your internal voice AS yourself",\n` +
     `      "type": "callback|disclosure|reaction|concern|withholding|repair",\n` +
     `      "linkedAtomId": "atom-id or null",\n` +
     `      "linkedCallbackId": "callback-uuid or null",\n` +
@@ -2889,6 +2890,7 @@ function INNER_MONOLOGUE_UPDATE_PROMPT({ userMessage, morriganResponse, sptDepth
     `What 1–2 seeds of thought are still forming AFTER you've already responded? ` +
     `These are things you're STILL thinking about. Not your response — what remains.\n\n` +
     `Rules:\n` +
+    `• In FIRST PERSON ("I", "me", "my"). Write "I keep thinking about..." NOT "you keep thinking about...".\n` +
     `• Short. Unresolved. In your actual voice (specific, dry, not clinical).\n` +
     `• sptDepth is ${sptDepth}/4. Nothing deeper than allowed.\n` +
     `• IMPORTANT: If the exchange was casual, short, or light — return []. ` +
