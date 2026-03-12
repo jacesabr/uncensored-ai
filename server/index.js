@@ -1503,20 +1503,43 @@ Answer with ONLY the category name.`;
     // to THIS exchange, not just the all-time most important (P55 Zeng: context-sensitive recall).
     const topAtoms = retrieveTopK(memory.memories, messageEmbedding, 8).map(a => a.fact).join("; ");
     const topMols  = (memory.molecules || []).slice(-3).map(m => m.summary).join("\n");
-    const narrativeRes = await llmFetch(`${COLAB_URL}/v1/chat/completions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${LLM_API_KEY}` },
-      body: JSON.stringify({
-        model: CHAT_MODEL,
-        messages: [{ role: "user", content: `You ARE ${M.name}. Write a brief note (2-3 sentences) about this person from YOUR perspective. Ground it in what THEY'VE actually said and done — not what you imagine they might feel, and not what you said in your responses. ALWAYS use first person ("I", "me", "my") — write "He told me..." NOT "He told her..." or "He told Morrigan...". Honest and specific, but do not embellish or add dramatic interpretation beyond what the facts support. No bullet points.
+    const totalMsgs = memory.totalMessages || 0;
+
+    // Anti-hallucination: if we have almost no data, the LLM will fabricate.
+    // For very early exchanges, use a constrained prompt that explicitly limits scope.
+    const hasSubstantialData = topAtoms.length > 10 || totalMsgs >= 3;
+
+    const narrativePrompt = hasSubstantialData
+      ? `You ARE ${M.name}. Write a brief note (2-3 sentences) about this person from YOUR perspective. Ground it in what THEY'VE actually said and done — not what you imagine they might feel, and not what you said in your responses. ALWAYS use first person ("I", "me", "my") — write "He told me..." NOT "He told her..." or "He told Morrigan...". Honest and specific, but do not embellish or add dramatic interpretation beyond what the facts support. No bullet points.
 
 ${ATTRIBUTION_REMINDER}
 
 ${memory.relationshipNarrative ? `Previous entry:\n${memory.relationshipNarrative}\n\n` : ""}Key facts about them: ${topAtoms}
 ${topMols ? `Impressions:\n${topMols}\n` : ""}SPT depth reached: ${memory.sptDepth || 1}/4
 Recent exchange (two speakers — "User:" is them, "${M.name}:" is you):
-${singleExchange.slice(-600)}` }],
-        temperature: 0.55, max_tokens: 200,
+${singleExchange.slice(-600)}`
+      : `You ARE ${M.name}. Someone just spoke to you for the first time (or nearly).
+You know ALMOST NOTHING about this person. Write 1-2 sentences — what little you observed.
+
+STRICT RULES:
+- You can ONLY reference things the USER literally said in the exchange below.
+- Do NOT infer personality traits, emotional states, or intentions from a greeting.
+- Do NOT reference things from prior conversations that don't exist.
+- If all they said was a greeting or one-liner, your note should reflect that: you barely know them.
+- ALWAYS use first person ("I", "me", "my").
+
+${ATTRIBUTION_REMINDER}
+
+Exchange (two speakers — "User:" is them, "${M.name}:" is you):
+${singleExchange.slice(-600)}`;
+
+    const narrativeRes = await llmFetch(`${COLAB_URL}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${LLM_API_KEY}` },
+      body: JSON.stringify({
+        model: CHAT_MODEL,
+        messages: [{ role: "user", content: narrativePrompt }],
+        temperature: hasSubstantialData ? 0.55 : 0.2, max_tokens: 200,
       }),
     });
     if (narrativeRes.ok) {
@@ -1889,6 +1912,16 @@ async function generateLooseThread(transcript, mem) {
   try {
     // Look up the user's name from memory atoms for natural reference
     const userName = (mem.memories || []).find(m => m.category === "name")?.fact || "him";
+
+    // Anti-hallucination: if the transcript is very short (greetings, one-liners),
+    // there's nothing to genuinely linger on. Skip the LLM call entirely.
+    const userLines = transcript.split("\n").filter(l => l.startsWith("User:"));
+    const userContent = userLines.map(l => l.replace(/^User:\s*/, "")).join(" ").trim();
+    if (userContent.split(/\s+/).length < 8) {
+      console.log("[PHASE5-THREAD] Skipped — user content too brief for genuine thread");
+      return null;
+    }
+
     const prompt = `You are ${M.name}. You just had a conversation.
 Review the transcript below.
 Identify ONE thing you (${M.name}) are still thinking about — something that was
@@ -1902,6 +1935,7 @@ CRITICAL RULES:
   unless THEY explicitly referenced it in their own words.
 - Do NOT invent details or read hidden meaning into casual exchanges.
 - If the conversation was casual and nothing genuinely lingers, return null.
+- Short greetings, one-liners, and small talk do NOT produce loose threads. Return null.
 
 Write it in first person. One sentence. Specific to what the USER actually said.
 Transcript: ${transcript.slice(-3000)}
