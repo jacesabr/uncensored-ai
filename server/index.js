@@ -478,54 +478,60 @@ async function detectDisclosedAtoms(response, selfAtomCache, sptDepth, alreadySh
     if (atom.deprecated) continue;
     if (alreadyShared.includes(atom.id)) continue;
 
-    // ── Layer 1: Semantic similarity (primary detection) ──
-    // If both embeddings exist, cosine similarity above threshold = match
+    // ── Layer 1: Semantic similarity ──
+    // High threshold required — character prompt shares thematic space with atoms,
+    // so moderate similarity (0.5-0.7) produces rampant false positives.
+    // 0.78 = response genuinely paraphrases or restates the atom's specific content.
     let semanticMatch = false;
+    let semanticSim = 0;
     if (responseEmbedding && atom.embedding?.length) {
-      const sim = cosineSimilarity(responseEmbedding, atom.embedding);
-      // 0.55 = moderate similarity — atom's theme is clearly present in response
-      // Higher threshold would miss paraphrased disclosures
-      if (sim >= 0.55) {
+      semanticSim = cosineSimilarity(responseEmbedding, atom.embedding);
+      if (semanticSim >= 0.78) {
         semanticMatch = true;
-        console.log(`[DISCLOSURE-DETECT] Semantic match: atom ${atom.id} (sim=${sim.toFixed(3)})`);
       }
     }
 
-    // ── Layer 2: Marker detection (fast-path, high confidence) ──
-    // Distinctive proper nouns, names, quoted phrases, specific numbers
+    // ── Layer 2: Marker detection ──
+    // Distinctive proper nouns, names, quoted phrases, specific numbers.
+    // Requires 2+ distinct markers to match — a single proper noun (e.g. "Hollow Vinyl")
+    // is expected from character prompt usage and doesn't prove atom disclosure.
     const content = atom.content || "";
-    let markerMatch = false;
 
     // Named entities: "named X", "called X", "name is X"
     const namedEntities = content.match(/(?:named?|called?|name(?:'s| is))\s+([A-Z][a-z]+)/g) || [];
-    const markers = [];
+    const markers = new Set();
     namedEntities.forEach(m => {
       const name = m.split(/\s+/).pop();
-      if (name && name.length > 2) markers.push(name.toLowerCase());
+      if (name && name.length > 2) markers.add(name.toLowerCase());
     });
 
     // Proper nouns mid-sentence
     const properNouns = content.match(/(?<=[.!?]\s+\w+\s+|,\s+|—\s*|\.\.\.\s*)[A-Z][a-z]{2,}/g) || [];
     const skipWords = ["The", "She", "Her", "His", "But", "And", "Not", "That", "This", "There", "What", "When", "Some", "Most"];
-    properNouns.forEach(n => { if (!skipWords.includes(n)) markers.push(n.toLowerCase()); });
+    properNouns.forEach(n => { if (!skipWords.includes(n)) markers.add(n.toLowerCase()); });
 
     // Multi-word capitalized sequences (band/place names)
     const multiCap = content.match(/[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+/g) || [];
-    multiCap.forEach(m => { if (!["Some Days", "Other People", "Most People"].includes(m)) markers.push(m.toLowerCase()); });
+    multiCap.forEach(m => { if (!["Some Days", "Other People", "Most People"].includes(m)) markers.add(m.toLowerCase()); });
 
     // Quoted phrases
     const quoted = content.match(/"([^"]{3,})"/g) || [];
-    quoted.forEach(q => markers.push(q.replace(/"/g, "").toLowerCase()));
+    quoted.forEach(q => markers.add(q.replace(/"/g, "").toLowerCase()));
 
     // Specific numbers/ages
     const specificNumbers = content.match(/\b(?:at |age |since |for )\d+\b/gi) || [];
-    specificNumbers.forEach(n => markers.push(n.toLowerCase()));
+    specificNumbers.forEach(n => markers.add(n.toLowerCase()));
 
-    markerMatch = markers.some(m => m.length > 2 && responseLower.includes(m));
+    const matchedMarkers = [...markers].filter(m => m.length > 2 && responseLower.includes(m));
+    const markerMatch = matchedMarkers.length >= 2;
 
-    // ── Decision: either layer triggers detection ──
-    if (markerMatch || semanticMatch) {
+    // ── Decision: BOTH layers must agree ──
+    // Character prompt shares proper nouns + themes with atoms, so either layer
+    // alone produces false positives. Requiring both ensures Morrigan actually
+    // disclosed the atom's specific content, not just referenced her setting.
+    if (markerMatch && semanticMatch) {
       newlyDetected.push(atom.id);
+      console.log(`[DISCLOSURE-DETECT] Confirmed: atom ${atom.id} (sim=${semanticSim.toFixed(3)}, markers=${matchedMarkers.join(",")})`);
     }
   }
   return newlyDetected;
@@ -1487,7 +1493,7 @@ Answer with ONLY the category name.`;
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${LLM_API_KEY}` },
       body: JSON.stringify({
         model: CHAT_MODEL,
-        messages: [{ role: "user", content: `Write a brief note (2-3 sentences) about this person from ${M.name}'s perspective. Ground it in what THEY'VE actually said and done — not what you imagine they might feel, and not what ${M.name} said in her responses. First person. Honest and specific, but do not embellish or add dramatic interpretation beyond what the facts support. No bullet points.
+        messages: [{ role: "user", content: `You ARE ${M.name}. Write a brief note (2-3 sentences) about this person from YOUR perspective. Ground it in what THEY'VE actually said and done — not what you imagine they might feel, and not what you said in your responses. ALWAYS use first person ("I", "me", "my") — write "He told me..." NOT "He told her..." or "He told Morrigan...". Honest and specific, but do not embellish or add dramatic interpretation beyond what the facts support. No bullet points.
 
 ${ATTRIBUTION_REMINDER}
 
@@ -1930,14 +1936,14 @@ async function generateCurrentState() {
 
 Return ONLY valid JSON, no preamble:
 {
-  "activity": "one specific sentence — what your hands/body are doing",
+  "activity": "one specific sentence in first person — what I am doing with my hands/body",
   "location": "where in the store (counter, jazz aisle, new arrivals bin, back room doorway, listening station, folk section floor, etc.)",
   "music": "what is on the speakers right now — artist and record, or null",
   "energy": "one word: flat | focused | restless | low-key | wired | elsewhere | steady | bored | in-the-zone"
 }
 
 Be specific and varied — every session should feel different:
-Going through a box of used 7-inches checking for scratches. Trying to fix a section divider that keeps toppling. Writing inventory on a legal pad at the register. At the listening station with headphones half-on testing a new arrival before pricing it. On the store phone with a distributor, half-listening while tapping a pen. Reorganizing overstock shelves in the back by decade. Eating something cold she forgot about. Stickering a new stack of LPs. Sitting cross-legged in the folk section culling records. Standing in the back doorway drinking coffee doing nothing specifically.` }],
+I'm going through a box of used 7-inches checking for scratches. Trying to fix a section divider that keeps toppling. Writing inventory on a legal pad at the register. At the listening station with headphones half-on testing a new arrival before pricing it. On the store phone with a distributor, half-listening while tapping a pen. Reorganizing overstock shelves in the back by decade. Eating something cold I forgot about. Stickering a new stack of LPs. Sitting cross-legged in the folk section culling records. Standing in the back doorway drinking coffee doing nothing specifically.` }],
         temperature: 0.95,
         max_tokens: 120,
       }),
@@ -3093,8 +3099,10 @@ function MOOD_REFLECTION_PROMPT({
     `(e.g. "deflecting hard", "guard slipping", "genuinely smiling", ` +
     `"holding it together", "nerding out", "quietly hopeful", "walls up", ` +
     `"pretending not to care").\n\n` +
+    `IMPORTANT: Write in FIRST PERSON ("I", "me", "my"). You ARE ${M.name}. ` +
+    `Write "I feel..." NOT "You feel..." or "She feels..."\n\n` +
     `RETURN JSON ONLY:\n` +
-    `{ "moodLabel": "1-3 word label", "reflection": "1-3 sentences in your voice" }`
+    `{ "moodLabel": "1-3 word label", "reflection": "1-3 sentences in first person — your voice" }`
   );
 }
 
@@ -4820,6 +4828,24 @@ app.get("/api/self-atoms", auth, async (req, res) => {
       sharedCount: sharedIds.length,
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── Reset shared self-atoms (clears false disclosure detections) ──
+app.post("/api/self-atoms/reset-shared", auth, async (req, res) => {
+  try {
+    const memory = await PersonalityMemory.findOne({ userId: req.user.id });
+    if (!memory) return res.status(404).json({ error: "no personality memory" });
+    const previousCount = (memory.sharedSelfAtomIds || []).length;
+    memory.sharedSelfAtomIds = [];
+    await memory.save();
+    // Also clear in-session cache if active
+    const session = sessions.get(req.user.id);
+    if (session?.memory) session.memory.sharedSelfAtomIds = [];
+    res.json({ cleared: previousCount });
+  } catch (e) {
+    console.error("[RESET-SHARED]", e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // ── Seed self-atoms (Phase 2) with self-criticism filter ──────────

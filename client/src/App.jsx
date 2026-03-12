@@ -1814,11 +1814,11 @@ function BrainPanel({ mood, speaking, latestMeta, moodReflection, disclosedAtoms
                 {m.sessionContextUsed.map((ex, i) => (
                   <div key={i} style={{ marginBottom: 10, paddingLeft: 8, borderLeft: `2px solid ${T.border}` }}>
                     <div style={{ display: "flex", gap: 8, marginBottom: 4, alignItems: "flex-start" }}>
-                      <span style={{ color: T.textDim, fontSize: 12.5, minWidth: 28, flexShrink: 0, paddingTop: 1 }}>you</span>
+                      <span style={{ color: T.textDim, fontSize: 12.5, minWidth: 28, flexShrink: 0, paddingTop: 1 }}>him</span>
                       <span style={{ color: T.textSoft, fontSize: 14, lineHeight: 1.55 }}>{ex.user}</span>
                     </div>
                     <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
-                      <span style={{ color: T.accent, fontSize: 12.5, minWidth: 28, flexShrink: 0, paddingTop: 1 }}>her</span>
+                      <span style={{ color: T.accent, fontSize: 12.5, minWidth: 28, flexShrink: 0, paddingTop: 1 }}>me</span>
                       <span style={{ color: T.textSoft, fontSize: 14, lineHeight: 1.55 }}>{ex.assistant}</span>
                     </div>
                   </div>
