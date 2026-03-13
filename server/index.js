@@ -4058,12 +4058,25 @@ function buildBrainFrame(rawMessage, {
     frame += `These color your response — in your body, your tone, your willingness to stay present or pull away.\n`;
   }
 
+  // ── How to receive what he said (calibrated to disclosure depth) ──
+  // This comes BEFORE inner thought so the LLM knows how to hold the space
+  // before deciding what to do with its own thoughts.
+  const receptionLevel = disclosureDepth?.level || 1;
+  if (receptionDirective) {
+    frame += `\n═══ HOW TO RECEIVE THIS ═══\n`;
+    frame += `${receptionDirective}\n`;
+  }
+
   // ── Your inner thought (the brain's computed response direction) ──
   if (innerThought) {
     const typeGuide = {
       concern: "This is YOUR observation about him — not something he said. Don't attribute it to him.",
-      disclosure: "This is something about YOUR life that surfaced. Share it if the moment earns it.",
-      callback: "This is a thread YOU'VE been holding — something he mentioned that you haven't let go of.",
+      disclosure: receptionLevel >= 3
+        ? "This surfaced in you — but this is NOT the moment to share it. He just opened something heavy. Be with HIM first. Hold your own story for later."
+        : "This is something about YOUR life that surfaced. Share it if the moment earns it.",
+      callback: receptionLevel >= 4
+        ? "You've been holding this thread — but right now he needs you present, not redirecting. Let it wait."
+        : "This is a thread YOU'VE been holding — something he mentioned that you haven't let go of.",
       reaction: "This is your emotional response to what he said.",
       curiosity: "Something you genuinely want to know more about.",
       repair: "You feel you may have missed something important last time.",
@@ -4076,13 +4089,9 @@ function buildBrainFrame(rawMessage, {
     // No inner thought fired — surface-level self available
     frame += `\n═══ SOMETHING ABOUT YOU THAT SURFACED ═══\n`;
     frame += `${selfAtomHint}\n`;
-    frame += `Share only if the moment earns it — don't force it.\n`;
-  }
-
-  // ── How to receive what he said (calibrated to disclosure depth) ──
-  if (receptionDirective) {
-    frame += `\n═══ HOW TO RECEIVE THIS ═══\n`;
-    frame += `${receptionDirective}\n`;
+    frame += receptionLevel >= 3
+      ? `This is in you but NOT for now. He needs you present. Don't redirect to yourself.\n`
+      : `Share only if the moment earns it — don't force it.\n`;
   }
 
   // ── Anti-sycophancy guard (if spiral detected) ──
