@@ -552,7 +552,7 @@ async function detectDisclosedAtoms(response, selfAtomCache, sptDepth, alreadySh
   return newlyDetected;
 }
 
-function scoreMemory(item, queryEmbedding, goalState) {
+function scoreMemory(item, queryEmbedding, goalState, disclosureDepth = 0) {
   const hasEmbedding = item.embedding?.length > 0;
   const similarity = hasEmbedding ? cosineSimilarity(item.embedding, queryEmbedding) : 0;
   const importance = (item.importance || 3) / 5;
@@ -564,12 +564,23 @@ function scoreMemory(item, queryEmbedding, goalState) {
   // Emotional queries (comfort/venting/connection/validation) benefit from narrative context
   const emotionalGoals = ["comfort", "venting", "connection", "validation"];
   const episodicBoost = (item.memoryType === "episodic" && emotionalGoals.includes(goalState)) ? 0.5 : 0;
+  // Disclosure-depth-adaptive weights: during vulnerable moments (depth >= 3),
+  // shift from "what is this about" (similarity) to "what does this feel like"
+  // (valence + episodic). Emotional resonance matters more than topical match
+  // when someone is sharing something painful.
+  const isVulnerable = disclosureDepth >= 3;
+  const wSim     = isVulnerable ? 0.30 : 0.52;
+  const wImp     = 0.25;
+  const wRec     = 0.10;
+  const wVal     = isVulnerable ? 0.25 : 0.08;
+  const wEpi     = isVulnerable ? 0.15 : 0.05;
+
   // Atoms missing embeddings (API failure) still surface via importance+recency
   // instead of being permanently buried at score 0
   if (!hasEmbedding) {
     return importance * 0.50 + recency * 0.35 + valenceBoost * 0.10 + episodicBoost * 0.05;
   }
-  return similarity * 0.52 + importance * 0.25 + recency * 0.10 + valenceBoost * 0.08 + episodicBoost * 0.05;
+  return similarity * wSim + importance * wImp + recency * wRec + valenceBoost * wVal + episodicBoost * wEpi;
 }
 
 function goalAlignsWithEmotion(goalState, emotion) {
@@ -587,7 +598,7 @@ function goalAlignsWithEmotion(goalState, emotion) {
 
 // Pure retrieval — no side effects. Call reinforceMemories() separately on
 // the final injected set (not on every intermediate candidate pass).
-function retrieveTopK(items, queryEmbedding, k, goalState = "neutral") {
+function retrieveTopK(items, queryEmbedding, k, goalState = "neutral", disclosureDepth = 0) {
   if (!queryEmbedding) {
     // Fallback: sort by importance so most significant memories surface first
     return [...items]
@@ -595,7 +606,7 @@ function retrieveTopK(items, queryEmbedding, k, goalState = "neutral") {
       .slice(0, k);
   }
   return items
-    .map(item => ({ item, score: scoreMemory(item, queryEmbedding, goalState) }))
+    .map(item => ({ item, score: scoreMemory(item, queryEmbedding, goalState, disclosureDepth) }))
     .sort((a, b) => b.score - a.score)
     .slice(0, k)
     .map(x => x.item);
@@ -627,9 +638,12 @@ function reinforceMemories(atoms) {
 // scorer as cross-encoder proxy (same principle, no ONNX dependency).
 // ═══════════════════════════════════════════════════════════════════
 
-const RERANK_PROMPT = (query, candidates) => {
+const RERANK_PROMPT = (query, candidates, emotionalContext = null) => {
   const numbered = candidates.map((c, i) => `[${i}] ${c}`).join("\n");
-  return `You are a relevance scoring engine. Given a conversational query and a list of memory fragments, rate each fragment's relevance to the query on a scale of 0-10.
+  const emotionalGuidance = emotionalContext
+    ? `\nUser's emotional need: ${emotionalContext.goalState || "neutral"}. Disclosure depth: ${emotionalContext.disclosureLevel || 1}/4. Trust level: ${emotionalContext.trustLevel || 0}/6.\nScore each fragment on APPROPRIATENESS — not just topical match but whether surfacing this memory fits the emotional moment. A casual fact scores LOW during acute grief even if it shares keywords.`
+    : "";
+  return `You are a relevance scoring engine. Given a conversational query and a list of memory fragments, rate each fragment's relevance to the query on a scale of 0-10.${emotionalGuidance}
 
 Query: "${query}"
 
@@ -639,14 +653,14 @@ ${numbered}
 Reply with ONLY a JSON array of scores in the same order, e.g. [8, 3, 6, 1, 9]. No other text.`;
 };
 
-async function reRankWithLLM(query, candidates, timeoutMs = 5000) {
+async function reRankWithLLM(query, candidates, timeoutMs = 5000, emotionalContext = null) {
   try {
     const res = await llmFetch(`${COLAB_URL}/v1/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${LLM_API_KEY}` },
       body: JSON.stringify({
         model: CHAT_MODEL, temperature: 0.0, max_tokens: 80,
-        messages: [{ role: "user", content: RERANK_PROMPT(query, candidates) }],
+        messages: [{ role: "user", content: RERANK_PROMPT(query, candidates, emotionalContext) }],
       }),
     }, timeoutMs);
     if (!res.ok) return null;
@@ -672,17 +686,18 @@ async function reRankWithLLM(query, candidates, timeoutMs = 5000) {
  * @param {string} goalState - Emotional goal state
  * @param {string} queryText - Original query text for re-ranker
  */
-async function retrieveTopKReranked(items, queryEmbedding, k, goalState = "neutral", queryText = "") {
+async function retrieveTopKReranked(items, queryEmbedding, k, goalState = "neutral", queryText = "", emotionalContext = null) {
   // Stage 1: retrieve 2×k candidates via fast cosine scoring
   const overFetchK = Math.min(items.length, k * 2);
-  const stage1 = retrieveTopK(items, queryEmbedding, overFetchK, goalState);
+  const dDepth = emotionalContext?.disclosureLevel || 0;
+  const stage1 = retrieveTopK(items, queryEmbedding, overFetchK, goalState, dDepth);
 
   // Skip re-ranking if not enough candidates or no query text
   if (stage1.length <= k || !queryText) return stage1.slice(0, k);
 
-  // Stage 2: LLM cross-encoder re-ranking
+  // Stage 2: LLM cross-encoder re-ranking (emotionally aware when context provided)
   const candidateTexts = stage1.map(item => (item.fact || item.summary || item.event || "").substring(0, 200));
-  const scores = await reRankWithLLM(queryText, candidateTexts);
+  const scores = await reRankWithLLM(queryText, candidateTexts, 5000, emotionalContext);
 
   if (!scores) {
     // Fallback: return stage 1 results
@@ -1052,8 +1067,18 @@ function findTriggeredEpisodicMemories(triggers, trustLevel) {
 }
 
 
-function retrieveSelfAtoms(selfAtoms, queryEmbedding, k, sptDepth, sharedSelfAtomIds, goalState = "neutral") {
-  const eligible = selfAtoms.filter(a => a.depth <= sptDepth && !a.deprecated);
+function retrieveSelfAtoms(selfAtoms, queryEmbedding, k, sptDepth, sharedSelfAtomIds, goalState = "neutral", disclosureDepth = 0) {
+  let eligible = selfAtoms.filter(a => a.depth <= sptDepth && !a.deprecated);
+
+  // Emotional register pre-filter: don't surface mundane atoms during vulnerable
+  // moments, and don't drop trauma bombs in casual chat. Backwards compatible —
+  // atoms without emotionalRegister are never filtered.
+  if (disclosureDepth >= 3) {
+    eligible = eligible.filter(a => !a.emotionalRegister || a.emotionalRegister !== "mundane");
+  } else if (disclosureDepth <= 1) {
+    eligible = eligible.filter(a => !a.emotionalRegister || a.emotionalRegister !== "acute");
+  }
+
   if (!queryEmbedding) return eligible.slice(0, k);
 
   // Emotional valence alignment: atoms whose emotional tone matches the user's
@@ -1073,7 +1098,7 @@ function retrieveSelfAtoms(selfAtoms, queryEmbedding, k, sptDepth, sharedSelfAto
   return eligible
     .map(atom => {
       const alreadyShared = sharedSelfAtomIds.includes(atom.id);
-      const base = scoreMemory(atom, queryEmbedding, goalState);
+      const base = scoreMemory(atom, queryEmbedding, goalState, disclosureDepth);
       const penalty = alreadyShared ? -0.15 : 0;
       // Boost atoms whose emotional valence aligns with what this moment calls for
       const valenceBoost = matchingValences.includes(atom.emotionalValence) ? 0.12 : 0;
@@ -2822,12 +2847,15 @@ function isSimpleMessage(message) {
 // ── Stage 2: Retrieval ────────────────────────────────────────────
 // Gathers all available material from Phase 2 infrastructure.
 // No LLM call — pure in-session and in-memory data.
-function gatherThoughtMaterial(message, session, atRisk = false) {
+function gatherThoughtMaterial(message, session, atRisk = false, { goalState = "neutral", disclosureDepth = 0, somaticMarker = null } = {}) {
   // Feature 6 [P20, P23]: at-risk users get 4 callbacks surfaced instead of 2
   // to increase reconnection opportunities and thread continuity.
   const callbackSlice = atRisk ? 4 : 2;
   return {
     message,
+    goalState,
+    disclosureDepth,
+    somaticMarker,
     selfAtoms:     (session.topSelfAtoms || []).slice(0, 3),   // Phase 2 top-scored eligible atoms
     activeCallbacks: (session.memory?.callbackQueue || []).filter(c => !c.consumed).slice(0, callbackSlice),
     selfReflection:  session.memory?.selfReflectionState || null,
@@ -2928,6 +2956,15 @@ function INNER_THOUGHT_FORMATION_PROMPT(mat) {
       : "") +
 
     `HE JUST SENT:\n"${mat.message}"\n\n` +
+
+    `HIS EMOTIONAL NEED: ${mat.goalState || "neutral"}\n` +
+    (mat.disclosureDepth >= 3
+      ? `⚠ HE IS BEING VULNERABLE RIGHT NOW. Your own disclosures score NEAR ZERO on timing. He needs you PRESENT, not sharing your parallel story. Favor: reaction, uncertainty, concern. NOT: disclosure, callback.\n\n`
+      : "\n") +
+
+    (mat.somaticMarker
+      ? `YOUR BODY SAYS: ${mat.somaticMarker.gutFeeling}\nYour thoughts should honor what your body already knows.\n\n`
+      : "") +
 
     (recentSection      ? recentSection      + "\n\n" : "") +
     (trajectorySection  ? trajectorySection  + "\n\n" : "") +
@@ -3713,7 +3750,7 @@ ${sptDepth < 3
 }`;
 }
 
-async function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart = false, primingSentence = null, queryEmbedding = null, goalState = "neutral", receptionDirective = null, atRisk = false, queryText = "", sensoryTriggers = [], triggeredEpisodicMemories = [], currentState = null) {
+async function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart = false, primingSentence = null, queryEmbedding = null, goalState = "neutral", receptionDirective = null, atRisk = false, queryText = "", sensoryTriggers = [], triggeredEpisodicMemories = [], currentState = null, disclosureDepth = null) {
   const level = memory.trustLevel;
   const levelData = TRUST_LEVELS[level];
   const daysSinceFirstMet = Math.floor((Date.now() - memory.firstMet) / (1000 * 60 * 60 * 24));
@@ -3788,7 +3825,8 @@ async function buildSystemPrompt(memory, sessionExchanges = [], isSessionStart =
   // ── Position 8: Memory context ────────────────────────────────────
   // Rank atoms by cosine similarity to current message (+ importance + recency + valence).
   // Falls back to importance-only sort when no embedding available (cold start).
-  const sorted = await retrieveTopKReranked(memory.memories || [], queryEmbedding, 25, goalState, queryText);
+  const emotionalContext = { goalState, disclosureLevel: disclosureDepth?.level || 0, trustLevel: memory.trustLevel || 0 };
+  const sorted = await retrieveTopKReranked(memory.memories || [], queryEmbedding, 25, goalState, queryText, emotionalContext);
   // Ebbinghaus reinforcement [P31 LUFY]: applied exactly once, only to atoms that enter
   // the prompt as working memory. Not applied to auxiliary retrieval calls (somatic marker,
   // FT system, narrative, contradiction pairs) — prevents stability inflation from
@@ -5379,16 +5417,32 @@ app.post("/api/chat", auth, async (req, res) => {
 
   // Use embedding-based retrieval if lastMessageEmbedding is available
   // (Phase 3 will populate this; Phase 2 fallback: sort by depth desc)
+  const dLevel = disclosureDepth?.level || 0;
   if (session.lastMessageEmbedding) {
     session.topSelfAtoms = retrieveSelfAtoms(
       [...eligibleAtoms, ...alreadySharedAtoms],
-      session.lastMessageEmbedding, 5, sptDepth, sharedIds, goalState
+      session.lastMessageEmbedding, 5, sptDepth, sharedIds, goalState, dLevel
     );
   } else {
     session.topSelfAtoms = eligibleAtoms
       .sort((a, b) => b.depth - a.depth)
       .slice(0, 5);
   }
+
+  // ── Fix 4: "Listen first" gate ──────────────────────────────────────
+  // When user is acutely vulnerable (disclosure depth >= 3), suppress self-atoms
+  // on the FIRST exchange at this depth so Morrigan listens before sharing.
+  // Self-atoms become available on follow-up exchanges once she's been present.
+  if (dLevel >= 3) {
+    const exchanges = session.sessionExchanges || [];
+    const isFirstAtThisDepth = exchanges.length <= 1 ||
+      (session._lastDisclosureDepth !== undefined && session._lastDisclosureDepth < 3);
+    if (isFirstAtThisDepth) {
+      session.topSelfAtoms = [];
+      console.log("[BRAIN] Listen-first gate: suppressing self-atoms during acute disclosure");
+    }
+  }
+  session._lastDisclosureDepth = dLevel;
 
   // ═══════════════════════════════════════════════════════════════════
   // SOMATIC MARKER — Emotional Priming (Phase 3) [P14, PLOS One 2024]
@@ -5510,7 +5564,7 @@ app.post("/api/chat", auth, async (req, res) => {
 
   const runThoughtFormation = async () => {
     // ── Stage 2: Retrieval ────────────────────────────────────────
-    const material = gatherThoughtMaterial(message, session, atRisk);
+    const material = gatherThoughtMaterial(message, session, atRisk, { goalState, disclosureDepth: disclosureDepth?.level || 0, somaticMarker });
 
     // ── Stage 3: Thought Formation (1 LLM call) ──────────────────
     // Temperature 0.68: creative but disciplined.
@@ -5643,7 +5697,7 @@ app.post("/api/chat", auth, async (req, res) => {
   const dynamicPrompt = await buildSystemPrompt(
     session.memory, session.sessionExchanges, isSessionStart, primingSentence,
     session.lastMessageEmbedding, goalState, receptionDirective, atRisk, message,
-    sensoryTriggers, triggeredEpisodicMemories, session.currentState || null
+    sensoryTriggers, triggeredEpisodicMemories, session.currentState || null, disclosureDepth
   );
   session.isSessionStart = false;
 
@@ -5800,7 +5854,8 @@ RULES: Do not reference system internals, scores, or mechanics. Do not state you
     };
     // Stage 1+2: contextually relevant memories via embedding + LLM re-rank
     const ftAllMems = (mem.memories || []).filter(m => m.fact && m.category !== "morrigan_disclosed");
-    const ftRankedMems = await retrieveTopKReranked(ftAllMems, session.lastMessageEmbedding, 25, goalState, message);
+    const ftEmotionalCtx = { goalState, disclosureLevel: disclosureDepth?.level || 0, trustLevel: mem.trustLevel || 0 };
+    const ftRankedMems = await retrieveTopKReranked(ftAllMems, session.lastMessageEmbedding, 25, goalState, message, ftEmotionalCtx);
     const ftByCategory = (cat) => ftRankedMems.filter(m => m.category === cat).map(ftFormatMem);
 
     const ftInterests     = ftByCategory("interest");
