@@ -1052,15 +1052,32 @@ function findTriggeredEpisodicMemories(triggers, trustLevel) {
 }
 
 
-function retrieveSelfAtoms(selfAtoms, queryEmbedding, k, sptDepth, sharedSelfAtomIds) {
+function retrieveSelfAtoms(selfAtoms, queryEmbedding, k, sptDepth, sharedSelfAtomIds, goalState = "neutral") {
   const eligible = selfAtoms.filter(a => a.depth <= sptDepth && !a.deprecated);
   if (!queryEmbedding) return eligible.slice(0, k);
+
+  // Emotional valence alignment: atoms whose emotional tone matches the user's
+  // apparent need should rank higher than atoms that share surface words.
+  // "My family died" → goalState "comfort" → melancholic/vulnerable atoms boosted
+  // over reflective atoms that happen to mention "mom" or "loss" tangentially.
+  const valenceForGoal = {
+    comfort:    ["melancholic", "vulnerable", "tender"],
+    venting:    ["defiant", "angry", "vulnerable"],
+    connection: ["tender", "warm", "reflective"],
+    validation: ["reflective", "defiant"],
+    neutral:    [],
+    distraction: [],
+  };
+  const matchingValences = valenceForGoal[goalState] || [];
+
   return eligible
     .map(atom => {
       const alreadyShared = sharedSelfAtomIds.includes(atom.id);
-      const base = scoreMemory(atom, queryEmbedding, "neutral");
+      const base = scoreMemory(atom, queryEmbedding, goalState);
       const penalty = alreadyShared ? -0.15 : 0;
-      return { atom, score: base + penalty };
+      // Boost atoms whose emotional valence aligns with what this moment calls for
+      const valenceBoost = matchingValences.includes(atom.emotionalValence) ? 0.12 : 0;
+      return { atom, score: base + penalty + valenceBoost };
     })
     .sort((a, b) => b.score - a.score)
     .slice(0, k)
@@ -2965,8 +2982,14 @@ function INNER_THOUGHT_FORMATION_PROMPT(mat) {
 
     `STEP 3 — SCORE EACH THOUGHT (motivation to express it RIGHT NOW):\n` +
     `Rate 4 dimensions each 0–2.5, sum to totalScore (max 10):\n` +
-    `• relevance (0–2.5): does this connect to what he just said?\n` +
-    `• timing (0–2.5): is this emotionally the right moment?\n` +
+    `• relevance (0–2.5): does this connect to what he just said? Word overlap is NOT relevance. ` +
+    `"My mom smoked Pall Malls" is NOT relevant to "my mom just died" — those are completely different emotional situations. ` +
+    `True relevance means the EMOTIONAL CORE matches, not surface words.\n` +
+    `• timing (0–2.5): is this emotionally the right moment? ` +
+    `CRITICAL: When someone shares acute pain or loss, disclosures about YOUR life score near 0 on timing. ` +
+    `He doesn't need your parallel story right now — he needs you PRESENT with HIS. ` +
+    `"reaction" and "uncertainty" thoughts score highest when someone is hurting. ` +
+    `Disclosures can come LATER, in a follow-up exchange, when the acute moment has been received.\n` +
     `• trustGate (0–2.5): does depth ${mat.sptDepth}/4 and trust ${mat.trustLevel}/6 allow this?\n` +
     `• novelty (0–2.5): is this fresh — not echoing the last expressed thought?\n\n` +
 
@@ -5359,7 +5382,7 @@ app.post("/api/chat", auth, async (req, res) => {
   if (session.lastMessageEmbedding) {
     session.topSelfAtoms = retrieveSelfAtoms(
       [...eligibleAtoms, ...alreadySharedAtoms],
-      session.lastMessageEmbedding, 5, sptDepth, sharedIds
+      session.lastMessageEmbedding, 5, sptDepth, sharedIds, goalState
     );
   } else {
     session.topSelfAtoms = eligibleAtoms
