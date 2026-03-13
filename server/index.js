@@ -1234,9 +1234,13 @@ async function updateBrainAfterExchange(userId, userMessage, assistantResponse, 
     }).join("\n---\n");
     const extractionPrompt = `You are a memory extraction assistant. Extract TWO types of facts from this conversation between a user and their AI companion ${M.name}.
 
-TYPE A — Facts about the USER (from what the user said or implied):
+TYPE A — Facts about the USER (ONLY from what the user EXPLICITLY said or implied):
   Category: "name|interest|personal|emotional|preference|relationship|event"
-  Extract ANY personal information: their name, pets, animals, hobbies, job, daily habits, family members, living situation, food preferences, emotional patterns, relationships, significant events, health, schedule, opinions, dislikes. Even small details matter — "has a cat," "drinks coffee at night," "works late shifts" are all worth storing.
+  Extract ANY personal information the USER revealed about THEMSELVES: their name, pets, animals, hobbies, job, daily habits, family members, living situation, food preferences, emotional patterns, relationships, significant events, health, schedule, opinions, dislikes. Even small details matter — "has a cat," "drinks coffee at night," "works late shifts" are all worth storing.
+  CRITICAL: Only extract facts the USER stated in their own words (after "User:" labels).
+  Do NOT extract ${M.name}'s environment, appearance, actions, or interests as user facts.
+  ${M.name} works in a record store — that is HER environment, not the user's interest.
+  If the user only said a greeting, there are ZERO Type A facts to extract. That is OK.
 
 TYPE B — Things ${M.name} REVEALED about herself that the user NOW KNOWS:
   Category: "morrigan_disclosed"
@@ -1434,15 +1438,21 @@ Answer with ONLY the category name.`;
   for (const atom of allAtoms) {
     if (clustered.has(String(atom._id))) continue;
     if (!atom.linkedTo || atom.linkedTo.length < 2) continue;
+    // Never cluster morrigan_disclosed atoms — those are about Morrigan, not the user.
+    // Molecules are synthesised impressions of the USER.
+    if (atom.category === "morrigan_disclosed") continue;
 
     const clusterIds = [atom._id, ...atom.linkedTo.slice(0, 4)];
     const clusterAtoms = clusterIds
       .map(id => atomMap.get(String(id)))
-      .filter(Boolean);
+      .filter(Boolean)
+      // Filter out any morrigan_disclosed atoms that got linked in
+      .filter(a => a.category !== "morrigan_disclosed");
 
     if (clusterAtoms.length < 3) continue;
     // Skip if any atom in this cluster is already in a molecule
-    if (clusterIds.some(id => clustered.has(String(id)))) continue;
+    const clusterUserIds = clusterAtoms.map(a => a._id);
+    if (clusterUserIds.some(id => clustered.has(String(id)))) continue;
 
     try {
       const clusterFacts = clusterAtoms.map(a => a.fact).join("\n- ");
@@ -1453,7 +1463,15 @@ Answer with ONLY the category name.`;
           model: CHAT_MODEL,
           messages: [{
             role: "user",
-            content: `These are related facts about a person. Write a single synthesised paragraph (2-3 sentences) that captures what these facts tell you about this person. Stick to what they actually said or did — do not add emotional interpretation or literary embellishment beyond what the facts support. Third person. Factual but warm. No bullet points.\n\nFacts:\n- ${clusterFacts}`,
+            content: `These are related facts about a USER (a real person talking to an AI companion). Write a single synthesised paragraph (2-3 sentences) about what these facts tell you about THIS PERSON (the user).
+
+${ATTRIBUTION_REMINDER}
+CRITICAL: These facts are about the USER — not about the AI companion. Do not describe the AI's appearance, environment, or behavior. Only synthesise what the facts reveal about the user as a person.
+Stick to what they actually said or did — do not invent traits, interests, or personality descriptions not supported by the facts. If the facts are thin (e.g., just a greeting), say that: "Not much is known yet."
+Third person. Factual but warm. No bullet points.
+
+Facts:
+- ${clusterFacts}`,
           }],
           temperature: 0.6, max_tokens: 200,
         }),
