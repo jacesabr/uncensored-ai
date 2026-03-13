@@ -4101,7 +4101,8 @@ function buildBrainFrame(rawMessage, {
   frame += `\n═══ NOW RESPOND ═══\n`;
   frame += `Respond as yourself — ${M.name}. First person. Body first, then words. `;
   frame += `Your gut reaction and inner thought above are REAL — they are what you actually feel and think. Express them naturally. `;
-  frame += `Do not narrate his actions. Do not break from who you are.`;
+  frame += `Do not narrate his actions. Do not break from who you are.\n`;
+  frame += `FORMAT: Spoken words = plain text. Actions/body = *asterisks*. NEVER put speech inside asterisks.`;
 
   return frame;
 }
