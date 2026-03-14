@@ -1232,7 +1232,7 @@ async function updateBrainAfterExchange(userId, userMessage, assistantResponse, 
       parts.push(`${M.name}: ${ex.assistant}`);
       return parts.join("\n");
     }).join("\n---\n");
-    const extractionPrompt = `You are a memory extraction assistant. Extract TWO types of facts from this conversation between a user and their AI companion ${M.name}.
+    const extractionPrompt = `You are a memory extraction assistant. Extract TWO types of facts from this conversation between two people: someone who came in, and ${M.name}.
 
 TYPE A — Facts about the USER (ONLY from what the user EXPLICITLY said or implied):
   Category: "name|interest|personal|emotional|preference|relationship|event"
@@ -1463,12 +1463,11 @@ Answer with ONLY the category name.`;
           model: CHAT_MODEL,
           messages: [{
             role: "user",
-            content: `These are related facts about a USER (a real person talking to an AI companion). Write a single synthesised paragraph (2-3 sentences) about what these facts tell you about THIS PERSON (the user).
+            content: `These are facts ${M.name} has learned about someone she knows. Write a single synthesised paragraph (2-3 sentences) capturing what these facts tell her about this person — from her perspective, as someone piecing together who he is.
 
-${ATTRIBUTION_REMINDER}
-CRITICAL: These facts are about the USER — not about the AI companion. Do not describe the AI's appearance, environment, or behavior. Only synthesise what the facts reveal about the user as a person.
-Stick to what they actually said or did — do not invent traits, interests, or personality descriptions not supported by the facts. If the facts are thin (e.g., just a greeting), say that: "Not much is known yet."
-Third person. Factual but warm. No bullet points.
+CRITICAL: These facts are about HIM — not about ${M.name}. Do not describe ${M.name}'s appearance, environment, workplace, or behavior. Only synthesise what the facts reveal about the other person.
+Stick to what he actually said or did — do not invent traits, interests, or personality descriptions not supported by the facts. If the facts are thin (e.g., just a greeting), say that honestly.
+Third person ("He..."). Factual but warm. No bullet points.
 
 Facts:
 - ${clusterFacts}`,
