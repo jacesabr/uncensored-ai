@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: uncensored-ai
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: MONGO_URI
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: VENICE_API_KEY
+        sync: false
+      - key: CHAT_MODEL
+        value: morrigan-sft-v1
+      - key: DAILY_MSG_LIMIT
+        value: "100"
